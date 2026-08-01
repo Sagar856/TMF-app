@@ -407,7 +407,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
           <div>
             <div className="text-xs font-mono font-bold text-[#aaa]">Sample Demo Data</div>
-            <div className="text-[10px] text-[#777] font-mono mt-0.5">Populate accounts, txns, investments with sample test records</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Populate accounts, txns, investments with sample test records for preview</div>
           </div>
           <button
             onClick={onLoadSampleData}
@@ -415,20 +415,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <RefreshCw className="w-3.5 h-3.5" />
             <span>Load Sample Data</span>
-          </button>
-        </div>
-
-        <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
-          <div>
-            <div className="text-xs font-mono font-bold text-red-500">Reset Local Storage Data</div>
-            <div className="text-[10px] text-[#777] font-mono mt-0.5">Clear all local storage financial records</div>
-          </div>
-          <button
-            onClick={onResetAllData}
-            className="px-4 py-2 border border-red-800 text-red-500 hover:bg-red-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-            <span>Clear Local Data</span>
           </button>
         </div>
       </div>
