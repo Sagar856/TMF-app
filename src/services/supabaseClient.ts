@@ -40,6 +40,54 @@ export async function testSupabaseConnection(url: string, key: string): Promise<
 }
 
 // ===============================================
+// SUPABASE AUTHENTICATION HELPERS
+// ===============================================
+
+export async function signUpUser(email: string, pass: string, fullName: string) {
+  const client = getSupabaseClient();
+  if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
+
+  const { data, error } = await client.auth.signUp({
+    email,
+    password: pass,
+    options: {
+      data: {
+        full_name: fullName,
+      },
+    },
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function signInUser(email: string, pass: string) {
+  const client = getSupabaseClient();
+  if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
+
+  const { data, error } = await client.auth.signInWithPassword({
+    email,
+    password: pass,
+  });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function signOutUser() {
+  const client = getSupabaseClient();
+  if (!client) return;
+  await client.auth.signOut();
+}
+
+export async function getCurrentUserSession() {
+  const client = getSupabaseClient();
+  if (!client) return null;
+  const { data } = await client.auth.getSession();
+  return data.session;
+}
+
+// ===============================================
 // DATA SYNC SERVICES FOR REACT COMPONENTS
 // ===============================================
 

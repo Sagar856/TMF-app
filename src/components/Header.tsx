@@ -10,18 +10,20 @@ interface HeaderProps {
   onOpenAddTransaction?: () => void;
   onOpenSimulator: () => void;
   onOpenProfile?: () => void;
+  onOpenAuth?: () => void;
   currencySymbol: string;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  userName = 'sgrnboff',
+  userName = 'New User',
   userPhoto = '',
   pendingNotificationsCount,
   onOpenNotifications,
   onOpenSimulator,
   onOpenProfile,
+  onOpenAuth,
   currencySymbol,
   theme = 'dark',
   onToggleTheme,

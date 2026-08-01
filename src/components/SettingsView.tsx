@@ -17,6 +17,7 @@ interface SettingsViewProps {
   onDeleteAccount?: (id: string) => void;
   onExportBackupJSON: () => void;
   onResetAllData: () => void;
+  onLoadSampleData?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -32,6 +33,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onDeleteAccount,
   onExportBackupJSON,
   onResetAllData,
+  onLoadSampleData,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'system' | 'customisations'>('system');
   const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
@@ -404,15 +406,29 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
           <div>
+            <div className="text-xs font-mono font-bold text-[#aaa]">Sample Demo Data</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Populate accounts, txns, investments with sample test records</div>
+          </div>
+          <button
+            onClick={onLoadSampleData}
+            className="px-4 py-2 border border-blue-800/80 text-blue-400 hover:bg-blue-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Load Sample Data</span>
+          </button>
+        </div>
+
+        <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
+          <div>
             <div className="text-xs font-mono font-bold text-red-500">Reset Local Storage Data</div>
-            <div className="text-[10px] text-[#777] font-mono mt-0.5">Restore initial sample data state</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Clear all local storage financial records</div>
           </div>
           <button
             onClick={onResetAllData}
-            className="px-4 py-2 border border-red-800 text-red-500 hover:bg-red-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2"
+            className="px-4 py-2 border border-red-800 text-red-500 hover:bg-red-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span>Reset Data</span>
+            <span>Clear Local Data</span>
           </button>
         </div>
       </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Mail, Phone, Lock, KeyRound, CheckCircle2, ShieldCheck, ArrowRight, RefreshCw, Sparkles, UserCheck } from 'lucide-react';
 import { UserSettings } from '../types/finance';
+import { signInUser, signUpUser, getSupabaseClient } from '../services/supabaseClient';
 
 interface AuthModalProps {
   initialMode?: 'login' | 'register' | 'forgot_password';
@@ -10,7 +11,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
-  initialMode = 'register',
+  initialMode = 'login',
   onClose,
   onSuccess,
   settings,
@@ -48,25 +49,53 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     return () => clearInterval(interval);
   }, [otpSent, timer]);
 
-  const handleSendOtp = (e: React.FormEvent) => {
+  const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     if (!emailOrPhone.trim()) {
       setErrorMsg(`Please enter a valid ${authMethod === 'email' ? 'email address' : 'phone number'}`);
       return;
     }
 
-    if (mode === 'register' && password !== confirmPassword) {
+    if (mode === 'register' && password && confirmPassword && password !== confirmPassword) {
       setErrorMsg('Passwords do not match');
       return;
     }
 
-    // Generate random 6-digit OTP
+    // Try Supabase Auth Sign Up if Supabase is connected
+    const supabase = getSupabaseClient();
+    if (supabase && authMethod === 'email') {
+      setIsVerifying(true);
+      try {
+        await signUpUser(emailOrPhone.trim(), password || '123456', name.trim() || 'User');
+        setIsVerifying(false);
+        setSuccessMsg('Registration successful! Logging you in...');
+        setTimeout(() => {
+          onSuccess({
+            name: name.trim() || emailOrPhone.split('@')[0],
+            emailOrPhone: emailOrPhone.trim(),
+          });
+          onClose();
+        }, 1000);
+        return;
+      } catch (err: any) {
+        setIsVerifying(false);
+        if (err?.message?.includes('already registered')) {
+          setErrorMsg('This email is already registered. Please Sign In.');
+          setMode('login');
+          return;
+        }
+        console.warn('Supabase auth signup notice:', err);
+      }
+    }
+
+    // Fallback Simulated OTP Flow
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     setGeneratedOtp(code);
     setOtpSent(true);
     setTimer(45);
-    setSuccessMsg(`Simulated OTP sent to ${emailOrPhone}! (OTP: ${code})`);
+    setSuccessMsg(`OTP sent to ${emailOrPhone}! (Code: ${code})`);
   };
 
   const handleVerifyOtpAndSubmit = (e: React.FormEvent) => {
@@ -104,15 +133,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }, 1000);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
+    setSuccessMsg('');
     if (!emailOrPhone.trim() || !password) {
       setErrorMsg('Please enter both your email/phone and password');
       return;
     }
 
     setIsVerifying(true);
+
+    // Try Supabase Auth Sign In if client available
+    const supabase = getSupabaseClient();
+    if (supabase && emailOrPhone.includes('@')) {
+      try {
+        const data = await signInUser(emailOrPhone.trim(), password);
+        setIsVerifying(false);
+        const userObj = data?.user;
+        onSuccess({
+          name: userObj?.user_metadata?.full_name || emailOrPhone.split('@')[0] || 'User',
+          emailOrPhone: userObj?.email || emailOrPhone.trim(),
+        });
+        setSuccessMsg('Login successful!');
+        setTimeout(() => onClose(), 1000);
+        return;
+      } catch (err: any) {
+        setIsVerifying(false);
+        console.warn('Supabase signin notice:', err);
+        setErrorMsg(err.message || 'Invalid credentials or user not found');
+        return;
+      }
+    }
+
+    // Local Auth Fallback
     setTimeout(() => {
       setIsVerifying(false);
       onSuccess({

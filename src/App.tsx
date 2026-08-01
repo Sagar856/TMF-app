@@ -19,6 +19,7 @@ import { NotificationPromptModal } from './components/NotificationPromptModal';
 import { SmsSimulatorWidget } from './components/SmsSimulatorWidget';
 import { EditTransactionModal, CategoryType } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
+import { AuthModal } from './components/AuthModal';
 
 import {
   Transaction,
@@ -75,7 +76,23 @@ export default function App() {
   // App Data with LocalStorage Persistence
   const [settings, setSettings] = useState<UserSettings>(() => {
     const saved = localStorage.getItem('tmf_settings');
-    return saved ? JSON.parse(saved) : INITIAL_USER_SETTINGS;
+    if (saved) return JSON.parse(saved);
+    return {
+      userName: '',
+      userEmail: '',
+      userPhoto: '',
+      currencySymbol: '₹',
+      currencyCode: 'INR',
+      theme: 'dark',
+      passcodeEnabled: false,
+      passcode: '1234',
+      supabaseUrl: '',
+      supabaseKey: '',
+      supabaseConnected: false,
+      locationTracking: true,
+      autoExtractSms: true,
+      notificationsEnabled: true,
+    };
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
@@ -85,42 +102,38 @@ export default function App() {
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
     const saved = localStorage.getItem('tmf_accounts');
-    return saved ? JSON.parse(saved) : INITIAL_ACCOUNTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('tmf_transactions');
-    return saved ? JSON.parse(saved) : INITIAL_TRANSACTIONS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [investments, setInvestments] = useState<InvestmentRecord[]>(() => {
     const saved = localStorage.getItem('tmf_investments');
-    return saved ? JSON.parse(saved) : INITIAL_INVESTMENTS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   const [loans, setLoans] = useState<LoanRecord[]>(() => {
     const saved = localStorage.getItem('tmf_loans');
-    return saved ? JSON.parse(saved) : INITIAL_LOANS;
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Pending SMS / UPI Intercepted Notifications Queue
   const [pendingNotifications, setPendingNotifications] = useState<ParsedNotification[]>(() => {
     const saved = localStorage.getItem('tmf_pending_notifications');
-    if (saved) return JSON.parse(saved);
-
-    // Initial sample notification to showcase the requested feature out-of-the-box!
-    const sampleSms = "Sent Rs 420.00 via Paytm UPI to Starbucks Reserve Coffee on 28-Jul-26 14:15. Ref 42918239";
-    const parsed = parseSmsNotification(sampleSms, {
-      lat: 19.0760,
-      lng: 72.8777,
-      name: 'Bandra Kurla Complex, Mumbai'
-    });
-    return [parsed];
+    return saved ? JSON.parse(saved) : [];
   });
 
   // Modals & UI States
   const mainScrollRef = useRef<HTMLElement>(null);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => {
+    const savedSession = localStorage.getItem('tmf_auth_session');
+    const savedSettings = localStorage.getItem('tmf_settings');
+    return !savedSession && !savedSettings;
+  });
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -409,6 +422,49 @@ export default function App() {
     setLoans((prev) => prev.map((l) => (l.id === updatedLoan.id ? updatedLoan : l)));
   };
 
+  // Auth & Data Handlers
+  const handleAuthSuccess = async (user: { name: string; emailOrPhone: string }) => {
+    const updatedSettings = {
+      ...settings,
+      userName: user.name,
+      userEmail: user.emailOrPhone,
+    };
+    setSettings(updatedSettings);
+    localStorage.setItem('tmf_settings', JSON.stringify(updatedSettings));
+    localStorage.setItem('tmf_auth_session', JSON.stringify({ name: user.name, email: user.emailOrPhone }));
+    setIsAuthModalOpen(false);
+
+    // If Supabase is connected, load user's data
+    if (settings.supabaseConnected) {
+      try {
+        const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
+          fetchTransactionsFromSupabase(),
+          fetchAccountsFromSupabase(),
+          fetchCategoriesFromSupabase(),
+          fetchInvestmentsFromSupabase(),
+          fetchLoansFromSupabase(),
+        ]);
+
+        if (cloudTx) setTransactions(cloudTx);
+        if (cloudAcc) setAccounts(cloudAcc);
+        if (cloudCat) setCategories(cloudCat);
+        if (cloudInv) setInvestments(cloudInv);
+        if (cloudLoans) setLoans(cloudLoans);
+      } catch (err) {
+        console.warn('Sync on auth success failed:', err);
+      }
+    }
+  };
+
+  const handleLoadDemoData = () => {
+    setAccounts(INITIAL_ACCOUNTS);
+    setTransactions(INITIAL_TRANSACTIONS);
+    setInvestments(INITIAL_INVESTMENTS);
+    setLoans(INITIAL_LOANS);
+    setCategories(INITIAL_CATEGORIES);
+    alert('Sample demo data loaded successfully!');
+  };
+
   // Data Reset & Export Backup
   const handleExportBackupJSON = () => {
     const backupData = {
@@ -429,14 +485,18 @@ export default function App() {
   };
 
   const handleResetAllData = () => {
-    if (window.confirm('Are you sure you want to reset all data to default initial values?')) {
-      localStorage.clear();
-      setSettings(INITIAL_USER_SETTINGS);
-      setCategories(INITIAL_CATEGORIES);
-      setTransactions(INITIAL_TRANSACTIONS);
-      setInvestments(INITIAL_INVESTMENTS);
-      setLoans(INITIAL_LOANS);
+    if (window.confirm('Are you sure you want to clear all data? All local records will be deleted.')) {
+      localStorage.removeItem('tmf_transactions');
+      localStorage.removeItem('tmf_accounts');
+      localStorage.removeItem('tmf_investments');
+      localStorage.removeItem('tmf_loans');
+      localStorage.removeItem('tmf_pending_notifications');
+      setTransactions([]);
+      setAccounts([]);
+      setInvestments([]);
+      setLoans([]);
       setPendingNotifications([]);
+      alert('All local financial records cleared!');
     }
   };
 
@@ -578,13 +638,14 @@ export default function App() {
               ? 'Categories & Budgets'
               : 'Account Controls'
           }
-          userName={settings.userName || 'sgrnboff'}
+          userName={settings.userName || 'User'}
           userPhoto={settings.userPhoto || ''}
           pendingNotificationsCount={pendingNotifications.length}
           onOpenNotifications={() => setIsNotificationModalOpen(true)}
           onOpenAddTransaction={() => handleOpenAddModal()}
           onOpenSimulator={() => setIsSimulatorOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
           currencySymbol={settings.currencySymbol}
           theme={settings.theme || 'dark'}
           onToggleTheme={handleToggleTheme}
@@ -678,6 +739,7 @@ export default function App() {
               onDeleteAccount={handleDeleteAccount}
               onExportBackupJSON={handleExportBackupJSON}
               onResetAllData={handleResetAllData}
+              onLoadSampleData={handleLoadDemoData}
             />
           )}
         </main>
@@ -768,6 +830,15 @@ export default function App() {
             setEditingTransaction(null);
           }}
           currencySymbol={settings.currencySymbol}
+        />
+      )}
+      {/* 5. Auth Modal (Sign In / Register) */}
+      {isAuthModalOpen && (
+        <AuthModal
+          initialMode="register"
+          onClose={() => setIsAuthModalOpen(false)}
+          onSuccess={handleAuthSuccess}
+          settings={settings}
         />
       )}
     </div>
