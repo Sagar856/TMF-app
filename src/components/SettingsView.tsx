@@ -1,0 +1,423 @@
+import React, { useState } from 'react';
+import { UserSettings, Category, FinancialAccount } from '../types/finance';
+import { testSupabaseConnection } from '../services/supabaseClient';
+import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff } from 'lucide-react';
+import { CustomisationsView } from './CustomisationsView';
+
+interface SettingsViewProps {
+  settings: UserSettings;
+  categories: Category[];
+  accounts?: FinancialAccount[];
+  onUpdateSettings: (newSettings: UserSettings) => void;
+  onAddCategory: (cat: Category) => void;
+  onUpdateCategory: (cat: Category) => void;
+  onDeleteCategory: (id: string) => void;
+  onAddAccount?: (acc: FinancialAccount) => void;
+  onUpdateAccount?: (acc: FinancialAccount) => void;
+  onDeleteAccount?: (id: string) => void;
+  onExportBackupJSON: () => void;
+  onResetAllData: () => void;
+}
+
+export const SettingsView: React.FC<SettingsViewProps> = ({
+  settings,
+  categories,
+  accounts = [],
+  onUpdateSettings,
+  onAddCategory,
+  onUpdateCategory,
+  onDeleteCategory,
+  onAddAccount,
+  onUpdateAccount,
+  onDeleteAccount,
+  onExportBackupJSON,
+  onResetAllData,
+}) => {
+  const [activeSubTab, setActiveSubTab] = useState<'system' | 'customisations'>('system');
+  const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
+  const [userEmail, setUserEmail] = useState<string>(settings?.userEmail || 'sgrnboff@gmail.com');
+  const [currencySymbol, setCurrencySymbol] = useState<string>(settings?.currencySymbol || '₹');
+  
+  // Security
+  const [passcodeEnabled, setPasscodeEnabled] = useState<boolean>(Boolean(settings?.passcodeEnabled));
+  const [passcode, setPasscode] = useState<string>(settings?.passcode || '1234');
+
+  // Supabase
+  const [supabaseUrl, setSupabaseUrl] = useState<string>(settings?.supabaseUrl || '');
+  const [supabaseKey, setSupabaseKey] = useState<string>(settings?.supabaseKey || '');
+  const [isTestingConn, setIsTestingConn] = useState<boolean>(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+
+  // Theme selection handler
+  const handleThemeChange = (newTheme: 'dark' | 'light') => {
+    onUpdateSettings({
+      ...settings,
+      theme: newTheme,
+    });
+  };
+
+  // Save profile & currency
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    onUpdateSettings({
+      ...settings,
+      userName: userName.trim() || 'Alex',
+      userEmail: userEmail.trim(),
+      currencySymbol,
+      passcodeEnabled,
+      passcode,
+    });
+  };
+
+  // Save Supabase
+  const handleSaveSupabase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsTestingConn(true);
+    setTestResult(null);
+
+    if (!supabaseUrl.trim() || !supabaseKey.trim()) {
+      onUpdateSettings({
+        ...settings,
+        supabaseUrl: '',
+        supabaseKey: '',
+        supabaseConnected: false,
+      });
+      setIsTestingConn(false);
+      setTestResult({ success: false, msg: 'Supabase credentials cleared. Operating in local mode.' });
+      return;
+    }
+
+    const isConnected = await testSupabaseConnection(supabaseUrl.trim(), supabaseKey.trim());
+    setIsTestingConn(false);
+
+    if (isConnected) {
+      setTestResult({ success: true, msg: 'Successfully connected to Supabase Database!' });
+      localStorage.setItem('tmf_supabase_url', supabaseUrl.trim());
+      localStorage.setItem('tmf_supabase_key', supabaseKey.trim());
+      onUpdateSettings({
+        ...settings,
+        supabaseUrl: supabaseUrl.trim(),
+        supabaseKey: supabaseKey.trim(),
+        supabaseConnected: true,
+      });
+    } else {
+      setTestResult({ success: false, msg: 'Failed to connect. Check Supabase URL and Anon Key.' });
+    }
+  };
+
+  return (
+    <div className="space-y-6 pb-12 max-w-4xl">
+      {/* Page Title & Navigation Tabs */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#222] pb-4">
+        <div>
+          <h2 className="text-xl font-bold font-mono text-white tracking-tight uppercase">
+            SETTINGS & CUSTOMISATIONS
+          </h2>
+          <p className="text-xs text-[#777] font-mono mt-0.5">
+            System configuration, user preferences, categories, budgets and bank accounts
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('system')}
+            className={`px-3.5 py-2 text-xs font-mono font-bold uppercase rounded-xl transition-colors cursor-pointer ${
+              activeSubTab === 'system'
+                ? 'bg-red-600 text-white'
+                : 'bg-[#141414] border border-[#222] text-[#888] hover:text-white'
+            }`}
+          >
+            System & Security
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('customisations')}
+            className={`px-3.5 py-2 text-xs font-mono font-bold uppercase rounded-xl transition-colors cursor-pointer flex items-center gap-1.5 ${
+              activeSubTab === 'customisations'
+                ? 'bg-red-600 text-white'
+                : 'bg-[#141414] border border-[#222] text-[#888] hover:text-white'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Customisations</span>
+          </button>
+        </div>
+      </div>
+
+      {activeSubTab === 'customisations' ? (
+        <CustomisationsView
+          categories={categories}
+          accounts={accounts}
+          onAddCategory={onAddCategory}
+          onUpdateCategory={onUpdateCategory}
+          onDeleteCategory={onDeleteCategory}
+          onAddAccount={onAddAccount}
+          onUpdateAccount={onUpdateAccount}
+          onDeleteAccount={onDeleteAccount}
+          currencySymbol={settings.currencySymbol}
+        />
+      ) : (
+        <>
+      {/* Personalization Section */}
+      <div className="bg-carbon border border-nothing p-5 sm:p-6 rounded-2xl space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-nothing">
+          <Palette className="w-4 h-4 text-red-500" />
+          <h3 className="text-xs sm:text-sm font-bold font-mono text-white uppercase tracking-wider">
+            Personalization
+          </h3>
+        </div>
+
+        {/* Theme Setting (Simple Toggle) */}
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+              <span>App Theme</span>
+              <span className="text-[9px] bg-red-600/80 text-white font-mono px-1.5 py-0.5 rounded uppercase">
+                {(settings.theme || 'dark').toUpperCase()}
+              </span>
+            </div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">
+              Toggle between Obsidian Dark and Ceramic Light interface
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => handleThemeChange((settings.theme || 'dark') === 'dark' ? 'light' : 'dark')}
+            className="px-3.5 py-1.5 bg-[#1f1f1f] border border-[#333] hover:border-red-600 text-xs font-mono font-bold text-white rounded-xl transition-all cursor-pointer flex items-center gap-2"
+          >
+            {(settings.theme || 'dark') === 'dark' ? (
+              <>
+                <Moon className="w-3.5 h-3.5 text-amber-400" />
+                <span>DARK</span>
+              </>
+            ) : (
+              <>
+                <Sun className="w-3.5 h-3.5 text-indigo-400" />
+                <span>LIGHT</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Default Net Worth Masking / Privacy Setting */}
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+              <span>Default Net Worth Privacy</span>
+              <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase font-bold ${
+                settings.defaultNetWorthMasked !== false ? 'bg-red-950 text-red-400 border border-red-800/50' : 'bg-emerald-950 text-emerald-400 border border-emerald-800/50'
+              }`}>
+                {settings.defaultNetWorthMasked !== false ? 'HIDDEN BY DEFAULT' : 'VISIBLE BY DEFAULT'}
+              </span>
+            </div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">
+              Set whether Net Worth on Executive Summary initializes as masked (••••) or visible
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const currentVal = settings.defaultNetWorthMasked !== false; // default true
+              onUpdateSettings({
+                ...settings,
+                defaultNetWorthMasked: !currentVal,
+              });
+            }}
+            className={`px-3.5 py-1.5 border text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+              settings.defaultNetWorthMasked !== false
+                ? 'bg-red-950/60 border-red-600 text-red-400 hover:bg-red-900/80'
+                : 'bg-[#1f1f1f] border-[#333] text-white hover:border-emerald-500'
+            }`}
+          >
+            {settings.defaultNetWorthMasked !== false ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5 text-red-400" />
+                <span>MASKED</span>
+              </>
+            ) : (
+              <>
+                <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                <span>VISIBLE</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Currency Setting */}
+        <div className="p-3 bg-obsidian border border-nothing rounded-xl space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-mono font-bold text-white">Default Preferred Currency</div>
+            <span className="text-xs font-mono font-bold text-red-400">{currencySymbol}</span>
+          </div>
+
+          <div className="grid grid-cols-4 gap-2 pt-1">
+            {[
+              { symbol: '₹', name: '₹ INR' },
+              { symbol: '$', name: '$ USD' },
+              { symbol: '€', name: '€ EUR' },
+              { symbol: '£', name: '£ GBP' },
+            ].map((c) => (
+              <button
+                type="button"
+                key={c.symbol}
+                onClick={() => {
+                  setCurrencySymbol(c.symbol);
+                  onUpdateSettings({ ...settings, currencySymbol: c.symbol });
+                }}
+                className={`py-1.5 text-xs font-mono font-bold rounded-lg transition-all cursor-pointer ${
+                  currencySymbol === c.symbol
+                    ? 'bg-red-600 text-white'
+                    : 'bg-[#141414] border border-[#222] text-[#888] hover:text-white'
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Supabase Database Backend Settings */}
+      <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-nothing">
+          <div className="flex items-center gap-2">
+            <Database className="w-4 h-4 text-green-500" />
+            <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
+              Supabase Backend Sync
+            </h3>
+          </div>
+          <span className={`px-2.5 py-0.5 text-[9px] font-mono rounded font-bold ${
+            settings.supabaseConnected ? 'bg-green-950 text-green-400' : 'bg-yellow-950 text-yellow-400'
+          }`}>
+            {settings.supabaseConnected ? 'SUPABASE CONNECTED' : 'LOCAL MODE'}
+          </span>
+        </div>
+
+        <p className="text-xs text-[#888] font-mono leading-relaxed">
+          Connect your Supabase project to sync your financial logs to PostgreSQL cloud database.
+        </p>
+
+        <form onSubmit={handleSaveSupabase} className="space-y-4">
+          <div>
+            <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
+              Supabase Project URL
+            </label>
+            <input
+              type="text"
+              value={supabaseUrl}
+              onChange={(e) => setSupabaseUrl(e.target.value)}
+              placeholder="https://xyz.supabase.co"
+              className="w-full px-3 py-2 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
+              Supabase Anon Key
+            </label>
+            <input
+              type="password"
+              value={supabaseKey}
+              onChange={(e) => setSupabaseKey(e.target.value)}
+              placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+              className="w-full px-3 py-2 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+            />
+          </div>
+
+          {testResult && (
+            <div className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
+              testResult.success ? 'bg-green-950/40 border-green-800 text-green-400' : 'bg-red-950/40 border-red-800 text-red-400'
+            }`}>
+              {testResult.success ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+              <span>{testResult.msg}</span>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="submit"
+              disabled={isTestingConn}
+              className="px-5 py-2 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors flex items-center gap-2"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isTestingConn ? 'animate-spin' : ''}`} />
+              <span>{isTestingConn ? 'Connecting...' : 'Test & Save Supabase'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* Account Security Passcode */}
+      <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-nothing">
+          <Shield className="w-4 h-4 text-red-500" />
+          <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
+            Account Security & Passcode
+          </h3>
+        </div>
+
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-2xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white">App Lock Passcode</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Require 4-digit PIN on app launch</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const updated = !passcodeEnabled;
+              setPasscodeEnabled(updated);
+              onUpdateSettings({ ...settings, passcodeEnabled: updated });
+            }}
+            className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors ${
+              passcodeEnabled ? 'bg-red-600 text-white' : 'bg-carbon text-[#777] border border-nothing'
+            }`}
+          >
+            {passcodeEnabled ? 'ENABLED' : 'DISABLED'}
+          </button>
+        </div>
+      </div>
+
+      {/* Data Export & Reset */}
+      <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-nothing">
+          <Download className="w-4 h-4 text-white" />
+          <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
+            Data Export & Backup
+          </h3>
+        </div>
+
+        <div className="flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <div className="text-xs font-mono font-bold text-white">Full Financial Data Backup (JSON)</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Export all transactions, investments, categories, and settings</div>
+          </div>
+          <button
+            onClick={onExportBackupJSON}
+            className="px-4 py-2 bg-obsidian border border-nothing hover:border-[#444] text-xs font-mono font-bold text-white rounded-xl transition-colors flex items-center gap-2"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export Backup JSON</span>
+          </button>
+        </div>
+
+        <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <div className="text-xs font-mono font-bold text-red-500">Reset Local Storage Data</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Restore initial sample data state</div>
+          </div>
+          <button
+            onClick={onResetAllData}
+            className="px-4 py-2 border border-red-800 text-red-500 hover:bg-red-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Reset Data</span>
+          </button>
+        </div>
+      </div>
+        </>
+      )}
+    </div>
+  );
+};

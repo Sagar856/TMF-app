@@ -1,0 +1,297 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    font-family: 'Space Mono', 'JetBrains Mono', 'Share Tech Mono', monospace;
+  }
+
+  button, a, input, select, textarea, [role="button"], .transition-smooth {
+    transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    transition-duration: 150ms;
+  }
+
+  code, kbd, samp, pre, .font-mono, input, select, textarea, button {
+    font-family: 'Space Mono', 'JetBrains Mono', 'Share Tech Mono', monospace;
+  }
+}
+
+:root {
+  --bg-app: #080808;
+  --bg-sidebar: #0d0d0d;
+  --bg-card: #121212;
+  --bg-elevated: #1a1a1a;
+  --bg-input: #0e0e0e;
+  --border-nothing: #222222;
+  --border-light: #2c2c2c;
+  --text-main: #f0f0f0;
+  --text-dim: #a0a0a0;
+  --text-muted: #666666;
+  --dot-color: rgba(255, 255, 255, 0.08);
+  --scrollbar-bg: #050505;
+  --scrollbar-thumb: #222222;
+}
+
+.light {
+  --bg-app: #f4f4f6;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f8f9fa;
+  --bg-input: #ffffff;
+  --border-nothing: #e2e8f0;
+  --border-light: #cbd5e1;
+  --text-main: #09090b;
+  --text-dim: #475569;
+  --text-muted: #94a3b8;
+  --dot-color: rgba(0, 0, 0, 0.06);
+  --scrollbar-bg: #f4f4f6;
+  --scrollbar-thumb: #cbd5e1;
+}
+
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  min-height: 100vh;
+}
+
+/* Custom Nothing theme scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--scrollbar-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Nothing Dot Matrix Pattern background */
+.bg-dot-matrix {
+  background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+
+.bg-dot-matrix-dense {
+  background-image: radial-gradient(var(--dot-color) 1px, transparent 1px);
+  background-size: 8px 8px;
+}
+
+.bg-dot-red {
+  background-image: radial-gradient(rgba(220, 38, 38, 0.25) 1px, transparent 1px);
+  background-size: 12px 12px;
+}
+
+/* Base theme class overrides */
+.border-nothing {
+  border-color: var(--border-nothing) !important;
+}
+
+.border-nothing-light {
+  border-color: var(--border-light) !important;
+}
+
+.bg-carbon {
+  background-color: var(--bg-card) !important;
+}
+
+.bg-graphite {
+  background-color: var(--bg-elevated) !important;
+}
+
+.bg-shadow {
+  background-color: var(--bg-input) !important;
+}
+
+.bg-obsidian {
+  background-color: var(--bg-app) !important;
+}
+
+/* Light mode specific rules for ultra-clean light theme */
+.light {
+  color-scheme: light;
+  --bg-app: #f4f4f6;
+  --bg-sidebar: #ffffff;
+  --bg-card: #ffffff;
+  --bg-elevated: #f8fafc;
+  --bg-input: #ffffff;
+  --border-nothing: #e2e8f0;
+  --border-light: #cbd5e1;
+  --text-main: #0f172a;
+  --text-dim: #475569;
+  --text-muted: #64748b;
+  --dot-color: rgba(0, 0, 0, 0.06);
+  --scrollbar-bg: #f4f4f6;
+  --scrollbar-thumb: #cbd5e1;
+  background-color: var(--bg-app);
+  color: #0f172a;
+}
+
+/* 1. Transform dark containers and cards into clean white in Light Mode */
+.light .bg-carbon,
+.light .bg-graphite,
+.light .bg-obsidian,
+.light .bg-shadow,
+.light .bg-\[\#000\],
+.light .bg-\[\#000000\],
+.light .bg-\[\#050505\],
+.light .bg-\[\#080808\],
+.light .bg-\[\#0a0a0a\],
+.light .bg-\[\#0a0a0c\],
+.light .bg-\[\#0c0c0c\],
+.light .bg-\[\#0d0d0e\],
+.light .bg-\[\#0d0e12\],
+.light .bg-\[\#0e0e0e\],
+.light .bg-\[\#111\],
+.light .bg-\[\#111111\],
+.light .bg-\[\#121212\],
+.light .bg-\[\#141414\],
+.light .bg-\[\#151515\],
+.light .bg-\[\#181820\],
+.light .bg-\[\#1a1a1a\],
+.light .bg-\[\#1f1f1f\],
+.light .bg-\[\#222\],
+.light .bg-\[\#222222\],
+.light .bg-\[\#2a2a2a\] {
+  background-color: #ffffff !important;
+  color: #0f172a;
+}
+
+/* 2. Elevated / Nested Light Grey surfaces in Light Mode */
+.light .bg-\[\#161616\],
+.light .bg-\[\#18181a\],
+.light .bg-neutral-900,
+.light .bg-zinc-900 {
+  background-color: #f1f5f9 !important;
+  color: #0f172a;
+}
+
+/* 3. Borders in Light Mode */
+.light .border-nothing,
+.light .border-nothing-light,
+.light .border-\[\#1a1a1a\],
+.light .border-\[\#222\],
+.light .border-\[\#222222\],
+.light .border-\[\#262626\],
+.light .border-\[\#26262a\],
+.light .border-\[\#333\],
+.light .border-\[\#333333\],
+.light .border-\[\#444\],
+.light .border-\[\#555\],
+.light .border-white\/10,
+.light .border-white\/15,
+.light .border-white\/20,
+.light .border-white\/30 {
+  border-color: #e2e8f0 !important;
+}
+
+/* 4. Headings & Main Text in Light Mode */
+.light .text-white,
+.light .text-\[\#f0f0f0\],
+.light .text-\[\#ffffff\],
+.light .text-\[\#eee\],
+.light .text-\[\#ddd\],
+.light .text-neutral-100,
+.light .text-slate-100,
+.light .text-zinc-100 {
+  color: #0f172a !important;
+}
+
+/* 5. Subtitles & Dimmed Text in Light Mode */
+.light .text-\[\#aaa\],
+.light .text-\[\#ccc\],
+.light .text-\[\#888\],
+.light .text-\[\#777\] {
+  color: #334155 !important;
+}
+
+.light .text-\[\#666\],
+.light .text-\[\#555\],
+.light .text-\[\#444\],
+.light .text-\[\#333\] {
+  color: #64748b !important;
+}
+
+/* 6. Form Inputs, Selects, Textareas in Light Mode */
+.light input:not([type="checkbox"]):not([type="radio"]), 
+.light select, 
+.light textarea {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light input::placeholder, 
+.light select::placeholder, 
+.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+/* 7. Modal backdrop overlay in Light Mode */
+.light .bg-black\/85,
+.light .bg-black\/80,
+.light .bg-black\/75,
+.light .bg-black\/70,
+.light .bg-black\/60,
+.light .bg-black\/50 {
+  background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+/* 8. Colored buttons & badges MUST retain WHITE text in Light Mode */
+.light .bg-red-600, .light .bg-red-600 *,
+.light .bg-red-700, .light .bg-red-700 *,
+.light .bg-red-800, .light .bg-red-800 *,
+.light .bg-emerald-600, .light .bg-emerald-600 *,
+.light .bg-emerald-700, .light .bg-emerald-700 *,
+.light .bg-blue-600, .light .bg-blue-600 *,
+.light .bg-indigo-600, .light .bg-indigo-600 *,
+.light .bg-purple-600, .light .bg-purple-600 *,
+.light .bg-amber-600, .light .bg-amber-600 *,
+.light .bg-slate-900, .light .bg-slate-900 *,
+.light .bg-black.text-white, .light .bg-black.text-white * {
+  color: #ffffff !important;
+}
+
+/* 9. Key text accents in Light Mode */
+.light .text-emerald-400 { color: #059669 !important; }
+.light .text-emerald-500 { color: #10b981 !important; }
+.light .text-red-400 { color: #dc2626 !important; }
+.light .text-red-500 { color: #ef4444 !important; }
+.light .text-red-600 { color: #dc2626 !important; }
+.light .text-amber-400 { color: #d97706 !important; }
+.light .text-blue-400 { color: #2563eb !important; }
+
+/* 10. TMF Brand Logo styling for maximum visibility in both themes */
+.tmf-logo-box {
+  background-color: #0f172a !important;
+  border-color: #1e293b !important;
+}
+.tmf-logo-box-dot {
+  background-color: #ffffff !important;
+}
+.dark .tmf-logo-text {
+  color: #ffffff !important;
+}
+.light .tmf-logo-text {
+  color: #0f172a !important;
+}
+
+@keyframes pulse-red {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+}
+
+.animate-pulse-red {
+  animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+

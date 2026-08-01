@@ -1,0 +1,6 @@
+{
+  "name": "TMF - Track Money Flow",
+  "description": "Nothing OS styled finance tracker with automated UPI/SMS payment tracking, geolocation, loan & investment manager, and customizable budgets.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
