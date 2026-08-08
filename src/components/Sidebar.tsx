@@ -12,6 +12,7 @@ import {
   MapPin,
   RefreshCw
 } from 'lucide-react';
+import { DownloadAppCard } from './DownloadAppCard';
 
 interface SidebarProps {
   activeTab: string;
@@ -129,6 +130,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Footer System Status Widget */}
       <div className="mt-auto pt-4 border-t border-nothing flex flex-col gap-2">
+        <DownloadAppCard />
+
         <div className="p-3 bg-obsidian border border-nothing rounded-xl flex flex-col gap-1.5">
           <div className="flex items-center justify-between text-[10px] text-[#666] uppercase font-mono">
             <span>Backend Sync</span>

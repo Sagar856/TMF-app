@@ -52,9 +52,12 @@ import {
   fetchInvestmentsFromSupabase,
   syncLoansToSupabase,
   fetchLoansFromSupabase,
+  subscribeToAuthChanges,
 } from './services/supabaseClient';
 
 import { parseSmsNotification } from './services/smsParser';
+import { startNotificationListener } from './services/notificationListener';
+import { notifyTransactionDetected } from './services/localNotifications';
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -68,6 +71,10 @@ import {
   Smartphone,
   Bell
 } from 'lucide-react';
+
+// Max wrong passcode attempts before a cooldown lockout kicks in.
+const MAX_PASSCODE_ATTEMPTS = 5;
+const PASSCODE_LOCKOUT_MS = 30_000;
 
 export default function App() {
   // Navigation Tab
@@ -143,6 +150,11 @@ export default function App() {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(!settings.passcodeEnabled);
   const [inputPasscode, setInputPasscode] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<boolean>(false);
+  const [passcodeAttempts, setPasscodeAttempts] = useState<number>(0);
+  const [passcodeLockedUntil, setPasscodeLockedUntil] = useState<number>(0);
+  const [passcodeLockRemaining, setPasscodeLockRemaining] = useState<number>(0);
+  // Guards against duplicate concurrent cloud-data fetches (initial mount + auth success can both fire)
+  const cloudLoadInFlightRef = useRef<boolean>(false);
 
   // Account CRUD Handlers
   const handleAddAccount = (acc: FinancialAccount) => {
@@ -246,45 +258,103 @@ export default function App() {
     }
   }, [loans, settings.supabaseConnected]);
 
+  // Shared cloud data loader. Guarded by a ref so the initial-mount fetch and
+  // the post-auth fetch can never run concurrently and race/overwrite each other.
+  const loadCloudData = async () => {
+    if (cloudLoadInFlightRef.current) return;
+    cloudLoadInFlightRef.current = true;
+    try {
+      const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
+        fetchTransactionsFromSupabase(),
+        fetchAccountsFromSupabase(),
+        fetchCategoriesFromSupabase(),
+        fetchInvestmentsFromSupabase(),
+        fetchLoansFromSupabase(),
+      ]);
+
+      if (cloudTx && cloudTx.length > 0) setTransactions(cloudTx);
+      if (cloudAcc && cloudAcc.length > 0) setAccounts(cloudAcc);
+      if (cloudCat && cloudCat.length > 0) setCategories(cloudCat);
+      if (cloudInv && cloudInv.length > 0) setInvestments(cloudInv);
+      if (cloudLoans && cloudLoans.length > 0) setLoans(cloudLoans);
+    } catch (err) {
+      console.warn('Cloud data fetch failed:', err);
+    } finally {
+      cloudLoadInFlightRef.current = false;
+    }
+  };
+
   // Initial Supabase Data Fetch on launch if Supabase is connected
   useEffect(() => {
     if (!settings.supabaseConnected) return;
+    loadCloudData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.supabaseConnected]);
 
-    const loadCloudData = async () => {
-      try {
-        const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
-          fetchTransactionsFromSupabase(),
-          fetchAccountsFromSupabase(),
-          fetchCategoriesFromSupabase(),
-          fetchInvestmentsFromSupabase(),
-          fetchLoansFromSupabase(),
-        ]);
+  // Listen for Supabase password-recovery redirects and real-time auth state.
+  useEffect(() => {
+    const unsubscribe = subscribeToAuthChanges((event) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsAuthModalOpen(true);
+      }
+    });
+    return unsubscribe;
+  }, []);
 
-        if (cloudTx && cloudTx.length > 0) setTransactions(cloudTx);
-        if (cloudAcc && cloudAcc.length > 0) setAccounts(cloudAcc);
-        if (cloudCat && cloudCat.length > 0) setCategories(cloudCat);
-        if (cloudInv && cloudInv.length > 0) setInvestments(cloudInv);
-        if (cloudLoans && cloudLoans.length > 0) setLoans(cloudLoans);
-      } catch (err) {
-        console.warn('Initial cloud data fetch failed:', err);
+  // Native Android notification listener: when the OS receives a new bank/UPI
+  // notification, the native plugin captures its text and forwards it here so
+  // it can be parsed exactly like the SMS simulator, then queued for review.
+  useEffect(() => {
+    if (!settings.autoExtractSms) return;
+    const stopListening = startNotificationListener((rawText) => {
+      const parsed = parseSmsNotification(rawText, null);
+      setPendingNotifications((prev) => [parsed, ...prev]);
+      if (settings.notificationsEnabled) {
+        notifyTransactionDetected(parsed, settings.currencySymbol);
+      }
+    });
+    return stopListening;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.currencySymbol]);
+
+  // Passcode lockout cooldown ticker
+  useEffect(() => {
+    if (!passcodeLockedUntil) return;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((passcodeLockedUntil - Date.now()) / 1000));
+      setPasscodeLockRemaining(remaining);
+      if (remaining <= 0) {
+        setPasscodeLockedUntil(0);
+        setPasscodeAttempts(0);
       }
     };
-
-    loadCloudData();
-  }, [settings.supabaseConnected]);
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [passcodeLockedUntil]);
 
   useEffect(() => {
     localStorage.setItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
   }, [pendingNotifications]);
 
-  // Passcode verification
+  // Passcode verification with brute-force lockout protection
   const handlePasscodeUnlock = (e: React.FormEvent) => {
     e.preventDefault();
+    if (passcodeLockedUntil > Date.now()) return;
+
     if (inputPasscode === settings.passcode) {
       setIsUnlocked(true);
       setPasscodeError(false);
+      setPasscodeAttempts(0);
+      setInputPasscode('');
     } else {
+      const nextAttempts = passcodeAttempts + 1;
+      setPasscodeAttempts(nextAttempts);
       setPasscodeError(true);
+      setInputPasscode('');
+      if (nextAttempts >= MAX_PASSCODE_ATTEMPTS) {
+        setPasscodeLockedUntil(Date.now() + PASSCODE_LOCKOUT_MS);
+      }
     }
   };
 
@@ -307,11 +377,11 @@ export default function App() {
     };
 
     setTransactions((prev) => [newTx, ...prev]);
-    setPendingNotifications((prev) => prev.filter((n) => n.id !== notif.id));
-
-    if (pendingNotifications.length <= 1) {
-      setIsNotificationModalOpen(false);
-    }
+    setPendingNotifications((prev) => {
+      const remaining = prev.filter((n) => n.id !== notif.id);
+      if (remaining.length === 0) setIsNotificationModalOpen(false);
+      return remaining;
+    });
   };
 
   const handleConfirmEditNotification = (notif: ParsedNotification) => {
@@ -337,10 +407,11 @@ export default function App() {
   };
 
   const handleIgnoreNotification = (notifId: string) => {
-    setPendingNotifications((prev) => prev.filter((n) => n.id !== notifId));
-    if (pendingNotifications.length <= 1) {
-      setIsNotificationModalOpen(false);
-    }
+    setPendingNotifications((prev) => {
+      const remaining = prev.filter((n) => n.id !== notifId);
+      if (remaining.length === 0) setIsNotificationModalOpen(false);
+      return remaining;
+    });
   };
 
   const handleInterceptedFromSimulator = (notif: ParsedNotification) => {
@@ -434,25 +505,9 @@ export default function App() {
     localStorage.setItem('tmf_auth_session', JSON.stringify({ name: user.name, email: user.emailOrPhone }));
     setIsAuthModalOpen(false);
 
-    // If Supabase is connected, load user's data
+    // If Supabase is connected, load user's data (shared/guarded loader, see loadCloudData above)
     if (settings.supabaseConnected) {
-      try {
-        const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
-          fetchTransactionsFromSupabase(),
-          fetchAccountsFromSupabase(),
-          fetchCategoriesFromSupabase(),
-          fetchInvestmentsFromSupabase(),
-          fetchLoansFromSupabase(),
-        ]);
-
-        if (cloudTx) setTransactions(cloudTx);
-        if (cloudAcc) setAccounts(cloudAcc);
-        if (cloudCat) setCategories(cloudCat);
-        if (cloudInv) setInvestments(cloudInv);
-        if (cloudLoans) setLoans(cloudLoans);
-      } catch (err) {
-        console.warn('Sync on auth success failed:', err);
-      }
+      await loadCloudData();
     }
   };
 
@@ -561,26 +616,36 @@ export default function App() {
             <Lock className="w-6 h-6" />
           </div>
           <h2 className="text-xl font-mono font-bold uppercase mb-1">TMF Passcode Lock</h2>
-          <p className="text-xs text-[#777] font-mono mb-6">Enter 4-digit security PIN to access Track Money Flow</p>
+          <p className="text-xs text-[#777] font-mono mb-6">Enter your security PIN to access Track Money Flow</p>
 
           <form onSubmit={handlePasscodeUnlock} className="space-y-4">
             <input
               type="password"
               maxLength={6}
               autoFocus
+              disabled={passcodeLockedUntil > Date.now()}
               value={inputPasscode}
               onChange={(e) => setInputPasscode(e.target.value)}
               placeholder="••••"
-              className="w-full text-center tracking-[0.5em] text-2xl py-3 bg-obsidian border border-nothing rounded-2xl font-mono text-white focus:outline-none focus:border-red-600"
+              className="w-full text-center tracking-[0.5em] text-2xl py-3 bg-obsidian border border-nothing rounded-2xl font-mono text-white focus:outline-none focus:border-red-600 disabled:opacity-40"
             />
 
-            {passcodeError && (
-              <div className="text-xs font-mono text-red-500">Incorrect Passcode. Try '1234'</div>
+            {passcodeLockedUntil > Date.now() ? (
+              <div className="text-xs font-mono text-red-500">
+                Too many incorrect attempts. Try again in {passcodeLockRemaining}s.
+              </div>
+            ) : (
+              passcodeError && (
+                <div className="text-xs font-mono text-red-500">
+                  Incorrect passcode ({MAX_PASSCODE_ATTEMPTS - passcodeAttempts} attempt(s) left).
+                </div>
+              )
             )}
 
             <button
               type="submit"
-              className="w-full py-3 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors"
+              disabled={passcodeLockedUntil > Date.now()}
+              className="w-full py-3 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Unlock Application
             </button>

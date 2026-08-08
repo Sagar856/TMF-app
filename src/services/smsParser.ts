@@ -61,6 +61,11 @@ export function parseSmsNotification(
 
   // 2. Extract Amount
   // Matches: "Rs 420.00", "Rs.420", "INR 1,250", "$45.00", "420.00 INR", "Rs 500"
+  // NOTE: intentionally no bare-digit fallback here — matching any random
+  // number in the text (dates, phone numbers, reference IDs) produced wrong
+  // amounts. If no currency-tagged amount is found, we report amount = 0 so
+  // the user can fix it up in the review/edit step instead of silently
+  // recording a bogus figure.
   let amount = 0;
   const amountRegex = /(?:rs\.?|inr|\$|usd|€|£)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:rs\.?|inr|\$)/i;
   const amountMatch = text.match(amountRegex);
@@ -68,12 +73,6 @@ export function parseSmsNotification(
     const rawVal = amountMatch[1] || amountMatch[2];
     if (rawVal) {
       amount = parseFloat(rawVal.replace(/,/g, ''));
-    }
-  } else {
-    // Fallback digit match
-    const fallbackMatch = text.match(/\b\d+(?:\.\d{1,2})?\b/);
-    if (fallbackMatch) {
-      amount = parseFloat(fallbackMatch[0]);
     }
   }
 

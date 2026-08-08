@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, Smartphone, MapPin, Search, Sun, Moon, User } from 'lucide-react';
 import { motion } from 'motion/react';
+import { DownloadAppCard } from './DownloadAppCard';
 
 interface HeaderProps {
   userName?: string;
@@ -97,6 +98,9 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Smartphone className="w-4 h-4 text-red-400" />
         </button>
+
+        {/* Download Android App (hidden inside the native app itself) */}
+        <DownloadAppCard compact />
 
         {/* Pending Notification Bell Button */}
         <button

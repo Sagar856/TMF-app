@@ -1,7 +1,12 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord } from '../types/finance';
 
 let supabaseInstance: SupabaseClient | null = null;
+// Track which url/key the cached instance was created with so we can detect
+// credential changes (e.g. user updates Supabase URL/Key in Settings) and
+// recreate the client instead of silently keeping stale credentials.
+let cachedUrl: string | null = null;
+let cachedKey: string | null = null;
 
 export function getSupabaseClient(url?: string, key?: string): SupabaseClient | null {
   const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env || {};
@@ -12,9 +17,13 @@ export function getSupabaseClient(url?: string, key?: string): SupabaseClient | 
     return null;
   }
 
-  if (!supabaseInstance) {
+  const credentialsChanged = supabaseInstance && (cachedUrl !== supabaseUrl || cachedKey !== supabaseKey);
+
+  if (!supabaseInstance || credentialsChanged) {
     try {
       supabaseInstance = createClient(supabaseUrl, supabaseKey);
+      cachedUrl = supabaseUrl;
+      cachedKey = supabaseKey;
     } catch (err) {
       console.warn('Failed to initialize Supabase client:', err);
       return null;
@@ -85,6 +94,41 @@ export async function getCurrentUserSession() {
   if (!client) return null;
   const { data } = await client.auth.getSession();
   return data.session;
+}
+
+// Sends a real password-reset email via Supabase Auth. The link redirects
+// back to the app; Supabase appends a recovery token to the URL which
+// triggers a PASSWORD_RECOVERY auth event (see subscribeToAuthChanges below).
+export async function sendPasswordResetEmail(email: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.');
+
+  const { error } = await client.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  });
+  if (error) throw error;
+}
+
+// Updates the password for the currently authenticated session. Must be
+// called after a PASSWORD_RECOVERY event has established a recovery session.
+export async function updatePassword(newPassword: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase is not configured yet.');
+
+  const { error } = await client.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+// Subscribes to Supabase auth state changes (e.g. to detect password-recovery
+// redirects). Returns an unsubscribe function.
+export function subscribeToAuthChanges(
+  callback: (event: AuthChangeEvent, session: Session | null) => void
+): () => void {
+  const client = getSupabaseClient();
+  if (!client) return () => {};
+
+  const { data } = client.auth.onAuthStateChange(callback);
+  return () => data.subscription.unsubscribe();
 }
 
 // ===============================================

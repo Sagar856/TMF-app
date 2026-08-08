@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserSettings, Category, FinancialAccount } from '../types/finance';
 import { testSupabaseConnection } from '../services/supabaseClient';
-import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff } from 'lucide-react';
+import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
+import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 
 interface SettingsViewProps {
@@ -49,6 +50,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [supabaseKey, setSupabaseKey] = useState<string>(settings?.supabaseKey || '');
   const [isTestingConn, setIsTestingConn] = useState<boolean>(false);
   const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+
+  // UPI/SMS Interceptor
+  const [autoExtractSms, setAutoExtractSms] = useState<boolean>(settings?.autoExtractSms ?? true);
+  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(settings?.notificationsEnabled ?? true);
+  const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!isNativeAndroid()) return;
+    isNotificationAccessGranted().then(setNotifAccessGranted);
+  }, []);
 
   // Theme selection handler
   const handleThemeChange = (newTheme: 'dark' | 'light') => {
@@ -282,6 +293,91 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
+      {/* UPI & SMS Interceptor — the flagship real-time feature */}
+      <div className="bg-carbon border border-nothing p-5 sm:p-6 rounded-2xl space-y-4">
+        <div className="flex items-center gap-2 pb-3 border-b border-nothing">
+          <Smartphone className="w-4 h-4 text-red-500" />
+          <h3 className="text-xs sm:text-sm font-bold font-mono text-white uppercase tracking-wider">
+            UPI &amp; SMS Interceptor
+          </h3>
+        </div>
+
+        {isNativeAndroid() ? (
+          <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+            <div>
+              <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+                <span>Notification Access</span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase font-bold ${
+                  notifAccessGranted ? 'bg-emerald-950 text-emerald-400 border border-emerald-800/50' : 'bg-red-950 text-red-400 border border-red-800/50'
+                }`}>
+                  {notifAccessGranted ? 'GRANTED' : 'NOT GRANTED'}
+                </span>
+              </div>
+              <div className="text-[10px] text-[#777] font-mono mt-0.5">
+                Required so TMF can read incoming bank/UPI notifications in real time
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={async () => {
+                await requestNotificationAccess();
+                setTimeout(() => isNotificationAccessGranted().then(setNotifAccessGranted), 1000);
+              }}
+              className="px-3.5 py-1.5 bg-[#1f1f1f] border border-[#333] hover:border-red-600 text-xs font-mono font-bold text-white rounded-xl transition-all cursor-pointer flex items-center gap-2"
+            >
+              <BellRing className="w-3.5 h-3.5" />
+              <span>{notifAccessGranted ? 'REVIEW' : 'GRANT ACCESS'}</span>
+            </button>
+          </div>
+        ) : (
+          <div className="p-3 bg-obsidian border border-nothing rounded-xl text-[10px] text-[#777] font-mono">
+            Real-time on-device notification interception only runs inside the Android app.
+            Download it below (or from Settings on mobile) — on the web you can still try it
+            out with the SMS Simulator.
+          </div>
+        )}
+
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white">Auto-Extract From Notifications</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Automatically parse detected bank/UPI notifications</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const updated = !autoExtractSms;
+              setAutoExtractSms(updated);
+              onUpdateSettings({ ...settings, autoExtractSms: updated });
+            }}
+            className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors ${
+              autoExtractSms ? 'bg-red-600 text-white' : 'bg-carbon text-[#777] border border-nothing'
+            }`}
+          >
+            {autoExtractSms ? 'ENABLED' : 'DISABLED'}
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white">"Add This Transaction?" Push Alerts</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Post a native notification the moment a transaction is detected</div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              const updated = !notificationsEnabled;
+              setNotificationsEnabled(updated);
+              onUpdateSettings({ ...settings, notificationsEnabled: updated });
+            }}
+            className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors ${
+              notificationsEnabled ? 'bg-red-600 text-white' : 'bg-carbon text-[#777] border border-nothing'
+            }`}
+          >
+            {notificationsEnabled ? 'ENABLED' : 'DISABLED'}
+          </button>
+        </div>
+      </div>
+
       {/* Supabase Database Backend Settings */}
       <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-nothing">
@@ -363,14 +459,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-2xl">
           <div>
             <div className="text-xs font-mono font-bold text-white">App Lock Passcode</div>
-            <div className="text-[10px] text-[#777] font-mono mt-0.5">Require 4-digit PIN on app launch</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Require a PIN on app launch</div>
           </div>
           <button
             type="button"
             onClick={() => {
               const updated = !passcodeEnabled;
               setPasscodeEnabled(updated);
-              onUpdateSettings({ ...settings, passcodeEnabled: updated });
+              onUpdateSettings({ ...settings, passcodeEnabled: updated, passcode });
             }}
             className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors ${
               passcodeEnabled ? 'bg-red-600 text-white' : 'bg-carbon text-[#777] border border-nothing'
@@ -379,6 +475,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {passcodeEnabled ? 'ENABLED' : 'DISABLED'}
           </button>
         </div>
+
+        {passcodeEnabled && (
+          <div className="p-3 bg-obsidian border border-nothing rounded-2xl space-y-2">
+            <label className="block text-[10px] text-[#777] uppercase tracking-wider font-mono">
+              Set Your Passcode (4-6 digits)
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={passcode}
+                onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ''))}
+                placeholder="Enter a new PIN"
+                className="flex-1 px-3 py-2 bg-carbon border border-nothing rounded-xl text-xs font-mono tracking-[0.3em] text-white focus:outline-none focus:border-red-600"
+              />
+              <button
+                type="button"
+                disabled={passcode.length < 4}
+                onClick={() => onUpdateSettings({ ...settings, passcodeEnabled, passcode })}
+                className="px-4 py-2 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors disabled:opacity-40"
+              >
+                Save PIN
+              </button>
+            </div>
+            <div className="text-[9px] text-[#666] font-mono">
+              Choose a PIN only you know. It is never shown back to you after saving.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Data Export & Reset */}

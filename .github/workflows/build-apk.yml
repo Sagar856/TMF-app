@@ -1,0 +1,75 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Add Android platform (Capacitor)
+        run: npx cap add android
+
+      - name: Merge native notification-listener plugin into Android project
+        run: node scripts/patch-android.mjs
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Locate APK
+        id: apk
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TMF-app-debug
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: Create/refresh "latest" GitHub Release with APK
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest-apk
+          name: TMF App — Latest Android Build
+          body: |
+            Automatically built from the latest `main` branch commit.
+            This is a **debug-signed** APK intended for direct sideloading /
+            testing. For production Play Store distribution, configure a
+            release signing keystore (see README) before publishing.
+          prerelease: true
+          files: ${{ steps.apk.outputs.path }}
