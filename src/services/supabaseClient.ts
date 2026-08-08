@@ -56,6 +56,9 @@ export async function signUpUser(email: string, pass: string, fullName: string) 
   const client = getSupabaseClient();
   if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
 
+  const baseUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.BASE_URL || '/';
+  const emailRedirectTo = `${window.location.origin}${baseUrl}`;
+
   const { data, error } = await client.auth.signUp({
     email,
     password: pass,
@@ -63,10 +66,19 @@ export async function signUpUser(email: string, pass: string, fullName: string) 
       data: {
         full_name: fullName,
       },
+      emailRedirectTo,
     },
   });
 
-  if (error) throw error;
+  if (error) {
+    if (error.message?.toLowerCase().includes('requested path is invalid')) {
+      throw new Error(
+        `Supabase rejected the confirmation redirect URL "${emailRedirectTo}". Add this exact URL to your ` +
+        `Supabase project's Authentication → URL Configuration → Redirect URLs list, then try again.`
+      );
+    }
+    throw error;
+  }
   return data;
 }
 
@@ -99,14 +111,34 @@ export async function getCurrentUserSession() {
 // Sends a real password-reset email via Supabase Auth. The link redirects
 // back to the app; Supabase appends a recovery token to the URL which
 // triggers a PASSWORD_RECOVERY auth event (see subscribeToAuthChanges below).
+//
+// IMPORTANT: Supabase only allows redirecting to URLs that are explicitly
+// whitelisted in your project's Authentication -> URL Configuration ->
+// Redirect URLs list. If that list doesn't contain this exact origin (e.g.
+// your Netlify/GitHub Pages URL, or http://localhost:3000 while developing),
+// Supabase's Auth server rejects the request with "requested path is
+// invalid" — this is a Supabase project setting, not something fixable from
+// the app itself. See the README for the exact URL to add.
 export async function sendPasswordResetEmail(email: string): Promise<void> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.');
 
-  const { error } = await client.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin,
-  });
-  if (error) throw error;
+  // import.meta.env.BASE_URL matches the Vite "base" config (e.g. "/" locally
+  // and on Netlify, "/TMF-app/" on GitHub Pages) so the redirect always lands
+  // back on a real, loadable route of this app.
+  const baseUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.BASE_URL || '/';
+  const redirectTo = `${window.location.origin}${baseUrl}`;
+
+  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    if (error.message?.toLowerCase().includes('requested path is invalid')) {
+      throw new Error(
+        `Supabase rejected the redirect URL "${redirectTo}". Add this exact URL to your Supabase project's ` +
+        `Authentication → URL Configuration → Redirect URLs list, then try again.`
+      );
+    }
+    throw error;
+  }
 }
 
 // Updates the password for the currently authenticated session. Must be
@@ -135,10 +167,27 @@ export function subscribeToAuthChanges(
 // DATA SYNC SERVICES FOR REACT COMPONENTS
 // ===============================================
 
+// Every sync function used to swallow errors silently (`catch { return false }`
+// with no logging), which is exactly why "adding a record doesn't show up in
+// the backend" was invisible/undiagnosable. All sync functions now return a
+// SyncResult with the real Postgres/PostgREST error message, and always log
+// it, so failures (RLS rejection, missing table, bad column, network error…)
+// are actually surfaced instead of disappearing.
+export interface SyncResult {
+  success: boolean;
+  error?: string;
+}
+
+function syncError(context: string, err: unknown): SyncResult {
+  const message = (err as { message?: string })?.message || String(err);
+  console.error(`Supabase sync error [${context}]:`, err);
+  return { success: false, error: message };
+}
+
 // 1. Transactions Sync
-export async function syncTransactionsToSupabase(transactions: Transaction[]): Promise<boolean> {
+export async function syncTransactionsToSupabase(transactions: Transaction[]): Promise<SyncResult> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const rows = transactions.map((t) => ({
@@ -159,11 +208,10 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
     }));
 
     const { error } = await client.from('transactions').upsert(rows, { onConflict: 'id' });
-    if (error) console.error('Supabase transactions sync error:', error);
-    return !error;
+    if (error) return syncError('transactions', error);
+    return { success: true };
   } catch (err) {
-    console.error('Failed syncing transactions to Supabase:', err);
-    return false;
+    return syncError('transactions', err);
   }
 }
 
@@ -173,7 +221,11 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
 
   try {
     const { data, error } = await client.from('transactions').select('*').order('date', { ascending: false });
-    if (error || !data) return null;
+    if (error) {
+      console.error('Supabase fetch error [transactions]:', error);
+      return null;
+    }
+    if (!data) return null;
 
     return data.map((row) => ({
       id: row.id,
@@ -197,9 +249,9 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
 }
 
 // 2. Categories Sync
-export async function syncCategoriesToSupabase(categories: Category[]): Promise<boolean> {
+export async function syncCategoriesToSupabase(categories: Category[]): Promise<SyncResult> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const rows = categories.map((c) => ({
@@ -212,9 +264,10 @@ export async function syncCategoriesToSupabase(categories: Category[]): Promise<
     }));
 
     const { error } = await client.from('categories').upsert(rows, { onConflict: 'id' });
-    return !error;
-  } catch {
-    return false;
+    if (error) return syncError('categories', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('categories', err);
   }
 }
 
@@ -224,7 +277,11 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
 
   try {
     const { data, error } = await client.from('categories').select('*');
-    if (error || !data) return null;
+    if (error) {
+      console.error('Supabase fetch error [categories]:', error);
+      return null;
+    }
+    if (!data) return null;
 
     return data.map((row) => ({
       id: row.id,
@@ -240,9 +297,9 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
 }
 
 // 3. Financial Accounts Sync
-export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Promise<boolean> {
+export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Promise<SyncResult> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const rows = accounts.map((a) => ({
@@ -262,9 +319,10 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
     }));
 
     const { error } = await client.from('financial_accounts').upsert(rows, { onConflict: 'id' });
-    return !error;
-  } catch {
-    return false;
+    if (error) return syncError('financial_accounts', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('financial_accounts', err);
   }
 }
 
@@ -274,7 +332,11 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
 
   try {
     const { data, error } = await client.from('financial_accounts').select('*');
-    if (error || !data) return null;
+    if (error) {
+      console.error('Supabase fetch error [financial_accounts]:', error);
+      return null;
+    }
+    if (!data) return null;
 
     return data.map((row) => ({
       id: row.id,
@@ -297,9 +359,9 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
 }
 
 // 4. Investments Sync
-export async function syncInvestmentsToSupabase(investments: InvestmentRecord[]): Promise<boolean> {
+export async function syncInvestmentsToSupabase(investments: InvestmentRecord[]): Promise<SyncResult> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const rows = investments.map((inv) => ({
@@ -315,9 +377,10 @@ export async function syncInvestmentsToSupabase(investments: InvestmentRecord[])
     }));
 
     const { error } = await client.from('investments').upsert(rows, { onConflict: 'id' });
-    return !error;
-  } catch {
-    return false;
+    if (error) return syncError('investments', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('investments', err);
   }
 }
 
@@ -327,7 +390,11 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
 
   try {
     const { data, error } = await client.from('investments').select('*');
-    if (error || !data) return null;
+    if (error) {
+      console.error('Supabase fetch error [investments]:', error);
+      return null;
+    }
+    if (!data) return null;
 
     return data.map((row) => ({
       id: row.id,
@@ -346,9 +413,9 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
 }
 
 // 5. Loans Sync
-export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<boolean> {
+export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<SyncResult> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const rows = loans.map((l) => ({
@@ -366,9 +433,10 @@ export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<boolean>
     }));
 
     const { error } = await client.from('loans').upsert(rows, { onConflict: 'id' });
-    return !error;
-  } catch {
-    return false;
+    if (error) return syncError('loans', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('loans', err);
   }
 }
 
@@ -378,7 +446,11 @@ export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
 
   try {
     const { data, error } = await client.from('loans').select('*');
-    if (error || !data) return null;
+    if (error) {
+      console.error('Supabase fetch error [loans]:', error);
+      return null;
+    }
+    if (!data) return null;
 
     return data.map((row) => ({
       id: row.id,

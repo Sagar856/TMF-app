@@ -53,7 +53,14 @@ jobs:
         id: apk
         run: |
           APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          # Copy to a stable, predictable filename so the web app's "Download App"
+          # button can link directly to it (GitHub's /releases/latest/download/<name>
+          # URL always resolves to whatever asset has this exact name in the
+          # latest release, and triggers a direct file download instead of
+          # navigating to the release page).
+          STABLE_PATH="android/app/build/outputs/apk/debug/TMF-app.apk"
+          cp "$APK_PATH" "$STABLE_PATH"
+          echo "path=$STABLE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -71,5 +78,8 @@ jobs:
             This is a **debug-signed** APK intended for direct sideloading /
             testing. For production Play Store distribution, configure a
             release signing keystore (see README) before publishing.
+
+            Direct download link (always the latest build):
+            `https://github.com/${{ github.repository }}/releases/latest/download/TMF-app.apk`
           prerelease: true
           files: ${{ steps.apk.outputs.path }}

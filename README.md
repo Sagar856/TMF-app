@@ -32,6 +32,17 @@ npm run dev
    confirmation and password-reset links work out of the box on the free tier.
 4. In the app: Settings → Supabase Backend Sync → paste your Project URL and
    anon key.
+5. **Required for Sign Up / Forgot Password to work:** in the Supabase
+   dashboard go to Authentication → URL Configuration → Redirect URLs, and add
+   every URL you actually open the app from, e.g.:
+   - `http://localhost:3000/` (local dev)
+   - `https://<your-site>.netlify.app/` (Netlify)
+   - `https://<your-username>.github.io/TMF-app/` (GitHub Pages)
+
+   If a URL you use isn't in that list, Supabase rejects sign-up confirmation
+   and password-reset emails with `"requested path is invalid"` — this is a
+   Supabase project setting, not a bug in the app, and can only be fixed from
+   the Supabase dashboard.
 
 ## Deploying the web app
 

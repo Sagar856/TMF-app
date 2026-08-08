@@ -155,6 +155,9 @@ export default function App() {
   const [passcodeLockRemaining, setPasscodeLockRemaining] = useState<number>(0);
   // Guards against duplicate concurrent cloud-data fetches (initial mount + auth success can both fire)
   const cloudLoadInFlightRef = useRef<boolean>(false);
+  // Surfaces the most recent backend sync outcome (success or a real error
+  // message) so failures are visible instead of vanishing into the console.
+  const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; timestamp: number } | null>(null);
 
   // Account CRUD Handlers
   const handleAddAccount = (acc: FinancialAccount) => {
@@ -226,37 +229,67 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('tmf_categories', JSON.stringify(categories));
     if (settings.supabaseConnected) {
-      syncCategoriesToSupabase(categories);
+      syncCategoriesToSupabase(categories).then((result) => {
+        if (!result.success) setSyncStatus({ collection: 'categories', ...result, timestamp: Date.now() });
+      });
     }
   }, [categories, settings.supabaseConnected]);
 
   useEffect(() => {
     localStorage.setItem('tmf_accounts', JSON.stringify(accounts));
     if (settings.supabaseConnected) {
-      syncAccountsToSupabase(accounts);
+      syncAccountsToSupabase(accounts).then((result) => {
+        if (!result.success) setSyncStatus({ collection: 'accounts', ...result, timestamp: Date.now() });
+      });
     }
   }, [accounts, settings.supabaseConnected]);
 
   useEffect(() => {
     localStorage.setItem('tmf_transactions', JSON.stringify(transactions));
     if (settings.supabaseConnected) {
-      syncTransactionsToSupabase(transactions);
+      syncTransactionsToSupabase(transactions).then((result) => {
+        if (!result.success) setSyncStatus({ collection: 'transactions', ...result, timestamp: Date.now() });
+      });
     }
   }, [transactions, settings.supabaseConnected]);
 
   useEffect(() => {
     localStorage.setItem('tmf_investments', JSON.stringify(investments));
     if (settings.supabaseConnected) {
-      syncInvestmentsToSupabase(investments);
+      syncInvestmentsToSupabase(investments).then((result) => {
+        if (!result.success) setSyncStatus({ collection: 'investments', ...result, timestamp: Date.now() });
+      });
     }
   }, [investments, settings.supabaseConnected]);
 
   useEffect(() => {
     localStorage.setItem('tmf_loans', JSON.stringify(loans));
     if (settings.supabaseConnected) {
-      syncLoansToSupabase(loans);
+      syncLoansToSupabase(loans).then((result) => {
+        if (!result.success) setSyncStatus({ collection: 'loans', ...result, timestamp: Date.now() });
+      });
     }
   }, [loans, settings.supabaseConnected]);
+
+  // Manually re-runs every sync call immediately and reports aggregated result
+  // — lets the user verify right now whether the backend connection actually
+  // works, instead of waiting for the next silent background attempt.
+  const handleForceSyncNow = async (): Promise<{ success: boolean; error?: string }> => {
+    const results = await Promise.all([
+      syncCategoriesToSupabase(categories),
+      syncAccountsToSupabase(accounts),
+      syncTransactionsToSupabase(transactions),
+      syncInvestmentsToSupabase(investments),
+      syncLoansToSupabase(loans),
+    ]);
+    const failed = results.find((r) => !r.success);
+    if (failed) {
+      setSyncStatus({ collection: 'manual sync', success: false, error: failed.error, timestamp: Date.now() });
+      return { success: false, error: failed.error };
+    }
+    setSyncStatus({ collection: 'manual sync', success: true, timestamp: Date.now() });
+    return { success: true };
+  };
 
   // Shared cloud data loader. Guarded by a ref so the initial-mount fetch and
   // the post-auth fetch can never run concurrently and race/overwrite each other.
@@ -716,6 +749,23 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
         />
 
+        {/* Backend Sync Error Banner — surfaces real Supabase errors instead of
+            failing silently, wherever the user currently is in the app. */}
+        {syncStatus && !syncStatus.success && (
+          <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-red-400 text-xs font-mono flex items-start justify-between gap-3">
+            <span>
+              Backend sync failed ({syncStatus.collection}): {syncStatus.error || 'Unknown error'}
+            </span>
+            <button
+              type="button"
+              onClick={() => setSyncStatus(null)}
+              className="shrink-0 text-red-300 hover:text-white font-bold"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Scrollable View Content */}
         <main ref={mainScrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
           {activeTab === 'dashboard' && (
@@ -805,6 +855,8 @@ export default function App() {
               onExportBackupJSON={handleExportBackupJSON}
               onResetAllData={handleResetAllData}
               onLoadSampleData={handleLoadDemoData}
+              syncStatus={syncStatus}
+              onForceSyncNow={handleForceSyncNow}
             />
           )}
         </main>

@@ -2,7 +2,12 @@ import React from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Download, Smartphone } from 'lucide-react';
 
-const LATEST_APK_RELEASE_URL = 'https://github.com/Sagar856/TMF-app/releases/latest';
+// Points directly at the release *asset*, not the release page. GitHub serves
+// this URL with a redirect straight to the file (Content-Disposition:
+// attachment), so the browser downloads the APK immediately instead of
+// navigating to github.com. The filename must match what
+// .github/workflows/build-apk.yml uploads (TMF-app.apk).
+const LATEST_APK_DOWNLOAD_URL = 'https://github.com/Sagar856/TMF-app/releases/latest/download/TMF-app.apk';
 
 /**
  * Prompts web visitors to download the native Android APK. Hidden when the
@@ -15,9 +20,8 @@ export const DownloadAppCard: React.FC<{ compact?: boolean }> = ({ compact }) =>
   if (compact) {
     return (
       <a
-        href={LATEST_APK_RELEASE_URL}
-        target="_blank"
-        rel="noopener noreferrer"
+        href={LATEST_APK_DOWNLOAD_URL}
+        download
         className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-colors flex items-center justify-center min-w-[38px] min-h-[38px]"
         title="Download Android App (.apk)"
       >
@@ -28,9 +32,8 @@ export const DownloadAppCard: React.FC<{ compact?: boolean }> = ({ compact }) =>
 
   return (
     <a
-      href={LATEST_APK_RELEASE_URL}
-      target="_blank"
-      rel="noopener noreferrer"
+      href={LATEST_APK_DOWNLOAD_URL}
+      download
       className="p-3 bg-obsidian hover:bg-graphite border border-emerald-800/50 rounded-xl transition-all group text-left relative overflow-hidden block"
     >
       <div className="flex items-center justify-between mb-1">

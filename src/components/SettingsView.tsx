@@ -19,6 +19,8 @@ interface SettingsViewProps {
   onExportBackupJSON: () => void;
   onResetAllData: () => void;
   onLoadSampleData?: () => void;
+  syncStatus?: { collection: string; success: boolean; error?: string; timestamp: number } | null;
+  onForceSyncNow?: () => Promise<{ success: boolean; error?: string }>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -35,12 +37,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onExportBackupJSON,
   onResetAllData,
   onLoadSampleData,
+  syncStatus,
+  onForceSyncNow,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'system' | 'customisations'>('system');
   const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
   const [userEmail, setUserEmail] = useState<string>(settings?.userEmail || 'sgrnboff@gmail.com');
   const [currencySymbol, setCurrencySymbol] = useState<string>(settings?.currencySymbol || '₹');
-  
+  const [isForceSyncing, setIsForceSyncing] = useState<boolean>(false);
+  const [forceSyncResult, setForceSyncResult] = useState<{ success: boolean; error?: string } | null>(null);
+
   // Security
   const [passcodeEnabled, setPasscodeEnabled] = useState<boolean>(Boolean(settings?.passcodeEnabled));
   const [passcode, setPasscode] = useState<string>(settings?.passcode || '1234');
@@ -445,6 +451,61 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </button>
           </div>
         </form>
+
+        {/* Real sync diagnostics: records failing to reach the backend used to
+            fail completely silently. This surfaces the actual error and lets
+            you retry on demand. */}
+        {settings.supabaseConnected && onForceSyncNow && (
+          <div className="pt-4 border-t border-nothing space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="text-xs font-mono font-bold text-white">Backend Sync Diagnostics</div>
+                <div className="text-[10px] text-[#777] font-mono mt-0.5">
+                  Push all local records to Supabase right now and check for errors
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={isForceSyncing}
+                onClick={async () => {
+                  setIsForceSyncing(true);
+                  setForceSyncResult(null);
+                  const result = await onForceSyncNow();
+                  setForceSyncResult(result);
+                  setIsForceSyncing(false);
+                }}
+                className="px-4 py-2 bg-obsidian border border-nothing hover:border-[#444] text-xs font-mono font-bold text-white rounded-xl transition-colors flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isForceSyncing ? 'animate-spin' : ''}`} />
+                <span>{isForceSyncing ? 'Syncing...' : 'Sync Now'}</span>
+              </button>
+            </div>
+
+            {(forceSyncResult || (syncStatus && !syncStatus.success)) && (
+              <div className={`p-3 rounded-xl border text-xs font-mono flex items-start gap-2 ${
+                (forceSyncResult ?? { success: false }).success
+                  ? 'bg-green-950/40 border-green-800 text-green-400'
+                  : 'bg-red-950/40 border-red-800 text-red-400'
+              }`}>
+                {(forceSyncResult ?? { success: false }).success ? (
+                  <>
+                    <Check className="w-4 h-4 shrink-0" />
+                    <span>All records synced to Supabase successfully.</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>
+                      {forceSyncResult?.error || syncStatus?.error || 'Sync failed for an unknown reason.'}
+                      {' '}Check that your Supabase table schema matches{' '}
+                      <code>supabase_schema.sql</code> and that Row Level Security policies allow this write.
+                    </span>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Account Security Passcode */}
