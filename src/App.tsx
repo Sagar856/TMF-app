@@ -59,6 +59,7 @@ import {
 } from './services/supabaseClient';
 
 import { parseSmsNotification } from './services/smsParser';
+import { parseNotification } from './services/notification/ParserManager';
 import { startNotificationListener } from './services/notificationListener';
 import { notifyTransactionDetected } from './services/localNotifications';
 import { 
@@ -404,7 +405,9 @@ export default function App() {
   useEffect(() => {
     if (!settings.autoExtractSms) return;
     const stopListening = startNotificationListener((rawText) => {
-      const parsed = parseSmsNotification(rawText, null);
+      const { parsed, isDuplicate } = parseNotification(rawText, null, transactions, pendingNotifications);
+      if (isDuplicate) return; // Silently drop duplicates
+
       setPendingNotifications((prev) => [parsed, ...prev]);
       if (settings.notificationsEnabled) {
         notifyTransactionDetected(parsed, settings.currencySymbol);
@@ -412,7 +415,8 @@ export default function App() {
     });
     return stopListening;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.currencySymbol]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.currencySymbol, transactions, pendingNotifications]);
+
 
   // Passcode lockout cooldown ticker
   useEffect(() => {

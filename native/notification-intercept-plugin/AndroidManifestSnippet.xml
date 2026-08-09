@@ -7,14 +7,16 @@
 <!-- Placed as a direct child of <manifest> -->
 <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />
 <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
 <!-- Placed as a direct child of <application> -->
 <service
     android:name="com.trackmoneyflow.app.TmfNotificationListenerService"
     android:label="Track Money Flow Transaction Interceptor"
-    android:exported="false"
+    android:exported="true"
     android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
   <intent-filter>
     <action android:name="android.service.notification.NotificationListenerService" />
   </intent-filter>
 </service>
+

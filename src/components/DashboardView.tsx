@@ -212,14 +212,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onOpenAddTransaction}
-            className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold uppercase rounded-xl transition-all shadow-md hover:shadow-red-900/30 cursor-pointer flex items-center gap-1.5 shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">QUICK RECORD</span>
-          </button>
         </div>
       </div>
 

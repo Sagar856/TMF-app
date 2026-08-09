@@ -50,29 +50,57 @@ export async function requestNotificationAccess(): Promise<void> {
 // with unrelated app notifications (chat apps, games, etc.).
 const RELEVANT_PACKAGE_HINTS = [
   'com.google.android.apps.nbu.paisa', // Google Pay
-  'com.phonepe.app',
-  'net.one97.paytm',
-  'com.csam.icici.bank.imobile',
-  'com.snapwork.hdfc',
-  'com.sbi.lotusintouch',
-  'com.axis.mobile',
-  'com.android.mms', // default SMS app (bank SMS alerts)
-  'com.google.android.apps.messaging',
-  'com.samsung.android.messaging',
+  'com.phonepe.app', // PhonePe
+  'net.one97.paytm', // Paytm
+  'com.dreamplug.androidapp', // CRED
+  'in.org.npci.upiapp', // BHIM
+  'com.epifi.fi.money', // Fi Money
+  'money.jupiter', // Jupiter
+  'com.sliceit', // Slice
+  'com.navi.app', // Navi
+  'com.mobikwik', // Mobikwik
+  'com.amazon.mws.gno', // Amazon
+  'com.whatsapp', // WhatsApp Pay
+  'com.csam.icici.bank.imobile', // ICICI iMobile
+  'com.snapwork.hdfc', // HDFC MobileBanking
+  'com.sbi.lotusintouch', // SBI Yono / Anywhere
+  'com.sbi.yonobusiness',
+  'com.axis.mobile', // Axis Mobile
+  'com.msf.kof', // Kotak Mobile Banking
+  'com.pnb.mobile', // PNB ONE
+  'com.bankofbaroda.mconnect', // BOB World
+  'com.canarabank.mob', // Canara ai1
+  'com.idfcfirstbank.mobile', // IDFC FIRST
+  'com.indusind.mobile', // IndusMobile
+  'com.fedmobile', // FedMobile
+  'com.android.mms', // Default System SMS
+  'com.google.android.apps.messaging', // Google Messages
+  'com.samsung.android.messaging', // Samsung Messages
+  'com.oneplus.mms', // OnePlus Messages
+  'com.miui.smsextra', // Xiaomi SMS
+  'com.oppo.mms', // Oppo/Realme Messages
+  'com.vivo.mms', // Vivo Messages
+  'com.truecaller', // Truecaller SMS
 ];
 
 function looksLikeTransactionText(text: string): boolean {
   const lower = text.toLowerCase();
   return (
-    /(rs\.?|inr|₹|\$)\s*[\d,]+/.test(lower) ||
+    /(rs\.?|inr|₹|\$|eur|€|gbp|£)\s*[\d,]+/.test(lower) ||
     lower.includes('debited') ||
     lower.includes('credited') ||
     lower.includes('sent') ||
     lower.includes('received') ||
     lower.includes('spent') ||
-    lower.includes('paid')
+    lower.includes('paid') ||
+    lower.includes('transferred') ||
+    lower.includes('withdrawn') ||
+    lower.includes('cashback') ||
+    lower.includes('refunded') ||
+    lower.includes('salary')
   );
 }
+
 
 /**
  * Starts listening for real, on-device bank/UPI notifications. Returns a

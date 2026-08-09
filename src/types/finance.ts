@@ -107,7 +107,14 @@ export interface ParsedNotification {
   location?: LocationTag;
   appSource: string; // e.g., "Paytm", "PhonePe", "Google Pay", "HDFC SMS", "Apple Pay"
   status: 'pending' | 'added' | 'ignored';
+  accountLast4?: string;
+  refNumber?: string;
+  availableBalance?: number;
+  paymentMethod?: string;
+  confidenceScore?: number; // 0 to 100
+  requiresManualVerification?: boolean;
 }
+
 
 export interface UserSettings {
   userName: string;

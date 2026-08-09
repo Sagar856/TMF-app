@@ -56,12 +56,13 @@ let manifest = readFileSync(manifestPath, 'utf8');
 if (!manifest.includes('BIND_NOTIFICATION_LISTENER_SERVICE')) {
   manifest = manifest.replace(
     /(<manifest[^>]*>)/,
-    `$1\n    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />`
+    `$1\n    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />`
   );
 
-  const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="Track Money Flow Transaction Interceptor"\n            android:exported="false"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
+  const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="Track Money Flow Transaction Interceptor"\n            android:exported="true"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
 
   manifest = manifest.replace(/\s*<\/application>/, `\n${serviceBlock}`);
+
 
   writeFileSync(manifestPath, manifest, 'utf8');
   console.log('[patch-android] Patched AndroidManifest.xml with permission + service declaration');
