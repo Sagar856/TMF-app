@@ -22,8 +22,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
-  const [fromDate, setFromDate] = useState<string>('2026-06-30');
-  const [toDate, setToDate] = useState<string>('2026-07-30');
+  // No date range restriction by default — newly added transactions must
+  // always show up immediately. (Previously these were hardcoded to a fixed
+  // 2026-06-30..2026-07-30 window, silently hiding every record added after
+  // that date.) Users can still narrow the range via the filter panel.
+  const [fromDate, setFromDate] = useState<string>('');
+  const [toDate, setToDate] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
   const [accountFilter, setAccountFilter] = useState<string>('All');
   const [typeFilter, setTypeFilter] = useState<string>('All');

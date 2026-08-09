@@ -53,6 +53,9 @@ import {
   syncLoansToSupabase,
   fetchLoansFromSupabase,
   subscribeToAuthChanges,
+  getCurrentUserSession,
+  isCloudBackendConfigured,
+  signOutUser,
 } from './services/supabaseClient';
 
 import { parseSmsNotification } from './services/smsParser';
@@ -136,11 +139,16 @@ export default function App() {
   // Modals & UI States
   const mainScrollRef = useRef<HTMLElement>(null);
   const [isAppLoading, setIsAppLoading] = useState<boolean>(true);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(() => {
-    const savedSession = localStorage.getItem('tmf_auth_session');
-    const savedSettings = localStorage.getItem('tmf_settings');
-    return !savedSession && !savedSettings;
-  });
+
+  // Real Supabase Auth session state. This — not a locally-forgeable
+  // localStorage flag — is what actually gates access to the app. Every user
+  // shares one Supabase backend (see services/supabaseClient.ts); RLS keeps
+  // their data private based on this session's real JWT.
+  const [authUser, setAuthUser] = useState<{ id: string; name: string; email: string } | null>(null);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
+  const isAuthenticated = Boolean(authUser);
+
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -226,50 +234,59 @@ export default function App() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Cloud sync only ever runs for a real, signed-in user against the shared
+  // backend — there is no per-user Supabase URL/Key to "connect" anymore.
+  const cloudReady = isCloudBackendConfigured() && isAuthenticated;
+
   useEffect(() => {
     localStorage.setItem('tmf_categories', JSON.stringify(categories));
-    if (settings.supabaseConnected) {
+    if (cloudReady) {
       syncCategoriesToSupabase(categories).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'categories', ...result, timestamp: Date.now() });
+        else setSyncStatus({ collection: 'categories', success: true, timestamp: Date.now() });
       });
     }
-  }, [categories, settings.supabaseConnected]);
+  }, [categories, cloudReady]);
 
   useEffect(() => {
     localStorage.setItem('tmf_accounts', JSON.stringify(accounts));
-    if (settings.supabaseConnected) {
+    if (cloudReady) {
       syncAccountsToSupabase(accounts).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'accounts', ...result, timestamp: Date.now() });
+        else setSyncStatus({ collection: 'accounts', success: true, timestamp: Date.now() });
       });
     }
-  }, [accounts, settings.supabaseConnected]);
+  }, [accounts, cloudReady]);
 
   useEffect(() => {
     localStorage.setItem('tmf_transactions', JSON.stringify(transactions));
-    if (settings.supabaseConnected) {
+    if (cloudReady) {
       syncTransactionsToSupabase(transactions).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'transactions', ...result, timestamp: Date.now() });
+        else setSyncStatus({ collection: 'transactions', success: true, timestamp: Date.now() });
       });
     }
-  }, [transactions, settings.supabaseConnected]);
+  }, [transactions, cloudReady]);
 
   useEffect(() => {
     localStorage.setItem('tmf_investments', JSON.stringify(investments));
-    if (settings.supabaseConnected) {
+    if (cloudReady) {
       syncInvestmentsToSupabase(investments).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'investments', ...result, timestamp: Date.now() });
+        else setSyncStatus({ collection: 'investments', success: true, timestamp: Date.now() });
       });
     }
-  }, [investments, settings.supabaseConnected]);
+  }, [investments, cloudReady]);
 
   useEffect(() => {
     localStorage.setItem('tmf_loans', JSON.stringify(loans));
-    if (settings.supabaseConnected) {
+    if (cloudReady) {
       syncLoansToSupabase(loans).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'loans', ...result, timestamp: Date.now() });
+        else setSyncStatus({ collection: 'loans', success: true, timestamp: Date.now() });
       });
     }
-  }, [loans, settings.supabaseConnected]);
+  }, [loans, cloudReady]);
 
   // Manually re-runs every sync call immediately and reports aggregated result
   // — lets the user verify right now whether the backend connection actually
@@ -317,21 +334,68 @@ export default function App() {
     }
   };
 
-  // Initial Supabase Data Fetch on launch if Supabase is connected
+  // Initial Supabase Data Fetch on launch, once we know who's signed in
   useEffect(() => {
-    if (!settings.supabaseConnected) return;
+    if (!cloudReady) return;
     loadCloudData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.supabaseConnected]);
+  }, [cloudReady]);
 
-  // Listen for Supabase password-recovery redirects and real-time auth state.
+  // Clears all locally-cached financial data. Used on sign-out so the next
+  // person to use this device/browser never sees the previous account's data
+  // before their own cloud data has loaded.
+  const clearLocalDataOnSignOut = () => {
+    setTransactions([]);
+    setAccounts([]);
+    setInvestments([]);
+    setLoans([]);
+    setCategories(INITIAL_CATEGORIES);
+    setPendingNotifications([]);
+    localStorage.removeItem('tmf_transactions');
+    localStorage.removeItem('tmf_accounts');
+    localStorage.removeItem('tmf_investments');
+    localStorage.removeItem('tmf_loans');
+    localStorage.removeItem('tmf_pending_notifications');
+  };
+
+  // Bootstraps the real auth session on launch, and reacts to sign-in /
+  // sign-out / password-recovery in real time. This — not a locally-editable
+  // flag — is the actual gate that decides whether the mandatory login
+  // screen or the app itself is shown.
   useEffect(() => {
-    const unsubscribe = subscribeToAuthChanges((event) => {
+    getCurrentUserSession().then((session) => {
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+        });
+      }
+      setAuthLoading(false);
+    });
+
+    const unsubscribe = subscribeToAuthChanges((event, session) => {
       if (event === 'PASSWORD_RECOVERY') {
-        setIsAuthModalOpen(true);
+        setIsPasswordRecovery(true);
+        return;
+      }
+
+      if (event === 'SIGNED_OUT') {
+        setAuthUser(null);
+        clearLocalDataOnSignOut();
+        return;
+      }
+
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+          email: session.user.email || '',
+        });
       }
     });
     return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Native Android notification listener: when the OS receives a new bank/UPI
@@ -526,7 +590,10 @@ export default function App() {
     setLoans((prev) => prev.map((l) => (l.id === updatedLoan.id ? updatedLoan : l)));
   };
 
-  // Auth & Data Handlers
+  // Auth & Data Handlers. The real session/user comes from the
+  // onAuthStateChange listener above — this just updates the display name/
+  // email and triggers an immediate cloud fetch so the user doesn't have to
+  // wait for the next render cycle.
   const handleAuthSuccess = async (user: { name: string; emailOrPhone: string }) => {
     const updatedSettings = {
       ...settings,
@@ -534,14 +601,17 @@ export default function App() {
       userEmail: user.emailOrPhone,
     };
     setSettings(updatedSettings);
-    localStorage.setItem('tmf_settings', JSON.stringify(updatedSettings));
-    localStorage.setItem('tmf_auth_session', JSON.stringify({ name: user.name, email: user.emailOrPhone }));
-    setIsAuthModalOpen(false);
+    setIsPasswordRecovery(false);
 
-    // If Supabase is connected, load user's data (shared/guarded loader, see loadCloudData above)
-    if (settings.supabaseConnected) {
+    if (isCloudBackendConfigured()) {
       await loadCloudData();
     }
+  };
+
+  const handleSignOut = async () => {
+    await signOutUser();
+    // clearLocalDataOnSignOut() + setAuthUser(null) happen automatically via
+    // the SIGNED_OUT event from subscribeToAuthChanges above.
   };
 
   const handleLoadDemoData = () => {
@@ -640,11 +710,34 @@ export default function App() {
     );
   }
 
+  // 0.5. Mandatory Sign-In Gate — this is now a real multi-tenant, cloud-backed
+  // app: every account's data lives in the same Supabase project, kept
+  // private per-user by Row Level Security. There is no "close and continue
+  // as guest" — an account is required, and the login screen cannot be
+  // dismissed without actually signing in/registering (or verifying a
+  // password-recovery link).
+  if (!authLoading && (!authUser || isPasswordRecovery) && isCloudBackendConfigured()) {
+    return (
+      <AuthModal
+        initialMode={isPasswordRecovery ? 'set_new_password' : 'login'}
+        canClose={false}
+        onClose={() => {}}
+        onSuccess={handleAuthSuccess}
+        settings={settings}
+      />
+    );
+  }
+
   // Security Passcode Lock Screen
   if (settings.passcodeEnabled && !isUnlocked) {
     return (
       <div className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="bg-carbon border border-nothing p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 8 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
+          className="bg-carbon border border-nothing p-8 rounded-3xl max-w-sm w-full text-center shadow-2xl"
+        >
           <div className="w-12 h-12 bg-obsidian border border-nothing rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
             <Lock className="w-6 h-6" />
           </div>
@@ -683,10 +776,11 @@ export default function App() {
               Unlock Application
             </button>
           </form>
-        </div>
+        </motion.div>
       </div>
     );
   }
+
 
   return (
     <div className="flex h-screen bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
@@ -697,7 +791,7 @@ export default function App() {
           setActiveTab={setActiveTab}
           pendingNotificationsCount={pendingNotifications.length}
           onOpenSimulator={() => setIsSimulatorOpen(true)}
-          supabaseConnected={settings.supabaseConnected}
+          supabaseConnected={isAuthenticated && (!syncStatus || syncStatus.success)}
           currencySymbol={settings.currencySymbol}
         />
       </div>
@@ -743,7 +837,6 @@ export default function App() {
           onOpenAddTransaction={() => handleOpenAddModal()}
           onOpenSimulator={() => setIsSimulatorOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
-          onOpenAuth={() => setIsAuthModalOpen(true)}
           currencySymbol={settings.currencySymbol}
           theme={settings.theme || 'dark'}
           onToggleTheme={handleToggleTheme}
@@ -768,6 +861,14 @@ export default function App() {
 
         {/* Scrollable View Content */}
         <main ref={mainScrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+            >
           {activeTab === 'dashboard' && (
             <DashboardView
               transactions={transactions}
@@ -781,6 +882,8 @@ export default function App() {
               onNavigateToInvestments={() => setActiveTab('investments')}
               currencySymbol={settings.currencySymbol}
               defaultNetWorthMasked={settings.defaultNetWorthMasked}
+              isCloudSynced={isAuthenticated && (!syncStatus || syncStatus.success)}
+              onOpenCloudSyncStatus={() => setActiveTab('settings')}
             />
           )}
 
@@ -857,8 +960,12 @@ export default function App() {
               onLoadSampleData={handleLoadDemoData}
               syncStatus={syncStatus}
               onForceSyncNow={handleForceSyncNow}
+              isAuthenticated={isAuthenticated}
+              authUserEmail={authUser?.email || null}
             />
           )}
+            </motion.div>
+          </AnimatePresence>
         </main>
 
         {/* Global Floating Action Button for Home, Txns, Invest, Loans */}
@@ -907,6 +1014,7 @@ export default function App() {
           onClose={() => setIsProfileModalOpen(false)}
           onUpdateSettings={setSettings}
           onExportData={handleExportBackupJSON}
+          onSignOut={handleSignOut}
         />
       )}
 
@@ -947,15 +1055,6 @@ export default function App() {
             setEditingTransaction(null);
           }}
           currencySymbol={settings.currencySymbol}
-        />
-      )}
-      {/* 5. Auth Modal (Sign In / Register) */}
-      {isAuthModalOpen && (
-        <AuthModal
-          initialMode="register"
-          onClose={() => setIsAuthModalOpen(false)}
-          onSuccess={handleAuthSuccess}
-          settings={settings}
         />
       )}
     </div>

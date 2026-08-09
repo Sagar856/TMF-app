@@ -33,6 +33,8 @@ interface DashboardViewProps {
   onNavigateToInvestments?: () => void;
   currencySymbol: string;
   defaultNetWorthMasked?: boolean;
+  isCloudSynced?: boolean;
+  onOpenCloudSyncStatus?: () => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -47,6 +49,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onNavigateToInvestments,
   currencySymbol,
   defaultNetWorthMasked = true,
+  isCloudSynced = false,
+  onOpenCloudSyncStatus,
 }) => {
   // Eye toggles for KPI amounts - initialized from settings
   const defaultMaskState = defaultNetWorthMasked !== false;
@@ -184,6 +188,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         {/* Right Stats & Quick Actions */}
         <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between md:justify-end border-t md:border-t-0 border-[#222] pt-2 md:pt-0">
+          <button
+            type="button"
+            onClick={onOpenCloudSyncStatus}
+            className="flex items-center gap-1.5 bg-black/60 border border-[#222] hover:border-[#333] px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
+            title={isCloudSynced ? 'Synced to cloud' : 'Not synced to cloud — tap for details'}
+          >
+            <span className={`w-2 h-2 rounded-full shrink-0 ${isCloudSynced ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
+            <span className="text-[9px] text-[#aaa] uppercase font-bold tracking-wider">
+              {isCloudSynced ? 'Cloud Synced' : 'Not Synced'}
+            </span>
+          </button>
+
           <div className="bg-black/60 border border-[#222] px-3 py-1.5 rounded-xl text-right">
             <div className="text-[9px] text-[#777] uppercase font-bold">Savings Rate</div>
             <div className="text-xs font-bold text-emerald-400">{savingsRate}% MoM</div>

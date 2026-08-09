@@ -8,6 +8,10 @@ interface AuthModalProps {
   onClose: () => void;
   onSuccess: (updatedUser: { name: string; emailOrPhone: string }) => void;
   settings?: UserSettings;
+  /** When false (the default mandatory sign-in gate), hides the X button and
+   * disables backdrop-click-to-dismiss — the app requires a real account,
+   * so there is no way to "skip" login without actually authenticating. */
+  canClose?: boolean;
 }
 
 // Real authentication only: Supabase email/password auth (free tier).
@@ -16,6 +20,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'login',
   onClose,
   onSuccess,
+  canClose = true,
 }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot_password' | 'set_new_password'>(initialMode);
 
@@ -152,8 +157,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md font-mono">
-      {/* Background Overlay */}
-      <div className="fixed inset-0" onClick={onClose} />
+      {/* Background Overlay — clicking it does nothing when canClose is false */}
+      <div className="fixed inset-0" onClick={canClose ? onClose : undefined} />
 
       {/* Modal Dialog */}
       <div className="relative z-10 bg-[#0d0d0e] border border-[#26262a] w-full max-w-md rounded-3xl p-6 shadow-2xl text-white space-y-5 my-auto animate-in zoom-in-95 duration-200">
@@ -186,18 +191,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-[#252525] transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {canClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-[#252525] transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
         {!supabaseConfigured && (
           <div className="p-3 bg-yellow-950/50 border border-yellow-800/60 rounded-xl text-yellow-400 text-[11px]">
-            Supabase is not configured yet. Cloud accounts are disabled — you can still use TMF fully offline. Add your Supabase URL &amp; Key in Settings to enable sign-in and cloud sync.
+            This app requires a TMF account to continue — your data stays private to you via secure, per-user database rules.
           </div>
         )}
 

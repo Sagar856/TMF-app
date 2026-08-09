@@ -138,9 +138,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <RefreshCw className="w-3 h-3 text-[#555]" />
           </div>
           <div className="text-xs font-mono flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-green-500' : 'bg-yellow-500'}`} />
-            <span className={supabaseConnected ? 'text-green-400 font-semibold' : 'text-yellow-400'}>
-              {supabaseConnected ? 'Supabase Connected' : 'Local Storage Mode'}
+            <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className={supabaseConnected ? 'text-green-400 font-semibold' : 'text-red-400'}>
+              {supabaseConnected ? 'Cloud Synced' : 'Not Synced'}
             </span>
           </div>
         </div>

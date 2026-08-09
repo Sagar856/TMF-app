@@ -2,47 +2,55 @@ import { createClient, SupabaseClient, AuthChangeEvent, Session } from '@supabas
 import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord } from '../types/finance';
 
 let supabaseInstance: SupabaseClient | null = null;
-// Track which url/key the cached instance was created with so we can detect
-// credential changes (e.g. user updates Supabase URL/Key in Settings) and
-// recreate the client instead of silently keeping stale credentials.
-let cachedUrl: string | null = null;
-let cachedKey: string | null = null;
+let clientInitAttempted = false;
 
-export function getSupabaseClient(url?: string, key?: string): SupabaseClient | null {
+// This is a shared, single-project multi-tenant backend: every user of this
+// app talks to the SAME Supabase project (URL + anon key baked in at build
+// time via VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — see .env.example and
+// the GitHub Actions build workflows). Users never see or configure these
+// credentials themselves; per-user data isolation is enforced entirely by
+// Postgres Row Level Security (see supabase_schema.sql) keyed off each
+// authenticated user's real Supabase Auth session, not by which URL/key they
+// typed in. There is intentionally no per-user override anymore.
+export function getSupabaseClient(): SupabaseClient | null {
+  if (supabaseInstance) return supabaseInstance;
+  if (clientInitAttempted) return null; // avoid retrying createClient on every call when misconfigured
+
   const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env || {};
-  const supabaseUrl = url || metaEnv.VITE_SUPABASE_URL || localStorage.getItem('tmf_supabase_url');
-  const supabaseKey = key || metaEnv.VITE_SUPABASE_ANON_KEY || localStorage.getItem('tmf_supabase_key');
+  const supabaseUrl = metaEnv.VITE_SUPABASE_URL;
+  const supabaseKey = metaEnv.VITE_SUPABASE_ANON_KEY;
+
+  clientInitAttempted = true;
 
   if (!supabaseUrl || !supabaseKey) {
+    console.warn('Cloud sync is disabled: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY were not set at build time.');
     return null;
   }
 
-  const credentialsChanged = supabaseInstance && (cachedUrl !== supabaseUrl || cachedKey !== supabaseKey);
-
-  if (!supabaseInstance || credentialsChanged) {
-    try {
-      supabaseInstance = createClient(supabaseUrl, supabaseKey);
-      cachedUrl = supabaseUrl;
-      cachedKey = supabaseKey;
-    } catch (err) {
-      console.warn('Failed to initialize Supabase client:', err);
-      return null;
-    }
+  try {
+    supabaseInstance = createClient(supabaseUrl, supabaseKey);
+  } catch (err) {
+    console.warn('Failed to initialize Supabase client:', err);
+    return null;
   }
 
   return supabaseInstance;
 }
 
-export async function testSupabaseConnection(url: string, key: string): Promise<boolean> {
+/** Whether this build has a shared backend configured at all (env vars present). */
+export function isCloudBackendConfigured(): boolean {
+  return Boolean(getSupabaseClient());
+}
+
+/** Lightweight reachability check used for the sync-status indicator. */
+export async function checkBackendReachable(): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
   try {
-    const client = createClient(url, key);
     const { error } = await client.from('transactions').select('count', { count: 'exact', head: true });
-    if (error && error.code !== 'PGRST116') {
-      if (error.message?.includes('apiKey') || error.message?.includes('JWT')) {
-        return false;
-      }
-    }
-    return true;
+    // PGRST116 ("no rows") or any RLS-related empty result still means the
+    // backend itself is reachable and responding.
+    return !error || error.code === 'PGRST116';
   } catch {
     return false;
   }

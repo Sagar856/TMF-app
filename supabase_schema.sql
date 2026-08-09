@@ -108,6 +108,36 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
 -- =======================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES FOR SECURE MULTI-USER ACCESS
 -- =======================================================
+--
+-- SECURITY FIX (2026-08-09): the previous policies used
+--   USING (user_id IS NULL OR user_id = auth.uid())
+-- which let ANY signed-in (or even anonymous) user read/write every row that
+-- had a NULL user_id — effectively a shared, unprotected data pool. This is
+-- now a strict per-user policy: only the row's owner can ever see or modify
+-- it, and only signed-in ("authenticated") requests are allowed at all —
+-- anonymous/anon-key-only requests are rejected outright.
+--
+-- If you already have existing rows with user_id = NULL from before this
+-- fix, they are now permanently inaccessible under RLS (by design — nobody
+-- can safely claim ownership of them). Either delete them or manually
+-- UPDATE ... SET user_id = '<owner-uuid>' as the service_role before running
+-- the NOT NULL migration below.
+
+-- Backfill/cleanup required before enforcing NOT NULL — uncomment if you have
+-- pre-existing NULL-owned rows you want to discard:
+-- DELETE FROM public.transactions WHERE user_id IS NULL;
+-- DELETE FROM public.categories WHERE user_id IS NULL;
+-- DELETE FROM public.financial_accounts WHERE user_id IS NULL;
+-- DELETE FROM public.investments WHERE user_id IS NULL;
+-- DELETE FROM public.loans WHERE user_id IS NULL;
+-- DELETE FROM public.user_settings WHERE user_id IS NULL;
+
+ALTER TABLE public.transactions ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.categories ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.financial_accounts ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.investments ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.loans ALTER COLUMN user_id SET NOT NULL;
+ALTER TABLE public.user_settings ALTER COLUMN user_id SET NOT NULL;
 
 -- Enable RLS on all tables
 ALTER TABLE public.transactions ENABLE ROW LEVEL SECURITY;
@@ -125,21 +155,22 @@ DROP POLICY IF EXISTS "Users can access their own investments" ON public.investm
 DROP POLICY IF EXISTS "Users can access their own loans" ON public.loans;
 DROP POLICY IF EXISTS "Users can access their own user_settings" ON public.user_settings;
 
--- Create policies allowing authenticated & anon users to access rows matching their user_id or auth.uid()
-CREATE POLICY "Users can access their own transactions" ON public.transactions 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+-- Strict per-user policies: only the authenticated owner can read/write their
+-- own rows. No anonymous access, no NULL-owner bypass.
+CREATE POLICY "Users can access their own transactions" ON public.transactions
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can access their own categories" ON public.categories 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+CREATE POLICY "Users can access their own categories" ON public.categories
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can access their own financial_accounts" ON public.financial_accounts 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+CREATE POLICY "Users can access their own financial_accounts" ON public.financial_accounts
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can access their own investments" ON public.investments 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+CREATE POLICY "Users can access their own investments" ON public.investments
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can access their own loans" ON public.loans 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+CREATE POLICY "Users can access their own loans" ON public.loans
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
-CREATE POLICY "Users can access their own user_settings" ON public.user_settings 
-  FOR ALL USING (user_id IS NULL OR user_id = auth.uid()) WITH CHECK (user_id IS NULL OR user_id = auth.uid());
+CREATE POLICY "Users can access their own user_settings" ON public.user_settings
+  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

@@ -22,6 +22,7 @@ import {
   ChevronUp
 } from 'lucide-react';
 import { UserSettings, FinancialAccount } from '../types/finance';
+import { signInUser, updatePassword } from '../services/supabaseClient';
 
 interface UserProfileModalProps {
   settings: UserSettings;
@@ -29,6 +30,7 @@ interface UserProfileModalProps {
   onClose: () => void;
   onUpdateSettings: (newSettings: UserSettings) => void;
   onExportData: () => void;
+  onSignOut?: () => void;
 }
 
 export const UserProfileModal: React.FC<UserProfileModalProps> = ({
@@ -37,6 +39,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onClose,
   onUpdateSettings,
   onExportData,
+  onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'accounts' | 'preferences'>('profile');
   const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
@@ -52,8 +55,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [confirmNewPassword, setConfirmNewPassword] = useState<string>('');
   const [pwdError, setPwdError] = useState<string>('');
   const [pwdSuccess, setPwdSuccess] = useState<string>('');
+  const [isChangingPassword, setIsChangingPassword] = useState<boolean>(false);
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwdError('');
     setPwdSuccess('');
@@ -62,8 +66,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setPwdError('Please enter your current password');
       return;
     }
-    if (newPassword.length < 4) {
-      setPwdError('New password must be at least 4 characters long');
+    if (newPassword.length < 8) {
+      setPwdError('New password must be at least 8 characters long');
       return;
     }
     if (newPassword !== confirmNewPassword) {
@@ -71,11 +75,22 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       return;
     }
 
-    setPwdSuccess('Password changed successfully!');
-    setCurrentPassword('');
-    setNewPassword('');
-    setConfirmNewPassword('');
-    setTimeout(() => setPwdSuccess(''), 3000);
+    setIsChangingPassword(true);
+    try {
+      // Re-verify identity with the current password before allowing the
+      // change — updateUser() alone doesn't require re-entering it.
+      await signInUser(settings.userEmail, currentPassword);
+      await updatePassword(newPassword);
+      setPwdSuccess('Password changed successfully!');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+      setTimeout(() => setPwdSuccess(''), 3000);
+    } catch (err: any) {
+      setPwdError(err?.message || 'Current password is incorrect.');
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -535,14 +550,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => {
-              localStorage.removeItem('tmf_auth_session');
-              localStorage.removeItem('tmf_settings');
-              window.location.reload();
+              onClose();
+              onSignOut?.();
             }}
             className="px-3 py-2 bg-red-950/60 border border-red-800/80 hover:bg-red-900 text-red-400 font-bold text-xs uppercase rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out / Switch User</span>
+            <span>Sign Out</span>
           </button>
           
           <button

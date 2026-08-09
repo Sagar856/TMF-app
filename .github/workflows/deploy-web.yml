@@ -25,12 +25,47 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - run: npm ci
 
       - name: Build (GitHub Pages base path)
         run: npm run build
         env:
           GITHUB_PAGES: 'true'
+
+      # Build the Android APK and serve it as a same-origin static file from
+      # the deployed site itself (dist/downloads/TMF-app.apk). This is what
+      # the "Download App" button links to. It intentionally does NOT rely on
+      # GitHub Releases: if this repository is private, unauthenticated
+      # visitors get a 404 fetching release assets even though the workflow
+      # succeeded. A GitHub Pages site, however, is publicly reachable
+      # regardless of the repo's visibility, so serving the APK from here
+      # guarantees the download always works.
+      - name: Add Android platform (Capacitor)
+        run: npx cap add android
+
+      - name: Merge native notification-listener plugin into Android project
+        run: node scripts/patch-android.mjs
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Copy APK into the site's downloads folder
+        run: |
+          mkdir -p dist/downloads
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          cp "$APK_PATH" dist/downloads/TMF-app.apk
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

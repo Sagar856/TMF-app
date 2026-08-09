@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, Category, FinancialAccount } from '../types/finance';
-import { testSupabaseConnection } from '../services/supabaseClient';
+import { isCloudBackendConfigured } from '../services/supabaseClient';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
 import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
@@ -21,6 +21,8 @@ interface SettingsViewProps {
   onLoadSampleData?: () => void;
   syncStatus?: { collection: string; success: boolean; error?: string; timestamp: number } | null;
   onForceSyncNow?: () => Promise<{ success: boolean; error?: string }>;
+  isAuthenticated?: boolean;
+  authUserEmail?: string | null;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -39,6 +41,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onLoadSampleData,
   syncStatus,
   onForceSyncNow,
+  isAuthenticated = false,
+  authUserEmail = null,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'system' | 'customisations'>('system');
   const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
@@ -51,11 +55,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [passcodeEnabled, setPasscodeEnabled] = useState<boolean>(Boolean(settings?.passcodeEnabled));
   const [passcode, setPasscode] = useState<string>(settings?.passcode || '1234');
 
-  // Supabase
-  const [supabaseUrl, setSupabaseUrl] = useState<string>(settings?.supabaseUrl || '');
-  const [supabaseKey, setSupabaseKey] = useState<string>(settings?.supabaseKey || '');
-  const [isTestingConn, setIsTestingConn] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; msg: string } | null>(null);
+  // Shared backend status (read-only — there is nothing for the user to
+  // configure here; every user of this app shares one Supabase project, and
+  // access is scoped per-user purely by Row Level Security + their real
+  // sign-in session).
+  const cloudConfigured = isCloudBackendConfigured();
 
   // UPI/SMS Interceptor
   const [autoExtractSms, setAutoExtractSms] = useState<boolean>(settings?.autoExtractSms ?? true);
@@ -86,42 +90,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       passcodeEnabled,
       passcode,
     });
-  };
-
-  // Save Supabase
-  const handleSaveSupabase = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsTestingConn(true);
-    setTestResult(null);
-
-    if (!supabaseUrl.trim() || !supabaseKey.trim()) {
-      onUpdateSettings({
-        ...settings,
-        supabaseUrl: '',
-        supabaseKey: '',
-        supabaseConnected: false,
-      });
-      setIsTestingConn(false);
-      setTestResult({ success: false, msg: 'Supabase credentials cleared. Operating in local mode.' });
-      return;
-    }
-
-    const isConnected = await testSupabaseConnection(supabaseUrl.trim(), supabaseKey.trim());
-    setIsTestingConn(false);
-
-    if (isConnected) {
-      setTestResult({ success: true, msg: 'Successfully connected to Supabase Database!' });
-      localStorage.setItem('tmf_supabase_url', supabaseUrl.trim());
-      localStorage.setItem('tmf_supabase_key', supabaseKey.trim());
-      onUpdateSettings({
-        ...settings,
-        supabaseUrl: supabaseUrl.trim(),
-        supabaseKey: supabaseKey.trim(),
-        supabaseConnected: true,
-      });
-    } else {
-      setTestResult({ success: false, msg: 'Failed to connect. Check Supabase URL and Anon Key.' });
-    }
   };
 
   return (
@@ -384,84 +352,54 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       </div>
 
-      {/* Supabase Database Backend Settings */}
+      {/* Cloud Backend Status (read-only — this is a shared multi-tenant
+          backend, there is nothing here for a user to configure). */}
       <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-nothing">
           <div className="flex items-center gap-2">
             <Database className="w-4 h-4 text-green-500" />
             <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
-              Supabase Backend Sync
+              Cloud Backend
             </h3>
           </div>
           <span className={`px-2.5 py-0.5 text-[9px] font-mono rounded font-bold ${
-            settings.supabaseConnected ? 'bg-green-950 text-green-400' : 'bg-yellow-950 text-yellow-400'
+            isAuthenticated ? 'bg-green-950 text-green-400' : 'bg-yellow-950 text-yellow-400'
           }`}>
-            {settings.supabaseConnected ? 'SUPABASE CONNECTED' : 'LOCAL MODE'}
+            {isAuthenticated ? 'SYNCED' : 'NOT SIGNED IN'}
           </span>
         </div>
 
         <p className="text-xs text-[#888] font-mono leading-relaxed">
-          Connect your Supabase project to sync your financial logs to PostgreSQL cloud database.
+          Your data automatically syncs to TMF's secure cloud database once you're signed in —
+          there's no Supabase account or setup required on your end. Every account's data is kept
+          completely private via database-level access rules.
         </p>
 
-        <form onSubmit={handleSaveSupabase} className="space-y-4">
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
           <div>
-            <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-              Supabase Project URL
-            </label>
-            <input
-              type="text"
-              value={supabaseUrl}
-              onChange={(e) => setSupabaseUrl(e.target.value)}
-              placeholder="https://xyz.supabase.co"
-              className="w-full px-3 py-2 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-            />
+            <div className="text-xs font-mono font-bold text-white">Signed in as</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">{authUserEmail || 'Not signed in'}</div>
           </div>
+          <span className={`w-2.5 h-2.5 rounded-full ${isAuthenticated ? 'bg-green-500' : 'bg-red-500'}`} />
+        </div>
 
-          <div>
-            <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-              Supabase Anon Key
-            </label>
-            <input
-              type="password"
-              value={supabaseKey}
-              onChange={(e) => setSupabaseKey(e.target.value)}
-              placeholder="eyJhbGciOiJIUzI1NiIsIn..."
-              className="w-full px-3 py-2 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-            />
+        {!cloudConfigured && (
+          <div className="p-3 rounded-xl border border-yellow-800/60 bg-yellow-950/40 text-yellow-400 text-xs font-mono flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>Cloud sync isn't configured for this build (missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY at build time). Your data still works fully offline.</span>
           </div>
-
-          {testResult && (
-            <div className={`p-3 rounded-xl border text-xs font-mono flex items-center gap-2 ${
-              testResult.success ? 'bg-green-950/40 border-green-800 text-green-400' : 'bg-red-950/40 border-red-800 text-red-400'
-            }`}>
-              {testResult.success ? <Check className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-              <span>{testResult.msg}</span>
-            </div>
-          )}
-
-          <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={isTestingConn}
-              className="px-5 py-2 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors flex items-center gap-2"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isTestingConn ? 'animate-spin' : ''}`} />
-              <span>{isTestingConn ? 'Connecting...' : 'Test & Save Supabase'}</span>
-            </button>
-          </div>
-        </form>
+        )}
 
         {/* Real sync diagnostics: records failing to reach the backend used to
             fail completely silently. This surfaces the actual error and lets
             you retry on demand. */}
-        {settings.supabaseConnected && onForceSyncNow && (
+        {cloudConfigured && isAuthenticated && onForceSyncNow && (
           <div className="pt-4 border-t border-nothing space-y-2">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div>
                 <div className="text-xs font-mono font-bold text-white">Backend Sync Diagnostics</div>
                 <div className="text-[10px] text-[#777] font-mono mt-0.5">
-                  Push all local records to Supabase right now and check for errors
+                  Push all local records to the cloud right now and check for errors
                 </div>
               </div>
               <button
@@ -490,16 +428,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {(forceSyncResult ?? { success: false }).success ? (
                   <>
                     <Check className="w-4 h-4 shrink-0" />
-                    <span>All records synced to Supabase successfully.</span>
+                    <span>All records synced to the cloud successfully.</span>
                   </>
                 ) : (
                   <>
                     <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>
-                      {forceSyncResult?.error || syncStatus?.error || 'Sync failed for an unknown reason.'}
-                      {' '}Check that your Supabase table schema matches{' '}
-                      <code>supabase_schema.sql</code> and that Row Level Security policies allow this write.
-                    </span>
+                    <span>{forceSyncResult?.error || syncStatus?.error || 'Sync failed for an unknown reason.'}</span>
                   </>
                 )}
               </div>

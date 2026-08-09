@@ -2,12 +2,14 @@ import React from 'react';
 import { Capacitor } from '@capacitor/core';
 import { Download, Smartphone } from 'lucide-react';
 
-// Points directly at the release *asset*, not the release page. GitHub serves
-// this URL with a redirect straight to the file (Content-Disposition:
-// attachment), so the browser downloads the APK immediately instead of
-// navigating to github.com. The filename must match what
-// .github/workflows/build-apk.yml uploads (TMF-app.apk).
-const LATEST_APK_DOWNLOAD_URL = 'https://github.com/Sagar856/TMF-app/releases/latest/download/TMF-app.apk';
+// Served as a same-origin static file from the GitHub Pages deployment (see
+// .github/workflows/deploy-web.yml), NOT from GitHub Releases. Release assets
+// 404 for anonymous visitors if the repository is private — a GitHub Pages
+// site, however, is publicly reachable regardless of the repo's visibility,
+// so this is the one link guaranteed to actually start a download for every
+// visitor, whether they're viewing the app on Netlify, GitHub Pages, or
+// anywhere else.
+const LATEST_APK_DOWNLOAD_URL = 'https://sagar856.github.io/TMF-app/downloads/TMF-app.apk';
 
 /**
  * Prompts web visitors to download the native Android APK. Hidden when the
