@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Mail, Lock, CheckCircle2, ShieldCheck, ArrowRight, RefreshCw } from 'lucide-react';
 import { UserSettings } from '../types/finance';
-import { signInUser, signUpUser, sendPasswordResetEmail, updatePassword, getSupabaseClient } from '../services/supabaseClient';
+import { signInUser, signUpUser, sendPasswordResetEmail, updatePassword, getSupabaseClient, getAuthRedirectUrl } from '../services/supabaseClient';
 
 interface AuthModalProps {
   initialMode?: 'login' | 'register' | 'forgot_password' | 'set_new_password';
@@ -66,8 +66,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       await signUpUser(email.trim(), password, name.trim() || email.split('@')[0]);
       setIsVerifying(false);
-      setSuccessMsg('Account created! Check your email for a confirmation link, then sign in.');
-      setTimeout(() => setMode('login'), 2000);
+      setSuccessMsg(
+        `Account created! Check your email for a confirmation link, then sign in. ` +
+        `(If the link errors with "requested path is invalid", the app owner needs to add ` +
+        `"${getAuthRedirectUrl()}" to Supabase → Authentication → URL Configuration → Redirect URLs.)`
+      );
+      setTimeout(() => setMode('login'), 2500);
     } catch (err: any) {
       setIsVerifying(false);
       if (err?.message?.toLowerCase().includes('already registered')) {
@@ -127,7 +131,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       await sendPasswordResetEmail(email.trim());
       setIsVerifying(false);
-      setSuccessMsg('A password reset link has been sent to your email. Open it to continue.');
+      setSuccessMsg(
+        `A password reset link has been sent to your email. Open it to continue. ` +
+        `(If the link errors with "requested path is invalid", the app owner needs to add ` +
+        `"${getAuthRedirectUrl()}" to Supabase → Authentication → URL Configuration → Redirect URLs.)`
+      );
     } catch (err: any) {
       setIsVerifying(false);
       setErrorMsg(err?.message || 'Failed to send reset email.');

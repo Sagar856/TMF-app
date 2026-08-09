@@ -42,6 +42,19 @@ export function isCloudBackendConfigured(): boolean {
   return Boolean(getSupabaseClient());
 }
 
+// Single source of truth for the redirect URL used by both sign-up email
+// confirmation and password-reset emails. Supabase only allows redirecting
+// to URLs explicitly whitelisted in Authentication -> URL Configuration ->
+// Redirect URLs — if this exact URL (or a wildcard pattern matching it,
+// e.g. "https://you.example.com/**") isn't in that list, clicking the link
+// in the email shows Supabase's own "requested path is invalid" error page.
+// This cannot be fixed from app code; it's exposed here so the UI can show
+// the user the exact value to paste into their Supabase dashboard.
+export function getAuthRedirectUrl(): string {
+  const baseUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.BASE_URL || '/';
+  return `${window.location.origin}${baseUrl}`;
+}
+
 /** Lightweight reachability check used for the sync-status indicator. */
 export async function checkBackendReachable(): Promise<boolean> {
   const client = getSupabaseClient();
@@ -64,8 +77,7 @@ export async function signUpUser(email: string, pass: string, fullName: string) 
   const client = getSupabaseClient();
   if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
 
-  const baseUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.BASE_URL || '/';
-  const emailRedirectTo = `${window.location.origin}${baseUrl}`;
+  const emailRedirectTo = getAuthRedirectUrl();
 
   const { data, error } = await client.auth.signUp({
     email,
@@ -131,11 +143,7 @@ export async function sendPasswordResetEmail(email: string): Promise<void> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.');
 
-  // import.meta.env.BASE_URL matches the Vite "base" config (e.g. "/" locally
-  // and on Netlify, "/TMF-app/" on GitHub Pages) so the redirect always lands
-  // back on a real, loadable route of this app.
-  const baseUrl = (import.meta as unknown as { env?: Record<string, string> }).env?.BASE_URL || '/';
-  const redirectTo = `${window.location.origin}${baseUrl}`;
+  const redirectTo = getAuthRedirectUrl();
 
   const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
   if (error) {

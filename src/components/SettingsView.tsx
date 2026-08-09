@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { UserSettings, Category, FinancialAccount } from '../types/finance';
-import { isCloudBackendConfigured } from '../services/supabaseClient';
+import { isCloudBackendConfigured, getAuthRedirectUrl } from '../services/supabaseClient';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
-import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing } from 'lucide-react';
+import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing, Copy } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 
 interface SettingsViewProps {
@@ -50,6 +50,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [currencySymbol, setCurrencySymbol] = useState<string>(settings?.currencySymbol || '₹');
   const [isForceSyncing, setIsForceSyncing] = useState<boolean>(false);
   const [forceSyncResult, setForceSyncResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [redirectUrlCopied, setRedirectUrlCopied] = useState<boolean>(false);
 
   // Security
   const [passcodeEnabled, setPasscodeEnabled] = useState<boolean>(Boolean(settings?.passcodeEnabled));
@@ -387,6 +388,34 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <div className="p-3 rounded-xl border border-yellow-800/60 bg-yellow-950/40 text-yellow-400 text-xs font-mono flex items-start gap-2">
             <AlertCircle className="w-4 h-4 shrink-0" />
             <span>Cloud sync isn't configured for this build (missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY at build time). Your data still works fully offline.</span>
+          </div>
+        )}
+
+        {cloudConfigured && (
+          <div className="p-3 rounded-xl border border-nothing bg-obsidian space-y-2">
+            <div className="text-xs font-mono font-bold text-white">Fixing "requested path is invalid" on sign-up/reset emails</div>
+            <div className="text-[10px] text-[#777] font-mono leading-relaxed">
+              This error means Supabase's dashboard doesn't have this app's URL whitelisted for auth
+              redirects yet. Copy the exact URL below and add it (or a wildcard like it + <code>**</code>) to
+              your Supabase project's <span className="text-white">Authentication → URL Configuration → Redirect URLs</span>.
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-2.5 py-2 bg-carbon border border-nothing rounded-lg text-[10px] text-emerald-400 truncate">
+                {getAuthRedirectUrl()}
+              </code>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(getAuthRedirectUrl());
+                  setRedirectUrlCopied(true);
+                  setTimeout(() => setRedirectUrlCopied(false), 2000);
+                }}
+                className="px-3 py-2 bg-[#1f1f1f] border border-[#333] hover:border-red-600 text-xs font-mono font-bold text-white rounded-lg transition-all cursor-pointer flex items-center gap-1.5 shrink-0"
+              >
+                {redirectUrlCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{redirectUrlCopied ? 'Copied' : 'Copy'}</span>
+              </button>
+            </div>
           </div>
         )}
 
