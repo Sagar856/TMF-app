@@ -20,6 +20,8 @@ import { SmsSimulatorWidget } from './components/SmsSimulatorWidget';
 import { EditTransactionModal, CategoryType } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { AuthModal } from './components/AuthModal';
+import { TopBarToast, ToastMessage } from './components/TopBarToast';
+import { ConfirmationModal, ConfirmDialogConfig } from './components/ConfirmationModal';
 
 import {
   Transaction,
@@ -38,7 +40,11 @@ import {
   INITIAL_TRANSACTIONS,
   INITIAL_INVESTMENTS,
   INITIAL_LOANS,
-  INITIAL_ACCOUNTS
+  INITIAL_ACCOUNTS,
+  SAMPLE_ACCOUNT_IDS,
+  SAMPLE_TRANSACTION_IDS,
+  SAMPLE_INVESTMENT_IDS,
+  SAMPLE_LOAN_IDS
 } from './data/initialData';
 
 import {
@@ -156,6 +162,22 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [modalInitialCategoryType, setModalInitialCategoryType] = useState<CategoryType>('Expense');
+  const [topBarToast, setTopBarToast] = useState<ToastMessage | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+
+  const showToast = (
+    text: string,
+    type: 'success' | 'info' | 'warning' | 'error' = 'success',
+    duration = 3200
+  ) => {
+    setTopBarToast({
+      id: `toast_${Date.now()}_${Math.random()}`,
+      text,
+      type,
+      duration,
+    });
+  };
+
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
     if (!settings.passcodeEnabled) return true;
     return sessionStorage.getItem('tmf_session_unlocked') === 'true';
@@ -681,13 +703,42 @@ export default function App() {
     // the SIGNED_OUT event from subscribeToAuthChanges above.
   };
 
-  const handleLoadDemoData = () => {
-    setAccounts(INITIAL_ACCOUNTS);
-    setTransactions(INITIAL_TRANSACTIONS);
-    setInvestments(INITIAL_INVESTMENTS);
-    setLoans(INITIAL_LOANS);
-    setCategories(INITIAL_CATEGORIES);
-    alert('Sample demo data loaded successfully!');
+  // Demo Sample Data & Reset Handlers with in-app Confirmation Dialogs
+  const handleRequestLoadSampleData = () => {
+    setConfirmConfig({
+      title: 'Load Sample Demo Data?',
+      description: 'This will populate your app with sample bank accounts, credit cards, transactions, mutual fund investments, and loans for previewing analytics.',
+      confirmLabel: 'Load Demo Data',
+      cancelLabel: 'Cancel',
+      intent: 'primary',
+      icon: 'refresh',
+      onConfirm: () => {
+        setAccounts(INITIAL_ACCOUNTS);
+        setTransactions(INITIAL_TRANSACTIONS);
+        setInvestments(INITIAL_INVESTMENTS);
+        setLoans(INITIAL_LOANS);
+        setCategories(INITIAL_CATEGORIES);
+        showToast('Sample demo data loaded successfully', 'success');
+      },
+    });
+  };
+
+  const handleRequestRemoveSampleData = () => {
+    setConfirmConfig({
+      title: 'Remove Sample Data?',
+      description: 'This will remove all preset demo transactions, bank accounts, investments, and loans from your app. Any custom entries you added will remain untouched.',
+      confirmLabel: 'Remove Demo Data',
+      cancelLabel: 'Cancel',
+      intent: 'warning',
+      icon: 'trash',
+      onConfirm: () => {
+        setTransactions((prev) => prev.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)));
+        setAccounts((prev) => prev.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)));
+        setInvestments((prev) => prev.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)));
+        setLoans((prev) => prev.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)));
+        showToast('Sample demo data removed', 'warning');
+      },
+    });
   };
 
   // Data Reset & Export Backup
@@ -707,22 +758,31 @@ export default function App() {
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    showToast('Financial backup downloaded (JSON)', 'info');
   };
 
-  const handleResetAllData = () => {
-    if (window.confirm('Are you sure you want to clear all data? All local records will be deleted.')) {
-      localStorage.removeItem('tmf_transactions');
-      localStorage.removeItem('tmf_accounts');
-      localStorage.removeItem('tmf_investments');
-      localStorage.removeItem('tmf_loans');
-      localStorage.removeItem('tmf_pending_notifications');
-      setTransactions([]);
-      setAccounts([]);
-      setInvestments([]);
-      setLoans([]);
-      setPendingNotifications([]);
-      alert('All local financial records cleared!');
-    }
+  const handleRequestResetAllData = () => {
+    setConfirmConfig({
+      title: 'Reset All Financial Records?',
+      description: 'Are you sure you want to delete all financial records? All transactions, accounts, investments, loans, and notifications will be permanently erased.',
+      confirmLabel: 'Clear Everything',
+      cancelLabel: 'Keep Data',
+      intent: 'danger',
+      icon: 'warning',
+      onConfirm: () => {
+        localStorage.removeItem('tmf_transactions');
+        localStorage.removeItem('tmf_accounts');
+        localStorage.removeItem('tmf_investments');
+        localStorage.removeItem('tmf_loans');
+        localStorage.removeItem('tmf_pending_notifications');
+        setTransactions([]);
+        setAccounts([]);
+        setInvestments([]);
+        setLoans([]);
+        setPendingNotifications([]);
+        showToast('All local financial records cleared', 'error');
+      },
+    });
   };
 
   // 0. App Launch Motion Loader
@@ -1023,8 +1083,9 @@ export default function App() {
               onUpdateAccount={handleUpdateAccount}
               onDeleteAccount={handleDeleteAccount}
               onExportBackupJSON={handleExportBackupJSON}
-              onResetAllData={handleResetAllData}
-              onLoadSampleData={handleLoadDemoData}
+              onResetAllData={handleRequestResetAllData}
+              onLoadSampleData={handleRequestLoadSampleData}
+              onRemoveSampleData={handleRequestRemoveSampleData}
               syncStatus={syncStatus}
               onForceSyncNow={handleForceSyncNow}
               isAuthenticated={isAuthenticated}
@@ -1070,6 +1131,26 @@ export default function App() {
           })}
         </div>
       </div>
+
+      {/* Top Bar Auto-Vanishing Pop-up Notification */}
+      <AnimatePresence>
+        {topBarToast && (
+          <TopBarToast
+            toast={topBarToast}
+            onDismiss={() => setTopBarToast(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Confirmation Modal Dialog for Destructive / Data Actions */}
+      <AnimatePresence>
+        {confirmConfig && (
+          <ConfirmationModal
+            config={confirmConfig}
+            onClose={() => setConfirmConfig(null)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Global Modals */}
 

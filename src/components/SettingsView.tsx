@@ -19,6 +19,7 @@ interface SettingsViewProps {
   onExportBackupJSON: () => void;
   onResetAllData: () => void;
   onLoadSampleData?: () => void;
+  onRemoveSampleData?: () => void;
   syncStatus?: { collection: string; success: boolean; error?: string; timestamp: number } | null;
   onForceSyncNow?: () => Promise<{ success: boolean; error?: string }>;
   isAuthenticated?: boolean;
@@ -39,6 +40,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onExportBackupJSON,
   onResetAllData,
   onLoadSampleData,
+  onRemoveSampleData,
   syncStatus,
   onForceSyncNow,
   isAuthenticated = false,
@@ -531,40 +533,83 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         )}
       </div>
 
-      {/* Data Export & Reset */}
-      <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
-        <div className="flex items-center gap-2 pb-3 border-b border-nothing">
-          <Download className="w-4 h-4 text-white" />
-          <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
-            Data Export & Backup
-          </h3>
+      {/* Data Management, Demo Data & Backup */}
+      <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-5">
+        <div className="flex items-center justify-between pb-3 border-b border-nothing">
+          <div className="flex items-center gap-2">
+            <Download className="w-4 h-4 text-white" />
+            <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
+              Data Management & Backup
+            </h3>
+          </div>
+          <span className="text-[9px] font-mono font-bold text-[#666] uppercase tracking-widest">
+            LOCAL & EXPORT
+          </span>
         </div>
 
-        <div className="flex items-center justify-between flex-wrap gap-4">
+        {/* JSON Backup Export */}
+        <div className="flex items-center justify-between flex-wrap gap-4 p-3.5 bg-obsidian border border-nothing rounded-2xl">
           <div>
             <div className="text-xs font-mono font-bold text-white">Full Financial Data Backup (JSON)</div>
             <div className="text-[10px] text-[#777] font-mono mt-0.5">Export all transactions, investments, categories, and settings</div>
           </div>
           <button
+            type="button"
             onClick={onExportBackupJSON}
-            className="px-4 py-2 bg-obsidian border border-nothing hover:border-[#444] text-xs font-mono font-bold text-white rounded-xl transition-colors flex items-center gap-2"
+            className="px-4 py-2 bg-carbon border border-nothing hover:border-[#444] text-xs font-mono font-bold text-white rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>Export Backup JSON</span>
           </button>
         </div>
 
-        <div className="pt-4 border-t border-nothing flex items-center justify-between flex-wrap gap-4">
+        {/* Sample Demo Data Controls */}
+        <div className="p-3.5 bg-obsidian border border-nothing rounded-2xl space-y-3">
           <div>
-            <div className="text-xs font-mono font-bold text-[#aaa]">Sample Demo Data</div>
-            <div className="text-[10px] text-[#777] font-mono mt-0.5">Populate accounts, txns, investments with sample test records for preview</div>
+            <div className="text-xs font-mono font-bold text-white">Sample Demo Data Management</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">
+              Populate or clean out sample bank accounts, transactions, investments, and loans
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap pt-1">
+            {onLoadSampleData && (
+              <button
+                type="button"
+                onClick={onLoadSampleData}
+                className="px-4 py-2 border border-blue-800/80 bg-blue-950/20 text-blue-400 hover:bg-blue-950/50 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Load Sample Data</span>
+              </button>
+            )}
+
+            {onRemoveSampleData && (
+              <button
+                type="button"
+                onClick={onRemoveSampleData}
+                className="px-4 py-2 border border-amber-800/80 bg-amber-950/20 text-amber-400 hover:bg-amber-950/50 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Remove Sample Data</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Total Reset Data */}
+        <div className="flex items-center justify-between flex-wrap gap-4 p-3.5 bg-obsidian border border-red-950/60 rounded-2xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-red-400">Clear All Financial Records</div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">Wipe all local accounts, transactions, investments, and loans completely</div>
           </div>
           <button
-            onClick={onLoadSampleData}
-            className="px-4 py-2 border border-blue-800/80 text-blue-400 hover:bg-blue-950/40 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+            type="button"
+            onClick={onResetAllData}
+            className="px-4 py-2 bg-red-950/40 hover:bg-red-900/60 border border-red-800/80 text-xs font-mono font-bold text-red-400 hover:text-red-200 rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
           >
-            <RefreshCw className="w-3.5 h-3.5" />
-            <span>Load Sample Data</span>
+            <Trash2 className="w-3.5 h-3.5" />
+            <span>Reset All Data</span>
           </button>
         </div>
       </div>

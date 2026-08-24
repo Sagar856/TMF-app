@@ -454,3 +454,9 @@ export const PRESET_SMS_TEMPLATES = [
     text: 'Debited INR 12,400.00 from HDFC A/c 4812 towards Zerodha Broking Stock Buy Order.',
   }
 ];
+
+export const SAMPLE_ACCOUNT_IDS = new Set(INITIAL_ACCOUNTS.map((a) => a.id));
+export const SAMPLE_TRANSACTION_IDS = new Set(INITIAL_TRANSACTIONS.map((t) => t.id));
+export const SAMPLE_INVESTMENT_IDS = new Set(INITIAL_INVESTMENTS.map((i) => i.id));
+export const SAMPLE_LOAN_IDS = new Set(INITIAL_LOANS.map((l) => l.id));
+

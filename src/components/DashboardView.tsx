@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification } from '../types/finance';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
+import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
 import { TopMerchantsCard } from './TopMerchantsCard';
 import { TopCategoriesCard } from './TopCategoriesCard';
@@ -479,6 +480,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
         </div>
       </div>
+
+      {/* Row 2: 7-Day Spending Trend Line Visualization (Recharts) */}
+      <SevenDaySpendingTrendChart transactions={transactions} currencySymbol={currencySymbol} />
 
       {/* Row 2 Visuals: Most Spend Places / Merchants & Top Categories */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
