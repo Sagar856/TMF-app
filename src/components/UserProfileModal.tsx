@@ -42,11 +42,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   onSignOut,
 }) => {
   const [activeTab, setActiveTab] = useState<'profile' | 'security' | 'accounts' | 'preferences'>('profile');
-  const [userName, setUserName] = useState<string>(settings?.userName || 'sgrnboff');
-  const [userEmail, setUserEmail] = useState<string>(settings?.userEmail || 'sgrnboff@gmail.com');
+  const [userName, setUserName] = useState<string>(settings?.userName || 'User');
+  const [userEmail, setUserEmail] = useState<string>(settings?.userEmail || '');
   const [userPhoto, setUserPhoto] = useState<string>(settings?.userPhoto || '');
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  React.useEffect(() => {
+    if (settings?.userName) setUserName(settings.userName);
+    if (settings?.userEmail) setUserEmail(settings.userEmail);
+    if (settings?.userPhoto !== undefined) setUserPhoto(settings.userPhoto || '');
+  }, [settings?.userName, settings?.userEmail, settings?.userPhoto]);
 
   // Change Password State
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState<boolean>(false);

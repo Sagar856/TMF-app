@@ -231,6 +231,19 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
   }
 }
 
+export async function deleteTransactionFromSupabase(id: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    const { error } = await client.from('transactions').delete().eq('id', id);
+    if (error) return syncError('delete-transaction', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-transaction', err);
+  }
+}
+
 export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -287,6 +300,19 @@ export async function syncCategoriesToSupabase(categories: Category[]): Promise<
   }
 }
 
+export async function deleteCategoryFromSupabase(id: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    const { error } = await client.from('categories').delete().eq('id', id);
+    if (error) return syncError('delete-category', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-category', err);
+  }
+}
+
 export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -339,6 +365,19 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
     return { success: true };
   } catch (err) {
     return syncError('financial_accounts', err);
+  }
+}
+
+export async function deleteAccountFromSupabase(id: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    const { error } = await client.from('financial_accounts').delete().eq('id', id);
+    if (error) return syncError('delete-account', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-account', err);
   }
 }
 
@@ -400,6 +439,19 @@ export async function syncInvestmentsToSupabase(investments: InvestmentRecord[])
   }
 }
 
+export async function deleteInvestmentFromSupabase(id: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    const { error } = await client.from('investments').delete().eq('id', id);
+    if (error) return syncError('delete-investment', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-investment', err);
+  }
+}
+
 export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -453,6 +505,19 @@ export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<SyncResu
     return { success: true };
   } catch (err) {
     return syncError('loans', err);
+  }
+}
+
+export async function deleteLoanFromSupabase(id: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    const { error } = await client.from('loans').delete().eq('id', id);
+    if (error) return syncError('delete-loan', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-loan', err);
   }
 }
 

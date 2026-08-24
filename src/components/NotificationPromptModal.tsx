@@ -43,7 +43,8 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
     );
   }
 
-  const activeNotif = notifications[currentIndex] || notifications[0];
+  const safeIndex = Math.min(currentIndex, Math.max(0, notifications.length - 1));
+  const activeNotif = notifications[safeIndex];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 font-mono">
@@ -58,7 +59,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
             <span className="text-[10px] font-bold text-red-400 uppercase tracking-[0.2em]">
-              UPI / SMS Detected ({currentIndex + 1}/{notifications.length})
+              UPI / SMS Detected ({safeIndex + 1}/{notifications.length})
             </span>
           </div>
           <button
@@ -159,7 +160,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
             >
               ← Previous
             </button>
-            <span>Notification {currentIndex + 1} of {notifications.length}</span>
+            <span>Notification {safeIndex + 1} of {notifications.length}</span>
             <button
               onClick={() => setCurrentIndex((prev) => (prev < notifications.length - 1 ? prev + 1 : 0))}
               className="hover:text-white transition-colors"

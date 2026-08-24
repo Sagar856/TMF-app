@@ -1,16 +1,20 @@
 import React, { useState } from 'react';
 import { PRESET_SMS_TEMPLATES } from '../data/initialData';
-import { parseSmsNotification } from '../services/smsParser';
-import { ParsedNotification, LocationTag } from '../types/finance';
-import { Smartphone, Send, MapPin, Zap, X, ShieldAlert } from 'lucide-react';
+import { parseNotification } from '../services/notification/ParserManager';
+import { ParsedNotification, LocationTag, Transaction } from '../types/finance';
+import { Smartphone, Send, MapPin, Zap, X, ShieldAlert, AlertTriangle } from 'lucide-react';
 
 interface SmsSimulatorWidgetProps {
+  transactions?: Transaction[];
+  pendingNotifications?: ParsedNotification[];
   onInterceptNotification: (notif: ParsedNotification) => void;
   onClose: () => void;
   currencySymbol: string;
 }
 
 export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
+  transactions = [],
+  pendingNotifications = [],
   onInterceptNotification,
   onClose,
   currencySymbol,
@@ -18,8 +22,9 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
   const [customSms, setCustomSms] = useState<string>('');
   const [useCurrentLocation, setUseCurrentLocation] = useState<boolean>(true);
   const [customLocationName, setCustomLocationName] = useState<string>('BKC Business District');
+  const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
-  const handleSimulate = (text: string) => {
+  const handleSimulate = (text: string, force = false) => {
     if (!text.trim()) return;
 
     // Simulate location capture
@@ -29,7 +34,21 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
       name: customLocationName || 'Captured Mobile Coordinates',
     };
 
-    const parsed = parseSmsNotification(text, useCurrentLocation ? location : null);
+    const { parsed, isDuplicate } = parseNotification(
+      text,
+      useCurrentLocation ? location : null,
+      transactions,
+      pendingNotifications
+    );
+
+    if (isDuplicate && !force) {
+      setDuplicateWarning(
+        `Duplicate detected: An identical transaction (${parsed.payeeOrPayer} for ${currencySymbol}${parsed.amount.toLocaleString()}) already exists or is pending.`
+      );
+      return;
+    }
+
+    setDuplicateWarning(null);
     onInterceptNotification(parsed);
     onClose();
   };
@@ -57,6 +76,33 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
           </button>
         </div>
 
+        {/* Duplicate Warning Banner if triggered */}
+        {duplicateWarning && (
+          <div className="mb-4 p-3 bg-amber-950/60 border border-amber-600/80 rounded-2xl space-y-2 text-amber-200 text-xs font-mono">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Duplicate SMS Intercepted</span>
+            </div>
+            <p className="text-[11px] text-amber-300/90 leading-relaxed">{duplicateWarning}</p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDuplicateWarning(null)}
+                className="px-3 py-1 bg-black/40 border border-amber-600/50 hover:bg-black/60 rounded-lg text-[10px] text-amber-300 font-bold uppercase transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSimulate(customSms || PRESET_SMS_TEMPLATES[0].text, true)}
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[10px] font-bold uppercase transition-colors"
+              >
+                Queue Anyway
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Preset Bank / UPI Templates */}
         <div className="mb-5">
           <div className="text-[10px] text-[#666] uppercase tracking-[0.2em] font-mono mb-2 flex items-center gap-1.5">
@@ -68,7 +114,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
               <button
                 key={index}
                 onClick={() => handleSimulate(preset.text)}
-                className="p-2.5 bg-obsidian hover:bg-graphite border border-nothing rounded-xl text-left transition-all group"
+                className="p-2.5 bg-obsidian hover:bg-graphite border border-nothing rounded-xl text-left transition-all group cursor-pointer"
               >
                 <div className="text-[11px] font-bold text-white group-hover:text-red-400 font-mono mb-0.5">
                   {preset.label}
@@ -88,7 +134,10 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
           </label>
           <textarea
             value={customSms}
-            onChange={(e) => setCustomSms(e.target.value)}
+            onChange={(e) => {
+              setCustomSms(e.target.value);
+              if (duplicateWarning) setDuplicateWarning(null);
+            }}
             placeholder="e.g. Sent Rs 1,450.00 via Google Pay to Uber India on 28-Jul-26..."
             className="w-full h-24 p-3 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white placeholder-[#444] focus:outline-none focus:border-red-600 transition-colors"
           />
@@ -119,7 +168,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
           <button
             onClick={() => handleSimulate(customSms)}
             disabled={!customSms.trim()}
-            className="px-5 py-2 bg-white text-black text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-200 disabled:opacity-40 transition-colors flex items-center gap-2"
+            className="px-5 py-2 bg-white text-black text-xs font-mono font-bold uppercase rounded-xl hover:bg-neutral-200 disabled:opacity-40 transition-colors flex items-center gap-2 cursor-pointer"
           >
             <Send className="w-3.5 h-3.5" />
             Trigger Interceptor

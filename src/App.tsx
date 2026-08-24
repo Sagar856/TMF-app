@@ -156,11 +156,18 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [modalInitialCategoryType, setModalInitialCategoryType] = useState<CategoryType>('Expense');
-  const [isUnlocked, setIsUnlocked] = useState<boolean>(!settings.passcodeEnabled);
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
+    if (!settings.passcodeEnabled) return true;
+    return sessionStorage.getItem('tmf_session_unlocked') === 'true';
+  });
   const [inputPasscode, setInputPasscode] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<boolean>(false);
   const [passcodeAttempts, setPasscodeAttempts] = useState<number>(0);
-  const [passcodeLockedUntil, setPasscodeLockedUntil] = useState<number>(0);
+  const [passcodeLockedUntil, setPasscodeLockedUntil] = useState<number>(() => {
+    const saved = localStorage.getItem('tmf_passcode_lock_until');
+    const until = saved ? parseInt(saved, 10) : 0;
+    return until > Date.now() ? until : 0;
+  });
   const [passcodeLockRemaining, setPasscodeLockRemaining] = useState<number>(0);
   // Guards against duplicate concurrent cloud-data fetches (initial mount + auth success can both fire)
   const cloudLoadInFlightRef = useRef<boolean>(false);
@@ -357,6 +364,7 @@ export default function App() {
     localStorage.removeItem('tmf_investments');
     localStorage.removeItem('tmf_loans');
     localStorage.removeItem('tmf_pending_notifications');
+    sessionStorage.removeItem('tmf_session_unlocked');
   };
 
   // Bootstraps the real auth session on launch, and reacts to sign-in /
@@ -427,6 +435,7 @@ export default function App() {
       if (remaining <= 0) {
         setPasscodeLockedUntil(0);
         setPasscodeAttempts(0);
+        localStorage.removeItem('tmf_passcode_lock_until');
       }
     };
     tick();
@@ -445,6 +454,8 @@ export default function App() {
 
     if (inputPasscode === settings.passcode) {
       setIsUnlocked(true);
+      sessionStorage.setItem('tmf_session_unlocked', 'true');
+      localStorage.removeItem('tmf_passcode_lock_until');
       setPasscodeError(false);
       setPasscodeAttempts(0);
       setInputPasscode('');
@@ -454,9 +465,39 @@ export default function App() {
       setPasscodeError(true);
       setInputPasscode('');
       if (nextAttempts >= MAX_PASSCODE_ATTEMPTS) {
-        setPasscodeLockedUntil(Date.now() + PASSCODE_LOCKOUT_MS);
+        const lockUntil = Date.now() + PASSCODE_LOCKOUT_MS;
+        setPasscodeLockedUntil(lockUntil);
+        localStorage.setItem('tmf_passcode_lock_until', lockUntil.toString());
       }
     }
+  };
+
+  // Helper to adjust financial account balance atomically with floating-point safety
+  const adjustAccountBalance = (
+    accountsList: FinancialAccount[],
+    methodOrName: string | undefined,
+    delta: number
+  ): FinancialAccount[] => {
+    if (!methodOrName || accountsList.length === 0) return accountsList;
+    const target = methodOrName.toLowerCase().trim();
+    let idx = accountsList.findIndex(
+      (a) =>
+        a.id === methodOrName ||
+        a.name.toLowerCase() === target ||
+        a.bankName.toLowerCase() === target ||
+        a.type.toLowerCase() === target
+    );
+    if (idx === -1) {
+      const defaultIdx = accountsList.findIndex((a) => a.isDefault);
+      idx = defaultIdx !== -1 ? defaultIdx : 0;
+    }
+    if (idx === -1) return accountsList;
+
+    const copy = [...accountsList];
+    const acc = copy[idx];
+    const newBal = Math.round((acc.balance + delta) * 100) / 100;
+    copy[idx] = { ...acc, balance: newBal };
+    return copy;
   };
 
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
@@ -477,6 +518,8 @@ export default function App() {
       rawText: notif.rawText,
     };
 
+    const delta = notif.type === 'credit' ? notif.amount : -notif.amount;
+    setAccounts((prevAccs) => adjustAccountBalance(prevAccs, notif.appSource || notif.paymentMethod || 'UPI', delta));
     setTransactions((prev) => [newTx, ...prev]);
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notif.id);
@@ -525,17 +568,37 @@ export default function App() {
     setTransactions((prev) => {
       const idx = prev.findIndex((t) => t.id === tx.id);
       if (idx >= 0) {
+        const oldTx = prev[idx];
+        const revertDelta = oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount;
+        const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
+        setAccounts((prevAccs) => {
+          let updated = adjustAccountBalance(prevAccs, oldTx.paymentMethod, revertDelta);
+          updated = adjustAccountBalance(updated, tx.paymentMethod, newDelta);
+          return updated;
+        });
+
         const copy = [...prev];
         copy[idx] = tx;
         return copy;
       }
+
+      // New Transaction
+      const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
+      setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, newDelta));
       return [tx, ...prev];
     });
     setEditingTransaction(null);
   };
 
   const handleDeleteTransaction = (id: string) => {
-    setTransactions((prev) => prev.filter((t) => t.id !== id));
+    setTransactions((prev) => {
+      const tx = prev.find((t) => t.id === id);
+      if (tx) {
+        const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
+        setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, revertDelta));
+      }
+      return prev.filter((t) => t.id !== id);
+    });
   };
 
   // Category Actions
@@ -1037,6 +1100,8 @@ export default function App() {
       {/* 3. Simulator Widget for testing notifications */}
       {isSimulatorOpen && (
         <SmsSimulatorWidget
+          transactions={transactions}
+          pendingNotifications={pendingNotifications}
           onInterceptNotification={handleInterceptedFromSimulator}
           onClose={() => setIsSimulatorOpen(false)}
           currencySymbol={settings.currencySymbol}

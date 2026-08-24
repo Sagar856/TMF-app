@@ -41,9 +41,16 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         points.push({ label, dateStr, debit, credit });
       }
     } else {
-      // Last 6 weeks/periods or recent days from July
-      // Let's create 8 structured date buckets covering July 2026
-      const dates = ['2026-07-05', '2026-07-10', '2026-07-14', '2026-07-18', '2026-07-22', '2026-07-25', '2026-07-28', '2026-07-30'];
+      // Dynamic intervals across the last 30 days up to current date
+      const intervalCount = 7;
+      const intervalDays = 4;
+      const dates: string[] = [];
+
+      for (let i = intervalCount - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(now.getDate() - (i * intervalDays));
+        dates.push(d.toISOString().slice(0, 10));
+      }
       
       dates.forEach((dateStr) => {
         const d = new Date(dateStr);

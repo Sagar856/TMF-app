@@ -39,11 +39,11 @@ jobs:
       - name: Add Android platform (Capacitor)
         run: npx cap add android
 
-      - name: Merge native notification-listener plugin into Android project
-        run: node scripts/patch-android.mjs
-
       - name: Sync Capacitor
         run: npx cap sync android
+
+      - name: Merge native notification-listener plugin into Android project
+        run: node scripts/patch-android.mjs
 
       - name: Make gradlew executable
         run: chmod +x android/gradlew

@@ -23,8 +23,8 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
       const spent = catTxs.reduce((sum, t) => sum + t.amount, 0);
       const count = catTxs.length;
       const percentOfTotal = totalDebitSum > 0 ? (spent / totalDebitSum) * 100 : 0;
-      const limit = cat.budgetLimit || 10000;
-      const budgetPercent = Math.min(100, Math.round((spent / limit) * 100));
+      const limit = cat.budgetLimit || 0;
+      const budgetPercent = limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 0;
 
       return {
         category: cat,
@@ -120,7 +120,7 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
                     {currencySymbol}{item.spent.toLocaleString('en-IN')}
                   </div>
                   <div className="text-[9px] text-[#666]">
-                    Limit: {currencySymbol}{item.limit.toLocaleString('en-IN')}
+                    {item.limit > 0 ? `Limit: ${currencySymbol}${item.limit.toLocaleString('en-IN')}` : 'No limit set'}
                   </div>
                 </div>
               </div>
