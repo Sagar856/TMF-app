@@ -64,6 +64,11 @@ import {
   getCurrentUserSession,
   isCloudBackendConfigured,
   signOutUser,
+  deleteMultipleTransactionsFromSupabase,
+  deleteMultipleAccountsFromSupabase,
+  deleteMultipleInvestmentsFromSupabase,
+  deleteMultipleLoansFromSupabase,
+  deleteAllUserDataFromSupabase,
 } from './services/supabaseClient';
 
 import { parseSmsNotification } from './services/smsParser';
@@ -95,7 +100,13 @@ export default function App() {
   // App Data with LocalStorage Persistence
   const [settings, setSettings] = useState<UserSettings>(() => {
     const saved = localStorage.getItem('tmf_settings');
-    if (saved) return JSON.parse(saved);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        ...parsed,
+        sampleDataLoaded: parsed.sampleDataLoaded !== undefined ? parsed.sampleDataLoaded : true,
+      };
+    }
     return {
       userName: '',
       userEmail: '',
@@ -112,6 +123,7 @@ export default function App() {
       autoExtractSms: true,
       notificationsEnabled: true,
       budgetAlertsEnabled: true,
+      sampleDataLoaded: true,
     };
   });
 
@@ -122,22 +134,38 @@ export default function App() {
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
     const saved = localStorage.getItem('tmf_accounts');
-    return saved ? JSON.parse(saved) : [];
+    if (saved !== null) return JSON.parse(saved);
+    const savedSettings = localStorage.getItem('tmf_settings');
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
+    return isLoaded ? INITIAL_ACCOUNTS : [];
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const saved = localStorage.getItem('tmf_transactions');
-    return saved ? JSON.parse(saved) : [];
+    if (saved !== null) return JSON.parse(saved);
+    const savedSettings = localStorage.getItem('tmf_settings');
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
+    return isLoaded ? INITIAL_TRANSACTIONS : [];
   });
 
   const [investments, setInvestments] = useState<InvestmentRecord[]>(() => {
     const saved = localStorage.getItem('tmf_investments');
-    return saved ? JSON.parse(saved) : [];
+    if (saved !== null) return JSON.parse(saved);
+    const savedSettings = localStorage.getItem('tmf_settings');
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
+    return isLoaded ? INITIAL_INVESTMENTS : [];
   });
 
   const [loans, setLoans] = useState<LoanRecord[]>(() => {
     const saved = localStorage.getItem('tmf_loans');
-    return saved ? JSON.parse(saved) : [];
+    if (saved !== null) return JSON.parse(saved);
+    const savedSettings = localStorage.getItem('tmf_settings');
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
+    return isLoaded ? INITIAL_LOANS : [];
   });
 
   // Pending SMS / UPI Intercepted Notifications Queue
@@ -356,11 +384,26 @@ export default function App() {
         fetchLoansFromSupabase(),
       ]);
 
-      if (cloudTx && cloudTx.length > 0) setTransactions(cloudTx);
-      if (cloudAcc && cloudAcc.length > 0) setAccounts(cloudAcc);
+      const savedSettings = localStorage.getItem('tmf_settings');
+      const isSampleLoaded = savedSettings ? JSON.parse(savedSettings).sampleDataLoaded !== false : true;
+
+      if (cloudTx) {
+        const filteredTx = isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id));
+        setTransactions(filteredTx);
+      }
+      if (cloudAcc) {
+        const filteredAcc = isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id));
+        setAccounts(filteredAcc);
+      }
       if (cloudCat && cloudCat.length > 0) setCategories(cloudCat);
-      if (cloudInv && cloudInv.length > 0) setInvestments(cloudInv);
-      if (cloudLoans && cloudLoans.length > 0) setLoans(cloudLoans);
+      if (cloudInv) {
+        const filteredInv = isSampleLoaded ? cloudInv : cloudInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id));
+        setInvestments(filteredInv);
+      }
+      if (cloudLoans) {
+        const filteredLoans = isSampleLoaded ? cloudLoans : cloudLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id));
+        setLoans(filteredLoans);
+      }
     } catch (err) {
       console.warn('Cloud data fetch failed:', err);
     } finally {
@@ -739,7 +782,24 @@ export default function App() {
         setInvestments(INITIAL_INVESTMENTS);
         setLoans(INITIAL_LOANS);
         setCategories(INITIAL_CATEGORIES);
-        showToast('Sample demo data loaded successfully', 'success');
+
+        const newSettings = { ...settings, sampleDataLoaded: true };
+        setSettings(newSettings);
+
+        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
+        localStorage.setItem('tmf_accounts', JSON.stringify(INITIAL_ACCOUNTS));
+        localStorage.setItem('tmf_transactions', JSON.stringify(INITIAL_TRANSACTIONS));
+        localStorage.setItem('tmf_investments', JSON.stringify(INITIAL_INVESTMENTS));
+        localStorage.setItem('tmf_loans', JSON.stringify(INITIAL_LOANS));
+
+        if (isCloudBackendConfigured()) {
+          syncAccountsToSupabase(INITIAL_ACCOUNTS);
+          syncTransactionsToSupabase(INITIAL_TRANSACTIONS);
+          syncInvestmentsToSupabase(INITIAL_INVESTMENTS);
+          syncLoansToSupabase(INITIAL_LOANS);
+        }
+
+        showToast('Sample demo data loaded & saved', 'success');
       },
     });
   };
@@ -747,16 +807,38 @@ export default function App() {
   const handleRequestRemoveSampleData = () => {
     setConfirmConfig({
       title: 'Remove Sample Data?',
-      description: 'This will remove all preset demo transactions, bank accounts, investments, and loans from your app. Any custom entries you added will remain untouched.',
+      description: 'This will remove all preset demo transactions, bank accounts, investments, and loans from your app and cloud storage. Any custom entries you added will remain untouched.',
       confirmLabel: 'Remove Demo Data',
       cancelLabel: 'Cancel',
       intent: 'warning',
       icon: 'trash',
-      onConfirm: () => {
-        setTransactions((prev) => prev.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)));
-        setAccounts((prev) => prev.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)));
-        setInvestments((prev) => prev.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)));
-        setLoans((prev) => prev.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)));
+      onConfirm: async () => {
+        const nextTx = transactions.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id));
+        const nextAcc = accounts.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id));
+        const nextInv = investments.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id));
+        const nextLoans = loans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id));
+
+        setTransactions(nextTx);
+        setAccounts(nextAcc);
+        setInvestments(nextInv);
+        setLoans(nextLoans);
+
+        const newSettings = { ...settings, sampleDataLoaded: false };
+        setSettings(newSettings);
+
+        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
+        localStorage.setItem('tmf_transactions', JSON.stringify(nextTx));
+        localStorage.setItem('tmf_accounts', JSON.stringify(nextAcc));
+        localStorage.setItem('tmf_investments', JSON.stringify(nextInv));
+        localStorage.setItem('tmf_loans', JSON.stringify(nextLoans));
+
+        if (isCloudBackendConfigured()) {
+          deleteMultipleTransactionsFromSupabase(Array.from(SAMPLE_TRANSACTION_IDS));
+          deleteMultipleAccountsFromSupabase(Array.from(SAMPLE_ACCOUNT_IDS));
+          deleteMultipleInvestmentsFromSupabase(Array.from(SAMPLE_INVESTMENT_IDS));
+          deleteMultipleLoansFromSupabase(Array.from(SAMPLE_LOAN_IDS));
+        }
+
         showToast('Sample demo data removed', 'warning');
       },
     });
@@ -790,17 +872,27 @@ export default function App() {
       cancelLabel: 'Keep Data',
       intent: 'danger',
       icon: 'warning',
-      onConfirm: () => {
-        localStorage.removeItem('tmf_transactions');
-        localStorage.removeItem('tmf_accounts');
-        localStorage.removeItem('tmf_investments');
-        localStorage.removeItem('tmf_loans');
-        localStorage.removeItem('tmf_pending_notifications');
+      onConfirm: async () => {
+        const newSettings = { ...settings, sampleDataLoaded: false };
+        setSettings(newSettings);
+
+        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
+        localStorage.setItem('tmf_transactions', '[]');
+        localStorage.setItem('tmf_accounts', '[]');
+        localStorage.setItem('tmf_investments', '[]');
+        localStorage.setItem('tmf_loans', '[]');
+        localStorage.setItem('tmf_pending_notifications', '[]');
+
         setTransactions([]);
         setAccounts([]);
         setInvestments([]);
         setLoans([]);
         setPendingNotifications([]);
+
+        if (isCloudBackendConfigured()) {
+          await deleteAllUserDataFromSupabase();
+        }
+
         showToast('All local financial records cleared', 'error');
       },
     });

@@ -577,37 +577,60 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </button>
         </div>
 
-        {/* Sample Demo Data Controls */}
-        <div className="p-3.5 bg-obsidian border border-nothing rounded-2xl space-y-3">
+        {/* Sample Demo Data Controls with Toggle Switch */}
+        <div className="p-3.5 bg-obsidian border border-nothing rounded-2xl space-y-2.5">
           <div>
-            <div className="text-xs font-mono font-bold text-white">Sample Demo Data Management</div>
+            <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+              <span>Sample Demo Data</span>
+              <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold font-mono uppercase ${
+                settings.sampleDataLoaded !== false
+                  ? 'bg-blue-950/90 text-blue-400 border border-blue-800/80'
+                  : 'bg-zinc-800/90 text-zinc-400 border border-zinc-700/80'
+              }`}>
+                {settings.sampleDataLoaded !== false ? 'LOADED' : 'REMOVED'}
+              </span>
+            </div>
             <div className="text-[10px] text-[#777] font-mono mt-0.5">
-              Populate or clean out sample bank accounts, transactions, investments, and loans
+              Toggle sample records. When marked as removed, sample data will not be re-loaded on app refresh.
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap pt-1">
+          <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#1e1e1e]">
+            {/* Load Sample Data Button on Left Side */}
             {onLoadSampleData && (
               <button
                 type="button"
                 onClick={onLoadSampleData}
-                className="px-4 py-2 border border-blue-800/80 bg-blue-950/20 text-blue-400 hover:bg-blue-950/50 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
+                className="px-3 py-1.5 border border-blue-800/80 bg-blue-950/30 hover:bg-blue-900/40 text-blue-400 font-mono text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
                 <span>Load Sample Data</span>
               </button>
             )}
 
-            {onRemoveSampleData && (
-              <button
-                type="button"
-                onClick={onRemoveSampleData}
-                className="px-4 py-2 border border-amber-800/80 bg-amber-950/20 text-amber-400 hover:bg-amber-950/50 text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Remove Sample Data</span>
-              </button>
-            )}
+            {/* Toggle Switch Icon on Right Side */}
+            <button
+              type="button"
+              onClick={() => {
+                const isCurrentlyLoaded = settings.sampleDataLoaded !== false;
+                if (isCurrentlyLoaded && onRemoveSampleData) {
+                  onRemoveSampleData();
+                } else if (!isCurrentlyLoaded && onLoadSampleData) {
+                  onLoadSampleData();
+                }
+              }}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                settings.sampleDataLoaded !== false ? 'bg-blue-600' : 'bg-zinc-700'
+              }`}
+              title={settings.sampleDataLoaded !== false ? 'Click to Remove Sample Data' : 'Click to Load Sample Data'}
+            >
+              <span className="sr-only">Toggle Sample Data</span>
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  settings.sampleDataLoaded !== false ? 'translate-x-5' : 'translate-x-0'
+                }`}
+              />
+            </button>
           </div>
         </div>
 
