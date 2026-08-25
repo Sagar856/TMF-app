@@ -24,7 +24,10 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
       const count = catTxs.length;
       const percentOfTotal = totalDebitSum > 0 ? (spent / totalDebitSum) * 100 : 0;
       const limit = cat.budgetLimit || 0;
-      const budgetPercent = limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 0;
+      const budgetRawPercent = limit > 0 ? (spent / limit) * 100 : 0;
+      const budgetPercent = limit > 0 ? Math.min(100, Math.round(budgetRawPercent)) : 0;
+      const isOverThreshold = limit > 0 && budgetRawPercent >= 80 && budgetRawPercent < 100;
+      const isOverBudget = limit > 0 && budgetRawPercent >= 100;
 
       return {
         category: cat,
@@ -32,7 +35,10 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
         count,
         percentOfTotal,
         limit,
+        budgetRawPercent,
         budgetPercent,
+        isOverThreshold,
+        isOverBudget,
       };
     })
     .filter((stat) => stat.spent > 0)
@@ -51,9 +57,16 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
             Top Spend Categories
           </h3>
         </div>
-        <span className="text-[10px] font-mono font-bold text-[#888] bg-[#1a1a1a] px-2 py-0.5 rounded-full border border-[#262626]">
-          {categoryStats.length} Active
-        </span>
+        <div className="flex items-center gap-1.5">
+          {categoryStats.some(s => s.isOverThreshold || s.isOverBudget) && (
+            <span className="text-[9px] font-mono font-bold text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-800/80 animate-pulse">
+              &gt;80% Alert Active
+            </span>
+          )}
+          <span className="text-[10px] font-mono font-bold text-[#888] bg-[#1a1a1a] px-2 py-0.5 rounded-full border border-[#262626]">
+            {categoryStats.length} Active
+          </span>
+        </div>
       </div>
 
       {/* Visual Graphic 1: Category Segmented Proportion Bar */}
@@ -91,9 +104,15 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
           return (
             <div
               key={item.category.id}
-              className="p-3 bg-obsidian border border-nothing hover:border-[#333] rounded-xl space-y-2 transition-all hover:bg-[#121212]"
+              className={`p-3 bg-obsidian border rounded-xl space-y-2 transition-all hover:bg-[#121212] ${
+                item.isOverBudget
+                  ? 'border-red-600/70 shadow-[0_0_15px_rgba(220,38,38,0.15)]'
+                  : item.isOverThreshold
+                  ? 'border-amber-500/70 shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                  : 'border-nothing hover:border-[#333]'
+              }`}
             >
-              {/* Row 1: Category Name & Spent Amount */}
+              {/* Row 1: Category Name, Threshold Badge & Spent Amount */}
               <div className="flex items-center justify-between gap-2 min-w-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <div className="w-6 h-6 bg-black border border-[#262626] rounded-lg flex items-center justify-center font-mono text-[9px] font-bold text-white shrink-0">
@@ -104,8 +123,20 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
                     style={{ backgroundColor: catColor }}
                   />
                   <div className="min-w-0">
-                    <div className="text-xs font-bold text-white font-mono truncate">
-                      {item.category.name}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold text-white font-mono truncate">
+                        {item.category.name}
+                      </span>
+                      {item.isOverBudget && (
+                        <span className="px-1.5 py-0.2 bg-red-950 text-red-400 border border-red-800 rounded text-[8px] font-bold">
+                          🚨 {Math.round(item.budgetRawPercent)}% OVER LIMIT
+                        </span>
+                      )}
+                      {item.isOverThreshold && (
+                        <span className="px-1.5 py-0.2 bg-amber-950 text-amber-300 border border-amber-800 rounded text-[8px] font-bold">
+                          ⚠️ {Math.round(item.budgetRawPercent)}% BUDGET
+                        </span>
+                      )}
                     </div>
                     <div className="text-[9px] text-[#777] font-mono flex items-center gap-1.5">
                       <span>{item.percentOfTotal.toFixed(1)}% share</span>
@@ -116,7 +147,9 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
                 </div>
 
                 <div className="text-right shrink-0 font-mono">
-                  <div className="text-xs sm:text-sm font-bold text-white">
+                  <div className={`text-xs sm:text-sm font-bold ${
+                    item.isOverBudget ? 'text-red-400' : item.isOverThreshold ? 'text-amber-300' : 'text-white'
+                  }`}>
                     {currencySymbol}{item.spent.toLocaleString('en-IN')}
                   </div>
                   <div className="text-[9px] text-[#666]">
@@ -126,14 +159,22 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
               </div>
 
               {/* Row 2: Visual Progress Bar */}
-              <div className="w-full bg-[#181818] h-2 rounded-full overflow-hidden p-0.5 border border-[#222]">
-                <div
-                  className="h-full rounded-full transition-all duration-500"
-                  style={{
-                    width: `${relativeBarWidth}%`,
-                    backgroundColor: catColor,
-                  }}
-                />
+              <div className="relative">
+                <div className="w-full bg-[#181818] h-2 rounded-full overflow-hidden p-0.5 border border-[#222]">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      item.isOverBudget
+                        ? 'bg-red-500'
+                        : item.isOverThreshold
+                        ? 'bg-amber-400'
+                        : ''
+                    }`}
+                    style={{
+                      width: `${relativeBarWidth}%`,
+                      backgroundColor: item.isOverBudget ? undefined : item.isOverThreshold ? undefined : catColor,
+                    }}
+                  />
+                </div>
               </div>
             </div>
           );

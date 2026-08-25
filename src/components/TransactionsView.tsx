@@ -554,9 +554,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <button
             type="button"
             onClick={() => setViewMode('table')}
-            className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-all nav-lift cursor-pointer ${
               viewMode === 'table'
-                ? 'bg-[#222] text-white font-bold border border-[#333]'
+                ? 'bg-[#222] text-white font-bold border border-[#333] shadow-sm -translate-y-0.5'
                 : 'text-[#666] hover:text-[#aaa]'
             }`}
           >
@@ -566,9 +566,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <button
             type="button"
             onClick={() => setViewMode('detail')}
-            className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer ${
+            className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-all nav-lift cursor-pointer ${
               viewMode === 'detail'
-                ? 'bg-[#222] text-white font-bold border border-[#333]'
+                ? 'bg-[#222] text-white font-bold border border-[#333] shadow-sm -translate-y-0.5'
                 : 'text-[#666] hover:text-[#aaa]'
             }`}
           >
@@ -582,7 +582,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       {viewMode === 'table' ? (
         /* TABLE FORMAT */
         <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
-          <div className="min-w-[720px]">
+          <div className="min-w-[860px]">
             {/* Header */}
             <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
               <div className="col-span-2">DATE</div>
@@ -590,8 +590,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               <div className="col-span-2">AMOUNT</div>
               <div className="col-span-1">ACCOUNT</div>
               <div className="col-span-2">DESCRIPTION</div>
-              <div className="col-span-2">PLACE</div>
-              <div className="col-span-1 text-right">ACTIONS</div>
+              <div className="col-span-1">PLACE</div>
+              <div className="col-span-2 text-right">ACTIONS</div>
             </div>
 
             {/* Rows */}
@@ -603,10 +603,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               filteredTransactions.map((tx) => (
                 <div
                   key={tx.id}
-                  className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#161616] transition-colors"
+                  onClick={() => onEditTransaction(tx)}
+                  className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all hover:translate-x-0.5 cursor-pointer"
                 >
                   {/* DATE */}
-                  <div className="col-span-2 text-[#aaa]">
+                  <div className="col-span-2 text-[#aaa] truncate">
                     {formatDateDisplay(tx.date)}
                   </div>
 
@@ -617,7 +618,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
                   {/* AMOUNT */}
                   <div
-                    className={`col-span-2 font-mono font-bold ${
+                    className={`col-span-2 font-mono font-bold truncate ${
                       tx.type === 'debit' ? 'text-red-500' : 'text-emerald-400'
                     }`}
                   >
@@ -635,23 +636,29 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   </div>
 
                   {/* PLACE */}
-                  <div className="col-span-2 text-[#aaa] truncate">
+                  <div className="col-span-1 text-[#aaa] truncate pr-2">
                     {tx.location?.name || tx.payeeOrPayer || '—'}
                   </div>
 
                   {/* ACTIONS */}
-                  <div className="col-span-1 flex justify-end gap-1">
+                  <div className="col-span-2 flex justify-end items-center gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => onEditTransaction(tx)}
-                      className="px-1.5 py-0.5 border border-[#333] text-[#aaa] hover:text-white text-[10px] uppercase rounded transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onEditTransaction(tx);
+                      }}
+                      className="px-2 py-1 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all nav-lift cursor-pointer shrink-0"
                     >
                       EDIT
                     </button>
                     <button
                       type="button"
-                      onClick={() => onDeleteTransaction(tx.id)}
-                      className="px-1.5 py-0.5 border border-red-900/80 text-red-500 hover:bg-red-950/40 text-[10px] uppercase rounded transition-colors"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteTransaction(tx.id);
+                      }}
+                      className="px-2 py-1 border border-red-900/80 hover:border-red-500 text-red-500 hover:text-red-300 hover:bg-red-950/40 text-[10px] uppercase font-bold rounded-lg transition-all nav-lift cursor-pointer shrink-0"
                     >
                       DEL
                     </button>
@@ -663,21 +670,21 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </div>
       ) : (
         /* DETAIL FORMAT (Card layout) */
-        <div className="bg-[#111111] border border-[#222] rounded-2xl divide-y divide-[#1c1c1c] overflow-hidden">
+        <div className="space-y-2.5">
           {filteredTransactions.length === 0 ? (
-            <div className="p-8 text-center text-xs text-[#666]">
+            <div className="p-8 text-center text-xs text-[#666] bg-[#111111] border border-[#222] rounded-2xl">
               No transactions match your search filters.
             </div>
           ) : (
             filteredTransactions.map((tx) => (
               <div
                 key={tx.id}
-                className="p-4 hover:bg-[#161616] transition-colors flex items-center justify-between flex-wrap gap-4 group"
+                className="p-4 bg-[#111111] border border-[#222] hover:border-[#333] rounded-2xl hover:bg-[#161616] transition-all tactile-lift flex items-center justify-between flex-wrap gap-4 group cursor-pointer"
               >
                 {/* Left: DR/CR badge & Title */}
                 <div className="flex items-center gap-3.5 min-w-[240px]">
                   <div
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono text-xs font-bold shrink-0 ${
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center font-mono text-xs font-bold shrink-0 transition-transform group-hover:scale-105 ${
                       tx.type === 'debit'
                         ? 'bg-red-950/50 border border-red-800/80 text-red-500'
                         : 'bg-emerald-950/50 border border-emerald-800/80 text-emerald-400'
@@ -729,14 +736,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     <button
                       type="button"
                       onClick={() => onEditTransaction(tx)}
-                      className="px-2 py-1 border border-[#333] text-[#aaa] hover:text-white text-[10px] uppercase rounded transition-colors"
+                      className="px-2 py-1 border border-[#333] text-[#aaa] hover:text-white text-[10px] uppercase rounded transition-all nav-lift cursor-pointer"
                     >
                       EDIT
                     </button>
                     <button
                       type="button"
                       onClick={() => onDeleteTransaction(tx.id)}
-                      className="px-2 py-1 border border-red-900/80 text-red-500 hover:bg-red-950/40 text-[10px] uppercase rounded transition-colors"
+                      className="px-2 py-1 border border-red-900/80 text-red-500 hover:bg-red-950/40 text-[10px] uppercase rounded transition-all nav-lift cursor-pointer"
                     >
                       DEL
                     </button>

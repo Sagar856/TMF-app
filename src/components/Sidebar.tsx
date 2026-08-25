@@ -59,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Simulator Trigger Banner */}
       <button
         onClick={onOpenSimulator}
-        className="mb-6 p-3 bg-shadow hover:bg-[#222] border border-red-900/60 rounded-xl transition-all group text-left relative overflow-hidden"
+        className="mb-6 p-3 bg-shadow hover:bg-[#222] border border-red-900/60 rounded-xl transition-all tactile-lift group text-left relative overflow-hidden cursor-pointer"
       >
         <div className="absolute top-0 right-0 w-12 h-12 bg-red-600/10 rounded-full blur-xl pointer-events-none"></div>
         <div className="flex items-center justify-between mb-1">
@@ -80,7 +80,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </button>
 
       {/* Navigation Sections */}
-      <div className="flex flex-col gap-1 flex-1 overflow-y-auto">
+      <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto">
         <div className="text-[9px] text-slate-400 dark:text-[#555] uppercase tracking-[0.25em] font-mono mb-2 px-3">Main Navigation</div>
         {navItems.filter(item => item.section === 'Main').map(item => {
           const Icon = item.icon;
@@ -89,9 +89,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all nav-lift cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-sm'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-md -translate-y-0.5'
                   : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-graphite'
               }`}
             >
@@ -112,9 +112,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all nav-lift cursor-pointer ${
                 isActive
-                  ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-sm'
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-md -translate-y-0.5'
                   : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-graphite'
               }`}
             >

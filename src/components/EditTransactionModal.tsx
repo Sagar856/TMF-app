@@ -10,7 +10,8 @@ import {
   InvestmentType,
   LoanType,
 } from '../types/finance';
-import { X, Plus } from 'lucide-react';
+import { X, Plus, Sparkles } from 'lucide-react';
+import { suggestCategoryForTitle } from '../services/notification/CategoryClassifier';
 
 export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend';
 
@@ -85,6 +86,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [loanNotes, setLoanNotes] = useState<string>('');
   const [loanRefNum, setLoanRefNum] = useState<string>('NA');
 
+  const [autoMatchedCategory, setAutoMatchedCategory] = useState<string | null>(null);
+
   // Handle category type change
   const handleCategoryTypeChange = (newType: CategoryType) => {
     setCategoryType(newType);
@@ -92,6 +95,34 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       setTxType('credit');
     } else if (newType === 'Expense') {
       setTxType('debit');
+    }
+  };
+
+  const handleDescriptionChange = (val: string) => {
+    setDescription(val);
+    if (!isEditingExisting) {
+      const match = suggestCategoryForTitle(val, txType);
+      if (match) {
+        setSelectedCategory(match.category);
+        if (match.categoryType !== categoryType) {
+          setCategoryType(match.categoryType);
+        }
+        setAutoMatchedCategory(match.category);
+      }
+    }
+  };
+
+  const handlePlaceChange = (val: string) => {
+    setPlace(val);
+    if (!isEditingExisting && !description) {
+      const match = suggestCategoryForTitle(val, txType);
+      if (match) {
+        setSelectedCategory(match.category);
+        if (match.categoryType !== categoryType) {
+          setCategoryType(match.categoryType);
+        }
+        setAutoMatchedCategory(match.category);
+      }
     }
   };
 
@@ -266,12 +297,23 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
               {/* Row 3: CATEGORY */}
               <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                  CATEGORY
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
+                    CATEGORY
+                  </label>
+                  {autoMatchedCategory && selectedCategory === autoMatchedCategory && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-800/60">
+                      <Sparkles className="w-2.5 h-2.5" />
+                      Auto-matched: {autoMatchedCategory}
+                    </span>
+                  )}
+                </div>
                 <select
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedCategory(e.target.value);
+                    setAutoMatchedCategory(null);
+                  }}
                   className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                 >
                   <option value="">Select category</option>
@@ -324,7 +366,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                             .filter((a) => a.type === 'Credit Card')
                             .map((a) => (
                               <option key={a.id} value={`${a.bankName} CC (**${a.accountNumberLast4})`}>
-                                {a.bankName} {a.cardNetwork} (**{a.accountNumberLast4})
+                                {a.cardNetwork ? `${a.bankName} ${a.cardNetwork}` : a.bankName} (**{a.accountNumberLast4})
                               </option>
                             ))}
                         </optgroup>
@@ -368,8 +410,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 <input
                   type="text"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="What was this for?"
+                  onChange={(e) => handleDescriptionChange(e.target.value)}
+                  placeholder="e.g. Zomato dinner, Uber to airport, Amazon..."
                   className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                 />
               </div>
@@ -383,7 +425,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <input
                     type="text"
                     value={place}
-                    onChange={(e) => setPlace(e.target.value)}
+                    onChange={(e) => handlePlaceChange(e.target.value)}
                     placeholder="Where?"
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                   />

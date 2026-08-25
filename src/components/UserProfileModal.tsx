@@ -533,18 +533,36 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl flex items-center justify-between">
                 <div>
                   <div className="text-xs font-bold text-white">Push Notifications & Payment Alerts</div>
-                  <div className="text-[10px] text-[#666]">Daily budget alerts and bill reminders</div>
+                  <div className="text-[10px] text-[#666]">Transaction intercept popups and bill reminders</div>
                 </div>
                 <button
                   type="button"
                   onClick={() => onUpdateSettings({ ...settings, notificationsEnabled: !settings.notificationsEnabled })}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
                     settings.notificationsEnabled
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                       : 'bg-[#1c1c1c] text-[#777]'
                   }`}
                 >
                   {settings.notificationsEnabled ? 'ON' : 'OFF'}
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl flex items-center justify-between">
+                <div>
+                  <div className="text-xs font-bold text-white">Budget Threshold Push Alerts</div>
+                  <div className="text-[10px] text-[#666]">Real-time push alerts when spending hits 80% or 100% of budget</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onUpdateSettings({ ...settings, budgetAlertsEnabled: settings.budgetAlertsEnabled === false ? true : false })}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                    settings.budgetAlertsEnabled !== false
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                      : 'bg-[#1c1c1c] text-[#777]'
+                  }`}
+                >
+                  {settings.budgetAlertsEnabled !== false ? 'ON' : 'OFF'}
                 </button>
               </div>
             </div>

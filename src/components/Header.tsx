@@ -79,7 +79,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onToggleTheme && (
           <button
             onClick={onToggleTheme}
-            className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-colors flex items-center justify-center min-w-[38px] min-h-[38px]"
+            className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift flex items-center justify-center min-w-[38px] min-h-[38px] cursor-pointer"
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
             {theme === 'dark' ? (
@@ -93,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* SMS Simulator Button */}
         <button
           onClick={onOpenSimulator}
-          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-colors relative min-w-[38px] min-h-[38px]"
+          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Simulate SMS / UPI Payment"
         >
           <Smartphone className="w-4 h-4 text-red-400" />
@@ -105,7 +105,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Pending Notification Bell Button */}
         <button
           onClick={onOpenNotifications}
-          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-colors relative min-w-[38px] min-h-[38px]"
+          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Pending Payment Confirmations"
         >
           <Bell className="w-4 h-4 text-white" />
@@ -120,7 +120,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={onOpenProfile}
-          className="p-0.5 bg-graphite border border-nothing/60 hover:border-red-600/80 rounded-full shadow-sm transition-all cursor-pointer group shrink-0"
+          className="p-0.5 bg-graphite border border-nothing/60 hover:border-red-600/80 rounded-full shadow-sm transition-all nav-lift cursor-pointer group shrink-0"
           title="Click to view/edit User Profile & Photo"
         >
           {userPhoto ? (

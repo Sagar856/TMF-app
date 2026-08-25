@@ -634,7 +634,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <div
                   key={acc.id}
                   onClick={() => setSelectedAccountId(acc.id)}
-                  className={`p-5 bg-[#111111] border rounded-2xl space-y-3 transition-all cursor-pointer hover:border-red-600/80 ${
+                  className={`p-5 bg-[#111111] border rounded-2xl space-y-3 transition-all tactile-lift cursor-pointer hover:border-red-600/80 ${
                     selectedAccountId === acc.id ? 'border-red-600 bg-[#161616]' : 'border-[#222]'
                   }`}
                 >
@@ -655,7 +655,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleOpenEdit(acc, e)}
-                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-white transition-colors"
+                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-white transition-all nav-lift"
                         title="Edit Account"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -668,7 +668,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                             onDeleteAccount(acc.id);
                           }
                         }}
-                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-red-400 transition-colors"
+                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-red-400 transition-all nav-lift"
                         title="Delete Account"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -705,7 +705,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <button
               type="button"
               onClick={() => setSelectedAccountId(null)}
-              className="p-2 rounded-xl bg-[#1c1c1c] text-[#888] hover:text-white transition-colors text-xs"
+              className="p-2 rounded-xl bg-[#1c1c1c] text-[#888] hover:text-white transition-all nav-lift text-xs cursor-pointer"
             >
               Close Logs
             </button>
@@ -720,7 +720,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               accountTxns.map((tx) => (
                 <div
                   key={tx.id}
-                  className="p-3 bg-[#0a0a0a] border border-[#222] rounded-xl flex items-center justify-between text-xs"
+                  className="p-3 bg-[#0a0a0a] border border-[#222] hover:border-[#333] hover:bg-[#121212] rounded-xl flex items-center justify-between text-xs transition-all tactile-lift cursor-pointer"
                 >
                   <div>
                     <div className="font-bold text-white">{tx.title}</div>

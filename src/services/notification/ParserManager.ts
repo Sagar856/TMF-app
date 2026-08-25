@@ -55,12 +55,12 @@ export function parseNotification(
     payeeOrPayer = walletResult.payeeOrPayer;
   }
 
-  // Fallback to merchant search in rawText if still unknown
-  if (payeeOrPayer === 'Unknown Merchant') {
-    const fallbackCategory = classifyMerchant('Unknown', rawText, keywordResult.type);
-    if (fallbackCategory.subcategory !== 'General Expense' && fallbackCategory.subcategory !== 'Other Income') {
-      payeeOrPayer = fallbackCategory.subcategory;
-    }
+  // Step 6: Categorization (maps keywords e.g., 'Zomato' -> 'Food & Dining')
+  const categoryMatch = classifyMerchant(payeeOrPayer, rawText, keywordResult.type);
+
+  // If payee/merchant was still unknown, use identified merchant from category match
+  if (payeeOrPayer === 'Unknown Merchant' && categoryMatch.suggestedTitle) {
+    payeeOrPayer = categoryMatch.suggestedTitle;
   }
 
   // Account last 4
@@ -68,9 +68,6 @@ export function parseNotification(
 
   // Reference Number / UTR
   const refNumber = upiResult.upiRefNumber || regexResult.refNumber;
-
-  // Step 6: Categorization
-  const categoryMatch = classifyMerchant(payeeOrPayer, rawText, keywordResult.type);
 
   // Step 7: Duplicate Check
   const isDuplicate = isDuplicateNotification(

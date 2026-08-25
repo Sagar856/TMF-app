@@ -4,6 +4,44 @@ import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord }
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
 
+function isValidHttpUrl(stringUrl?: string): boolean {
+  if (!stringUrl || typeof stringUrl !== 'string') return false;
+  const trimmed = stringUrl.trim();
+  if (
+    !trimmed ||
+    trimmed === 'undefined' ||
+    trimmed === 'null' ||
+    trimmed.includes('YOUR_SUPABASE') ||
+    trimmed.includes('example.supabase.co')
+  ) {
+    return false;
+  }
+  try {
+    const url = new URL(trimmed);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+export function isNetworkOrFetchError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = typeof err === 'object' && err !== null && 'message' in err
+    ? String((err as { message: unknown }).message).toLowerCase()
+    : String(err).toLowerCase();
+  return (
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network error') ||
+    msg.includes('abort') ||
+    msg.includes('timeout') ||
+    msg.includes('load failed') ||
+    msg.includes('err_name_not_resolved') ||
+    msg.includes('err_connection_refused') ||
+    msg.includes('typeerror: failed to fetch')
+  );
+}
+
 // This is a shared, single-project multi-tenant backend: every user of this
 // app talks to the SAME Supabase project (URL + anon key baked in at build
 // time via VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY — see .env.example and
@@ -17,18 +55,18 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (clientInitAttempted) return null; // avoid retrying createClient on every call when misconfigured
 
   const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env || {};
-  const supabaseUrl = metaEnv.VITE_SUPABASE_URL;
-  const supabaseKey = metaEnv.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = metaEnv.VITE_SUPABASE_URL?.trim();
+  const supabaseKey = metaEnv.VITE_SUPABASE_ANON_KEY?.trim();
 
   clientInitAttempted = true;
 
-  if (!supabaseUrl || !supabaseKey) {
-    console.warn('Cloud sync is disabled: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY were not set at build time.');
+  if (!isValidHttpUrl(supabaseUrl) || !supabaseKey || supabaseKey === 'undefined' || supabaseKey === 'null' || supabaseKey.includes('YOUR_SUPABASE')) {
+    console.warn('Cloud sync is disabled: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not configured or invalid.');
     return null;
   }
 
   try {
-    supabaseInstance = createClient(supabaseUrl, supabaseKey);
+    supabaseInstance = createClient(supabaseUrl!, supabaseKey);
   } catch (err) {
     console.warn('Failed to initialize Supabase client:', err);
     return null;
@@ -196,7 +234,11 @@ export interface SyncResult {
 
 function syncError(context: string, err: unknown): SyncResult {
   const message = (err as { message?: string })?.message || String(err);
-  console.error(`Supabase sync error [${context}]:`, err);
+  if (isNetworkOrFetchError(err) || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+    console.warn(`Supabase sync offline/unreachable [${context}]: Cloud backend unreachable. Changes are saved locally.`);
+    return { success: false, error: 'Cloud offline or unreachable. Changes saved in local storage.' };
+  }
+  console.warn(`Supabase sync issue [${context}]:`, message);
   return { success: false, error: message };
 }
 
@@ -244,6 +286,18 @@ export async function deleteTransactionFromSupabase(id: string): Promise<SyncRes
   }
 }
 
+export async function deleteMultipleTransactionsFromSupabase(ids: string[]): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client || ids.length === 0) return { success: true };
+  try {
+    const { error } = await client.from('transactions').delete().in('id', ids);
+    if (error) return syncError('delete-multiple-transactions', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-multiple-transactions', err);
+  }
+}
+
 export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -251,7 +305,11 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
   try {
     const { data, error } = await client.from('transactions').select('*').order('date', { ascending: false });
     if (error) {
-      console.error('Supabase fetch error [transactions]:', error);
+      if (isNetworkOrFetchError(error)) {
+        console.warn('Supabase fetch [transactions]: Cloud backend is currently offline. Using local data.');
+      } else {
+        console.warn('Supabase fetch issue [transactions]:', error.message || error);
+      }
       return null;
     }
     if (!data) return null;
@@ -272,7 +330,12 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
       paymentMethod: row.payment_method,
       note: row.note,
     }));
-  } catch {
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [transactions]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [transactions]:', err);
+    }
     return null;
   }
 }
@@ -320,7 +383,11 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
   try {
     const { data, error } = await client.from('categories').select('*');
     if (error) {
-      console.error('Supabase fetch error [categories]:', error);
+      if (isNetworkOrFetchError(error)) {
+        console.warn('Supabase fetch [categories]: Cloud backend is currently offline. Using local data.');
+      } else {
+        console.warn('Supabase fetch issue [categories]:', error.message || error);
+      }
       return null;
     }
     if (!data) return null;
@@ -333,7 +400,12 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
       subcategories: row.subcategories || [],
       budgetLimit: Number(row.budget_limit || 0),
     }));
-  } catch {
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [categories]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [categories]:', err);
+    }
     return null;
   }
 }
@@ -381,6 +453,18 @@ export async function deleteAccountFromSupabase(id: string): Promise<SyncResult>
   }
 }
 
+export async function deleteMultipleAccountsFromSupabase(ids: string[]): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client || ids.length === 0) return { success: true };
+  try {
+    const { error } = await client.from('financial_accounts').delete().in('id', ids);
+    if (error) return syncError('delete-multiple-accounts', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-multiple-accounts', err);
+  }
+}
+
 export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -388,7 +472,11 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
   try {
     const { data, error } = await client.from('financial_accounts').select('*');
     if (error) {
-      console.error('Supabase fetch error [financial_accounts]:', error);
+      if (isNetworkOrFetchError(error)) {
+        console.warn('Supabase fetch [financial_accounts]: Cloud backend is currently offline. Using local data.');
+      } else {
+        console.warn('Supabase fetch issue [financial_accounts]:', error.message || error);
+      }
       return null;
     }
     if (!data) return null;
@@ -408,7 +496,12 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
       cardColorTheme: row.card_color_theme,
       isDefault: Boolean(row.is_default),
     }));
-  } catch {
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [financial_accounts]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [financial_accounts]:', err);
+    }
     return null;
   }
 }
@@ -452,6 +545,18 @@ export async function deleteInvestmentFromSupabase(id: string): Promise<SyncResu
   }
 }
 
+export async function deleteMultipleInvestmentsFromSupabase(ids: string[]): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client || ids.length === 0) return { success: true };
+  try {
+    const { error } = await client.from('investments').delete().in('id', ids);
+    if (error) return syncError('delete-multiple-investments', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-multiple-investments', err);
+  }
+}
+
 export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -459,7 +564,11 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
   try {
     const { data, error } = await client.from('investments').select('*');
     if (error) {
-      console.error('Supabase fetch error [investments]:', error);
+      if (isNetworkOrFetchError(error)) {
+        console.warn('Supabase fetch [investments]: Cloud backend is currently offline. Using local data.');
+      } else {
+        console.warn('Supabase fetch issue [investments]:', error.message || error);
+      }
       return null;
     }
     if (!data) return null;
@@ -475,7 +584,12 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
       monthlyContributions: row.monthly_contributions || [],
       notes: row.notes,
     }));
-  } catch {
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [investments]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [investments]:', err);
+    }
     return null;
   }
 }
@@ -521,6 +635,36 @@ export async function deleteLoanFromSupabase(id: string): Promise<SyncResult> {
   }
 }
 
+export async function deleteMultipleLoansFromSupabase(ids: string[]): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client || ids.length === 0) return { success: true };
+  try {
+    const { error } = await client.from('loans').delete().in('id', ids);
+    if (error) return syncError('delete-multiple-loans', error);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-multiple-loans', err);
+  }
+}
+
+export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+
+  try {
+    // Under RLS, deleting with neq('id', '') or gte('created_at', ...) wipes the authenticated user's records
+    await Promise.all([
+      client.from('transactions').delete().neq('id', ''),
+      client.from('financial_accounts').delete().neq('id', ''),
+      client.from('investments').delete().neq('id', ''),
+      client.from('loans').delete().neq('id', ''),
+    ]);
+    return { success: true };
+  } catch (err) {
+    return syncError('delete-all-data', err);
+  }
+}
+
 export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
   const client = getSupabaseClient();
   if (!client) return null;
@@ -528,7 +672,11 @@ export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
   try {
     const { data, error } = await client.from('loans').select('*');
     if (error) {
-      console.error('Supabase fetch error [loans]:', error);
+      if (isNetworkOrFetchError(error)) {
+        console.warn('Supabase fetch [loans]: Cloud backend is currently offline. Using local data.');
+      } else {
+        console.warn('Supabase fetch issue [loans]:', error.message || error);
+      }
       return null;
     }
     if (!data) return null;
@@ -546,7 +694,12 @@ export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
       repayments: row.repayments || [],
       notes: row.notes,
     }));
-  } catch {
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [loans]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [loans]:', err);
+    }
     return null;
   }
 }

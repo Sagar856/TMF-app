@@ -18,7 +18,9 @@ import {
   ArrowUpRight,
   Receipt,
   Flame,
-  Info
+  Info,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface SevenDaySpendingTrendChartProps {
@@ -41,6 +43,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
   transactions,
   currencySymbol,
 }) => {
+  const [isExpanded, setIsExpanded] = useState<boolean>(false);
   const [selectedDay, setSelectedDay] = useState<DayTrendPoint | null>(null);
 
   // Compute 7-day window ending at the latest available transaction date (or today if none or recent)
@@ -115,10 +118,13 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
   const activeDay = selectedDay || chartData[chartData.length - 1];
 
   return (
-    <div className="bg-carbon border border-nothing p-4 sm:p-5 rounded-2xl sm:rounded-3xl space-y-4 font-mono text-white shadow-md">
-      {/* Top Header with title and summary statistics */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#222]">
-        <div className="flex items-center gap-2">
+    <div className="bg-carbon border border-nothing p-4 sm:p-5 rounded-2xl sm:rounded-3xl font-mono text-white shadow-md transition-all duration-300">
+      {/* Top Header with title, summary statistics and expand/collapse toggle */}
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isExpanded ? 'pb-3 border-b border-[#222]' : ''}`}>
+        <div 
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2 cursor-pointer select-none"
+        >
           <div className="p-1.5 bg-red-950/60 border border-red-800/50 rounded-lg text-red-500 shrink-0">
             <Flame className="w-4 h-4" />
           </div>
@@ -137,8 +143,8 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
           </div>
         </div>
 
-        {/* 7-Day Metric Badges */}
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+        {/* 7-Day Metric Badges & Collapse Toggle Button */}
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-between sm:justify-end">
           <div className="bg-obsidian border border-nothing px-2.5 py-1.5 rounded-xl text-right shrink-0">
             <div className="text-[9px] text-[#666] uppercase">7-Day Total</div>
             <div className="text-xs font-bold text-red-400">
@@ -151,11 +157,25 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
               {currencySymbol}{Math.round(dailyAverage).toLocaleString('en-IN')}
             </div>
           </div>
+
+          {/* Expand/Collapse Toggle Button */}
+          <button
+            type="button"
+            onClick={() => setIsExpanded(!isExpanded)}
+            className="p-1.5 px-2.5 bg-[#18181c] hover:bg-[#222226] border border-[#333] hover:border-red-500 rounded-xl text-[#aaa] hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold"
+            title={isExpanded ? "Collapse 7-Day Spending Trend" : "Expand 7-Day Spending Trend"}
+          >
+            <span>{isExpanded ? 'COLLAPSE' : 'EXPAND'}</span>
+            {isExpanded ? <ChevronUp className="w-4 h-4 text-red-400" /> : <ChevronDown className="w-4 h-4 text-red-400" />}
+          </button>
         </div>
       </div>
 
-      {/* Main Recharts Area / Line Chart */}
-      <div className="relative w-full bg-obsidian border border-nothing rounded-2xl p-2.5 sm:p-4">
+      {/* Collapsible Content */}
+      {isExpanded && (
+        <div className="space-y-4 pt-4">
+          {/* Main Recharts Area / Line Chart */}
+          <div className="relative w-full bg-obsidian border border-nothing rounded-2xl p-2.5 sm:p-4">
         {/* Chart Canvas */}
         <div className="h-52 sm:h-60 w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
@@ -323,7 +343,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             {activeDay.transactions.map((tx) => (
               <div
                 key={tx.id}
-                className="p-2 bg-[#121216] border border-[#222] rounded-lg flex items-center justify-between gap-2 text-xs"
+                className="p-2 bg-[#121216] border border-[#222] hover:border-[#333] hover:bg-[#16161c] rounded-lg flex items-center justify-between gap-2 text-xs transition-all tactile-lift cursor-pointer"
               >
                 <div className="min-w-0">
                   <div className="font-bold text-white truncate text-[11px]">{tx.title}</div>
@@ -336,6 +356,8 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             ))}
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

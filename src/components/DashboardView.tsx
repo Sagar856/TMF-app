@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification } from '../types/finance';
+import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
 import { TopMerchantsCard } from './TopMerchantsCard';
 import { TopCategoriesCard } from './TopCategoriesCard';
+import { BudgetThresholdMonitor } from './BudgetThresholdMonitor';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -19,7 +21,8 @@ import {
   CreditCard,
   MapPin,
   ArrowRight,
-  ReceiptText
+  ReceiptText,
+  AlertTriangle
 } from 'lucide-react';
 
 interface DashboardViewProps {
@@ -32,6 +35,8 @@ interface DashboardViewProps {
   onOpenAddTransaction: () => void;
   onNavigateToTransactions?: () => void;
   onNavigateToInvestments?: () => void;
+  onNavigateToCustomisations?: () => void;
+  onTriggerBudgetAlert?: (alert: BudgetAlertPayload) => void;
   currencySymbol: string;
   defaultNetWorthMasked?: boolean;
   isCloudSynced?: boolean;
@@ -48,6 +53,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onOpenAddTransaction,
   onNavigateToTransactions,
   onNavigateToInvestments,
+  onNavigateToCustomisations,
+  onTriggerBudgetAlert,
   currencySymbol,
   defaultNetWorthMasked = true,
   isCloudSynced = false,
@@ -129,6 +136,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   const savingsRate = totalCredit > 0 ? Math.max(0, Math.round(((totalCredit - totalDebit) / totalCredit) * 100)) : 0;
 
+  // Active month calculation for executive header threshold status
+  const activeMonthStr = transactions.length > 0 && transactions[0].date ? transactions[0].date.substring(0, 7) : new Date().toISOString().substring(0, 7);
+  const categoriesExceeding80 = categories.filter((cat) => {
+    if (cat.type !== 'expense' || !cat.budgetLimit || cat.budgetLimit <= 0) return false;
+    const spent = transactions
+      .filter((t) => t.type === 'debit' && t.category === cat.name && t.date && t.date.startsWith(activeMonthStr))
+      .reduce((sum, t) => sum + t.amount, 0);
+    return (spent / cat.budgetLimit) >= 0.80;
+  });
+
   return (
     <div className="space-y-5 pb-16 relative font-mono text-white">
       {/* Top Pending SMS / UPI Intercept Alert Banner */}
@@ -155,19 +172,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* ==================== COMMERCIAL GRADE EXECUTIVE HEADER STRIP ==================== */}
+      {/* ==================== 1. EXECUTIVE SUMMARY ==================== */}
       <div className="bg-gradient-to-r from-[#141416] via-[#111113] to-[#18181c] border border-[#26262a] p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-10 h-10 bg-red-950/60 border border-red-600/50 rounded-xl flex items-center justify-center text-red-500 shrink-0 shadow-inner">
             <TrendingUp className="w-5 h-5" />
           </div>
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
                 EXECUTIVE SUMMARY
-              </span>
-              <span className="px-1.5 py-0.5 bg-emerald-950/70 text-emerald-400 text-[9px] font-bold rounded border border-emerald-800/50">
-                HEALTHY
               </span>
             </div>
             <div className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2 mt-0.5">
@@ -186,37 +200,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
         </div>
-
-        {/* Right Stats & Quick Actions */}
-        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap justify-between md:justify-end border-t md:border-t-0 border-[#222] pt-2 md:pt-0">
-          <button
-            type="button"
-            onClick={onOpenCloudSyncStatus}
-            className="flex items-center gap-1.5 bg-black/60 border border-[#222] hover:border-[#333] px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
-            title={isCloudSynced ? 'Synced to cloud' : 'Not synced to cloud — tap for details'}
-          >
-            <span className={`w-2 h-2 rounded-full shrink-0 ${isCloudSynced ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`} />
-            <span className="text-[9px] text-[#aaa] uppercase font-bold tracking-wider">
-              {isCloudSynced ? 'Cloud Synced' : 'Not Synced'}
-            </span>
-          </button>
-
-          <div className="bg-black/60 border border-[#222] px-3 py-1.5 rounded-xl text-right">
-            <div className="text-[9px] text-[#777] uppercase font-bold">Savings Rate</div>
-            <div className="text-xs font-bold text-emerald-400">{savingsRate}% MoM</div>
-          </div>
-
-          <div className="bg-black/60 border border-[#222] px-3 py-1.5 rounded-xl text-right">
-            <div className="text-[9px] text-[#777] uppercase font-bold">Outflow Ratio</div>
-            <div className="text-xs font-bold text-red-400">
-              {totalCredit > 0 ? Math.round((totalDebit / totalCredit) * 100) : 0}%
-            </div>
-          </div>
-
-        </div>
       </div>
 
-      {/* ==================== STACKED / EXPANDABLE VERTICAL KPI SECTION ==================== */}
+      {/* ==================== 2. FINANCIAL METRICS ==================== */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs text-[#888]">
           <div className="flex items-center gap-1.5">
@@ -408,86 +394,91 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* Row 1 Visuals: Cashflow Trend Line Chart & Category Donut Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-        <div className="lg:col-span-2 space-y-4">
-          <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
-
-          {/* Just Below Cash Flow Trend Visual: Recent Activity (All 3 in Single Row) */}
-          <div className="bg-carbon border border-nothing p-3 sm:p-4 rounded-2xl space-y-2.5 shadow-md">
-            <div className="flex items-center justify-between pb-2 border-b border-nothing">
-              <div className="flex items-center gap-2">
-                <ReceiptText className="w-3.5 h-3.5 text-red-500" />
-                <h4 className="text-xs font-bold uppercase tracking-wider text-white">
-                  Recent Activity
-                </h4>
-              </div>
-
-              {/* Redirect Icon Button to Transactions Page */}
-              <button
-                type="button"
-                onClick={onNavigateToTransactions}
-                title="Go to Transactions Page"
-                className="p-1.5 bg-obsidian hover:bg-[#222] border border-nothing hover:border-red-500 rounded-lg text-white transition-all cursor-pointer flex items-center gap-1 group text-[10px] shrink-0"
-              >
-                <span className="hidden sm:inline text-[#aaa] group-hover:text-white transition-colors">ALL TXNS</span>
-                <ArrowRight className="w-3.5 h-3.5 text-red-500 group-hover:translate-x-0.5 transition-transform" />
-              </button>
-            </div>
-
-            {/* Single Row with 3 Short Details Transactions across all screen sizes */}
-            <div className="grid grid-cols-3 gap-2 sm:gap-3">
-              {transactions.slice(0, 3).map((tx) => (
-                <div
-                  key={tx.id}
-                  onClick={onNavigateToTransactions}
-                  className="p-2.5 bg-obsidian hover:bg-[#121212] border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between transition-all cursor-pointer group min-w-0"
-                >
-                  <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
-                    <span className="text-[9px] text-[#777] truncate">{tx.date}</span>
-                    <span
-                      className={`text-[8px] sm:text-[9px] font-bold px-1 sm:px-1.5 py-0.5 rounded shrink-0 ${
-                        tx.type === 'debit'
-                          ? 'bg-red-950/60 text-red-400 border border-red-800/50'
-                          : 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50'
-                      }`}
-                    >
-                      {tx.type === 'debit' ? 'DR' : 'CR'}
-                    </span>
-                  </div>
-
-                  <div className="text-[11px] sm:text-xs font-bold text-white truncate group-hover:text-red-400 transition-colors">
-                    {tx.title}
-                  </div>
-
-                  <div className="flex items-center justify-between gap-1 mt-2 pt-1.5 border-t border-[#1a1a1a] min-w-0">
-                    <span className="text-[8px] sm:text-[9px] text-[#888] truncate hidden sm:inline">{tx.category}</span>
-                    <span
-                      className={`text-[11px] sm:text-xs font-bold ml-auto ${
-                        tx.type === 'debit' ? 'text-red-400' : 'text-emerald-400'
-                      }`}
-                    >
-                      {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* ==================== 3. RECENT ACTIVITY ==================== */}
+      <div className="bg-carbon border border-nothing p-3 sm:p-4 rounded-2xl space-y-2.5 shadow-md">
+        <div className="flex items-center justify-between pb-2 border-b border-nothing">
+          <div className="flex items-center gap-2">
+            <ReceiptText className="w-3.5 h-3.5 text-red-500" />
+            <h4 className="text-xs font-bold uppercase tracking-wider text-white">
+              Recent Activity
+            </h4>
           </div>
+
+          {/* Redirect Icon Button to Transactions Page */}
+          <button
+            type="button"
+            onClick={onNavigateToTransactions}
+            title="Go to Transactions Page"
+            className="p-1.5 bg-obsidian hover:bg-[#222] border border-nothing hover:border-red-500 rounded-lg text-white transition-all nav-lift cursor-pointer flex items-center gap-1 group text-[10px] shrink-0"
+          >
+            <span className="hidden sm:inline text-[#aaa] group-hover:text-white transition-colors">ALL TXNS</span>
+            <ArrowRight className="w-3.5 h-3.5 text-red-500 group-hover:translate-x-0.5 transition-transform" />
+          </button>
         </div>
 
-        <div>
-          <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
+        {/* Single Row with 3 Short Details Transactions across all screen sizes */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          {transactions.slice(0, 3).map((tx) => (
+            <div
+              key={tx.id}
+              onClick={onNavigateToTransactions}
+              className="p-2.5 bg-obsidian hover:bg-[#121212] border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between transition-all tactile-lift cursor-pointer group min-w-0"
+            >
+              <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
+                <span className="text-[9px] text-[#777] truncate">{tx.date}</span>
+                <span
+                  className={`text-[8px] sm:text-[9px] font-bold px-1 sm:px-1.5 py-0.5 rounded shrink-0 ${
+                    tx.type === 'debit'
+                      ? 'bg-red-950/60 text-red-400 border border-red-800/50'
+                      : 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/50'
+                  }`}
+                >
+                  {tx.type === 'debit' ? 'DR' : 'CR'}
+                </span>
+              </div>
+
+              <div className="text-[11px] sm:text-xs font-bold text-white truncate group-hover:text-red-400 transition-colors">
+                {tx.title}
+              </div>
+
+              <div className="flex items-center justify-between gap-1 mt-2 pt-1.5 border-t border-[#1a1a1a] min-w-0">
+                <span className="text-[8px] sm:text-[9px] text-[#888] truncate hidden sm:inline">{tx.category}</span>
+                <span
+                  className={`text-[11px] sm:text-xs font-bold ml-auto ${
+                    tx.type === 'debit' ? 'text-red-400' : 'text-emerald-400'
+                  }`}
+                >
+                  {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Row 2: 7-Day Spending Trend Line Visualization (Recharts) */}
+      {/* ==================== 4. MONITOR BUDGET ==================== */}
+      <BudgetThresholdMonitor
+        transactions={transactions}
+        categories={categories}
+        currencySymbol={currencySymbol}
+        onNavigateToTransactions={onNavigateToTransactions}
+        onNavigateToCustomisations={onNavigateToCustomisations}
+        onTriggerAlert={onTriggerBudgetAlert}
+      />
+
+      {/* ==================== 5. 7-DAY SPENDING TREND (COLLAPSIBLE) ==================== */}
       <SevenDaySpendingTrendChart transactions={transactions} currencySymbol={currencySymbol} />
 
-      {/* Row 2 Visuals: Most Spend Places / Merchants & Top Categories */}
+      {/* ==================== 6. CASH FLOW TREND TRAJECTORY ==================== */}
+      <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
+
+      {/* ==================== 7. CATEGORY EXPENSE DONUT ==================== */}
+      <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
+
+      {/* ==================== 8. TOP SPEND CATEGORY & 9. MOST SPEND PLACES & MERCHANTS ==================== */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} />
         <TopCategoriesCard transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
+        <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} />
       </div>
     </div>
   );

@@ -763,16 +763,16 @@ export const LoansView: React.FC<LoansViewProps> = ({
         </h3>
 
         <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto">
-          <div className="min-w-[680px]">
+          <div className="min-w-[860px]">
             {/* Table Header */}
-            <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider">
+            <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
               <div className="col-span-2">DATE</div>
               <div className="col-span-1">TYPE</div>
-              <div className="col-span-3">PERSON</div>
+              <div className="col-span-2">PERSON</div>
               <div className="col-span-2 text-right">PRINCIPAL</div>
               <div className="col-span-2 text-right">OUTSTANDING</div>
               <div className="col-span-1 text-center">STATUS</div>
-              <div className="col-span-1 text-right">ACTIONS</div>
+              <div className="col-span-2 text-right">ACTIONS</div>
             </div>
 
             {/* Table Body */}
@@ -809,7 +809,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                       </div>
 
                       {/* Person */}
-                      <div className="col-span-3 font-bold text-white truncate pr-2">
+                      <div className="col-span-2 font-bold text-white truncate pr-2">
                         {item.personOrBank}
                       </div>
 
@@ -831,18 +831,24 @@ export const LoansView: React.FC<LoansViewProps> = ({
                       </div>
 
                       {/* Actions */}
-                      <div className="col-span-1 flex justify-end gap-1">
+                      <div className="col-span-2 flex justify-end items-center gap-1.5 shrink-0">
                         <button
                           type="button"
-                          onClick={() => handleOpenEditModal(item)}
-                          className="px-1.5 py-0.5 border border-[#333] text-[#aaa] hover:text-white text-[10px] uppercase rounded transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditModal(item);
+                          }}
+                          className="px-2 py-1 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-colors cursor-pointer shrink-0"
                         >
                           EDIT
                         </button>
                         <button
                           type="button"
-                          onClick={() => onDeleteLoan && onDeleteLoan(item.id)}
-                          className="px-1.5 py-0.5 border border-red-900/80 text-red-500 hover:bg-red-950/40 text-[10px] uppercase rounded transition-colors"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteLoan && onDeleteLoan(item.id);
+                          }}
+                          className="px-2 py-1 border border-red-900/80 hover:border-red-500 text-red-500 hover:text-red-300 hover:bg-red-950/40 text-[10px] uppercase font-bold rounded-lg transition-colors cursor-pointer shrink-0"
                         >
                           DEL
                         </button>

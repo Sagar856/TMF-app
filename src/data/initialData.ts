@@ -259,6 +259,36 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     payeeOrPayer: 'Airtel Payments',
     paymentMethod: 'Paytm UPI',
     rawText: 'Paid Rs 2,360.00 to Airtel Digital via Paytm on 15-Jul-26.',
+  },
+  {
+    id: 'tx_109',
+    title: 'Sony WH-1000XM5 ANC Headphones',
+    amount: 8200,
+    type: 'debit',
+    category: 'Shopping & Tech',
+    subcategory: 'Electronics',
+    date: '2026-07-24',
+    time: '18:10',
+    location: { lat: 19.0760, lng: 72.8777, name: 'Croma Megastore BKC' },
+    source: 'SMS',
+    payeeOrPayer: 'Croma Retail',
+    paymentMethod: 'HDFC Credit Card',
+    rawText: 'Alert: HDFC Card xx9102 spent INR 8,200.00 at Croma BKC on 24-Jul-26 18:10. Avail Bal: INR 1,84,350.00',
+  },
+  {
+    id: 'tx_110',
+    title: 'Cloud Workspaces & Streaming Services',
+    amount: 3450,
+    type: 'debit',
+    category: 'Subscriptions',
+    subcategory: 'Software AI',
+    date: '2026-07-16',
+    time: '12:00',
+    location: { lat: 19.0760, lng: 72.8777, name: 'Digital Recurring' },
+    source: 'SMS',
+    payeeOrPayer: 'Google Cloud & AI Studio',
+    paymentMethod: 'Axis Bank Atlas Mastercard',
+    rawText: 'Alert: Axis Card xx9823 spent INR 3,450.00 for Google Cloud Recurring on 16-Jul-26.',
   }
 ];
 
@@ -429,6 +459,10 @@ export const INITIAL_LOANS: LoanRecord[] = [
 ];
 
 export const PRESET_SMS_TEMPLATES = [
+  {
+    label: 'Zomato Food Order',
+    text: 'Debited Rs. 480.00 from HDFC Bank A/c **1204 on 28-Jul-26 to Zomato Online Food. UPI Ref 381920194821.',
+  },
   {
     label: 'Paytm Coffee Payment',
     text: 'Sent Rs 380.00 via Paytm UPI to Starbucks Reserve Coffee on 28-Jul-26 15:30. Txn ID: 49201932',

@@ -1,0 +1,6 @@
+1. home page collapsable sections should auto collapse/expand as user scrolls up and down near that section.
+2. many elements are not visible in light theme.
+3. Edit/Del buttons overlaps in table view inside transations, loans, investments page.
+4. Rearrange settings page according to different sections.
+5. change setting buttons to understand easily (add toggle buttons).
+6. 

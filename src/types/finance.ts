@@ -131,5 +131,7 @@ export interface UserSettings {
   locationTracking: boolean;
   autoExtractSms: boolean;
   notificationsEnabled: boolean;
+  budgetAlertsEnabled?: boolean;
   defaultNetWorthMasked?: boolean;
+  sampleDataLoaded?: boolean;
 }

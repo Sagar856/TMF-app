@@ -40,6 +40,8 @@ interface InvestmentsViewProps {
   onAddInvestment: (inv: InvestmentRecord) => void;
   onUpdateInvestment?: (inv: InvestmentRecord) => void;
   onDeleteInvestment?: (id: string) => void;
+  onEditTransaction?: (tx: Transaction) => void;
+  onDeleteTransaction?: (id: string) => void;
   currencySymbol: string;
 }
 
@@ -60,6 +62,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   onAddInvestment,
   onUpdateInvestment,
   onDeleteInvestment,
+  onEditTransaction,
+  onDeleteTransaction,
   currencySymbol,
 }) => {
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -354,6 +358,50 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     e.stopPropagation();
     if (window.confirm('Delete this investment record?')) {
       onDeleteInvestment?.(id);
+    }
+  };
+
+  const handleEditTxn = (tx: InvestmentTxn) => {
+    const realTx = transactions.find((t) => t.id === tx.id);
+    if (realTx && onEditTransaction) {
+      onEditTransaction(realTx);
+      return;
+    }
+    const inv = investments.find((i) => tx.id.startsWith(`tx_${i.id}`) || i.id === tx.id || i.name === tx.category);
+    if (inv) {
+      handleOpenEditModal(inv);
+      return;
+    }
+    if (onEditTransaction) {
+      onEditTransaction({
+        id: tx.id,
+        date: tx.date,
+        title: tx.category,
+        amount: tx.amount,
+        type: tx.type === 'CREDIT' ? 'credit' : 'debit',
+        category: 'Investment',
+        paymentMethod: tx.account,
+        source: 'MANUAL',
+      });
+    }
+  };
+
+  const handleDeleteTxn = (tx: InvestmentTxn) => {
+    if (!window.confirm(`Delete transaction "${tx.category}" (${currencySymbol}${tx.amount})?`)) {
+      return;
+    }
+    const realTx = transactions.find((t) => t.id === tx.id);
+    if (realTx && onDeleteTransaction) {
+      onDeleteTransaction(realTx.id);
+      return;
+    }
+    const inv = investments.find((i) => tx.id.startsWith(`tx_${i.id}`) || i.id === tx.id || i.name === tx.category);
+    if (inv && onDeleteInvestment) {
+      onDeleteInvestment(inv.id);
+      return;
+    }
+    if (onDeleteTransaction) {
+      onDeleteTransaction(tx.id);
     }
   };
 
@@ -774,8 +822,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('table')}
-              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-colors cursor-pointer ${
-                viewMode === 'table' ? 'bg-[#222] text-white font-bold' : 'text-[#777] hover:text-white'
+              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
+                viewMode === 'table' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
               }`}
               title="Table View"
             >
@@ -785,8 +833,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('detail')}
-              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-colors cursor-pointer ${
-                viewMode === 'detail' ? 'bg-[#222] text-white font-bold' : 'text-[#777] hover:text-white'
+              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
+                viewMode === 'detail' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
               }`}
               title="Card Detail View"
             >
@@ -798,14 +846,15 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
         {viewMode === 'table' ? (
           <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
-            <div className="min-w-[620px]">
+            <div className="min-w-[860px]">
               {/* Table Header */}
               <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
-                <div className="col-span-3">DATE</div>
-                <div className="col-span-3">CATEGORY</div>
+                <div className="col-span-2">DATE</div>
+                <div className="col-span-3">CATEGORY / ASSET</div>
                 <div className="col-span-2">ACCOUNT</div>
-                <div className="col-span-2">TYPE</div>
+                <div className="col-span-1">TYPE</div>
                 <div className="col-span-2 text-right">AMOUNT</div>
+                <div className="col-span-2 text-right">ACTIONS</div>
               </div>
 
               {/* Rows */}
@@ -817,22 +866,46 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 filteredTxns.map((tx) => (
                   <div
                     key={tx.id}
-                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#161616] transition-colors"
+                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all hover:translate-x-0.5"
                   >
-                    <div className="col-span-3 text-[#aaa]">
+                    <div className="col-span-2 text-[#aaa] truncate">
                       {formatDateDisplay(tx.date)}
                     </div>
-                    <div className="col-span-3 font-bold text-white">
+                    <div className="col-span-3 font-bold text-white truncate pr-2">
                       {tx.category}
                     </div>
-                    <div className="col-span-2 text-[#aaa]">
+                    <div className="col-span-2 text-[#aaa] truncate">
                       {tx.account}
                     </div>
-                    <div className="col-span-2 font-bold text-cyan-400">
+                    <div className="col-span-1 font-bold text-cyan-400">
                       {tx.type}
                     </div>
                     <div className="col-span-2 text-right font-bold text-cyan-400">
                       {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                    </div>
+                    <div className="col-span-2 flex items-center justify-end gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditTxn(tx);
+                        }}
+                        className="px-2 py-1 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
+                        title="Edit Transaction"
+                      >
+                        EDIT
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTxn(tx);
+                        }}
+                        className="px-2 py-1 bg-[#181818] hover:bg-red-950/60 border border-red-900/60 hover:border-red-500 text-red-400 hover:text-red-300 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
+                        title="Delete Transaction"
+                      >
+                        DEL
+                      </button>
                     </div>
                   </div>
                 ))
@@ -849,23 +922,49 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               filteredTxns.map((tx) => (
                 <div
                   key={tx.id}
-                  className="p-3 bg-[#111111] border border-[#222] rounded-2xl flex items-center justify-between gap-3 font-mono hover:border-[#333] transition-colors"
+                  className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-[#161616] rounded-2xl flex items-center justify-between gap-3 font-mono transition-all tactile-lift"
                 >
-                  <div className="space-y-1">
-                    <div className="text-xs font-bold text-white">{tx.category}</div>
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="text-xs font-bold text-white truncate">{tx.category}</div>
                     <div className="text-[10px] text-[#777] flex items-center gap-2">
                       <span>{formatDateDisplay(tx.date)}</span>
                       <span>•</span>
                       <span>{tx.account}</span>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-xs font-bold text-cyan-400">
-                      {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <div className="text-xs font-bold text-cyan-400">
+                        {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                      </div>
+                      <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
+                        {tx.type}
+                      </span>
                     </div>
-                    <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
-                      {tx.type}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditTxn(tx);
+                        }}
+                        className="px-2 py-0.5 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
+                        title="Edit Transaction"
+                      >
+                        EDIT
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteTxn(tx);
+                        }}
+                        className="px-2 py-0.5 bg-[#181818] hover:bg-red-950/60 border border-red-900/60 hover:border-red-500 text-red-400 hover:text-red-300 text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
+                        title="Delete Transaction"
+                      >
+                        DEL
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))

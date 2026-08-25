@@ -1,10 +1,28 @@
-import React, { useState } from 'react';
-import { Category, FinancialAccount, AccountType } from '../types/finance';
-import { Sliders, Plus, Trash2, Edit3, Check, X, ShieldAlert, Building2, CreditCard, Edit2 } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Category, FinancialAccount, Transaction } from '../types/finance';
+import { 
+  Sliders, 
+  Plus, 
+  Trash2, 
+  Edit3, 
+  Check, 
+  X, 
+  ShieldAlert, 
+  Building2, 
+  CreditCard, 
+  Edit2, 
+  Calendar,
+  AlertTriangle,
+  Flame,
+  CheckCircle2,
+  TrendingUp,
+  Percent
+} from 'lucide-react';
 
 interface CustomisationsViewProps {
   categories: Category[];
   accounts?: FinancialAccount[];
+  transactions?: Transaction[];
   onAddCategory: (cat: Category) => void;
   onUpdateCategory: (cat: Category) => void;
   onDeleteCategory: (id: string) => void;
@@ -17,6 +35,7 @@ interface CustomisationsViewProps {
 export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   categories,
   accounts = [],
+  transactions = [],
   onAddCategory,
   onUpdateCategory,
   onDeleteCategory,
@@ -25,8 +44,88 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   onDeleteAccount,
   currencySymbol,
 }) => {
-  const [activeTab, setActiveTab] = useState<'categories' | 'budgets' | 'accounts'>('categories');
+  const [activeTab, setActiveTab] = useState<'categories' | 'budgets' | 'accounts'>('budgets');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+
+  // Month selector for budget tracking
+  const availableMonths = useMemo(() => {
+    const monthsSet = new Set<string>();
+    transactions.forEach((tx) => {
+      if (tx.date && tx.date.length >= 7) {
+        monthsSet.add(tx.date.substring(0, 7));
+      }
+    });
+    const nowMonth = new Date().toISOString().substring(0, 7);
+    monthsSet.add(nowMonth);
+    return Array.from(monthsSet).sort().reverse();
+  }, [transactions]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+    return availableMonths.length > 0 ? availableMonths[0] : new Date().toISOString().substring(0, 7);
+  });
+
+  const formatMonthLabel = (ym: string) => {
+    if (!ym || ym.length < 7) return ym;
+    const [year, month] = ym.split('-');
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const monthIdx = parseInt(month, 10) - 1;
+    return `${monthNames[monthIdx] || month} ${year}`;
+  };
+
+  // Debit transactions for the selected month
+  const monthlyDebitTxs = useMemo(() => {
+    return transactions.filter(
+      (tx) => tx.type === 'debit' && tx.date && tx.date.startsWith(selectedMonth)
+    );
+  }, [transactions, selectedMonth]);
+
+  // Helper to compute actual vs budget for a given category
+  const getCategorySpendData = (cat: Category) => {
+    const catTxs = monthlyDebitTxs.filter((tx) => tx.category === cat.name);
+    const actualSpent = catTxs.reduce((sum, tx) => sum + tx.amount, 0);
+    const budgetLimit = cat.budgetLimit || 0;
+    const percent = budgetLimit > 0 ? (actualSpent / budgetLimit) * 100 : 0;
+    const isOverThreshold = budgetLimit > 0 && percent >= 80;
+    const isOverBudget = budgetLimit > 0 && percent >= 100;
+    const remaining = Math.max(0, budgetLimit - actualSpent);
+    const overAmount = Math.max(0, actualSpent - budgetLimit);
+
+    return {
+      actualSpent,
+      budgetLimit,
+      percent,
+      isOverThreshold,
+      isOverBudget,
+      remaining,
+      overAmount,
+      txCount: catTxs.length,
+    };
+  };
+
+  // Overall budget summary metrics
+  const budgetSummary = useMemo(() => {
+    const expenseCats = categories.filter((c) => c.type === 'expense');
+    let totalBudget = 0;
+    let totalSpent = 0;
+    let overThresholdCount = 0;
+
+    expenseCats.forEach((cat) => {
+      const data = getCategorySpendData(cat);
+      if (data.budgetLimit > 0) {
+        totalBudget += data.budgetLimit;
+        totalSpent += data.actualSpent;
+        if (data.isOverThreshold) {
+          overThresholdCount++;
+        }
+      }
+    });
+
+    const overallPercent = totalBudget > 0 ? (totalSpent / totalBudget) * 100 : 0;
+    return { totalBudget, totalSpent, overThresholdCount, overallPercent };
+  }, [categories, monthlyDebitTxs]);
 
   // New category state
   const [catName, setCatName] = useState<string>('');
@@ -76,65 +175,364 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   };
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-6 pb-12 font-mono">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h2 className="text-xl font-bold font-mono text-white tracking-tight">
-            Categories & Budget Customisations
+          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2.5">
+            <Sliders className="w-5 h-5 text-red-500" />
+            <span>Categories & Budget Customisations</span>
           </h2>
-          <p className="text-xs text-[#777] font-mono mt-0.5">
-            Configure custom categories (food, fuel, tech), subcategories, and monthly spending limits
+          <p className="text-xs text-[#777] mt-0.5">
+            Configure custom categories, subcategories, and monthly spending limits with automatic 80% threshold warnings
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors shadow-sm"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Add Custom Category</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Month Selector for Actual Spending calculations */}
+          <div className="flex items-center gap-1.5 bg-black/80 border border-[#2a2a2e] px-3 py-1.5 rounded-xl text-xs">
+            <Calendar className="w-3.5 h-3.5 text-[#888] shrink-0" />
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="bg-transparent text-white text-xs font-mono font-bold focus:outline-none cursor-pointer"
+              title="Select billing cycle month"
+            >
+              {availableMonths.map((m) => (
+                <option key={m} value={m} className="bg-[#141416] text-white">
+                  {formatMonthLabel(m)}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center gap-2 px-3.5 py-2 bg-white text-black font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Custom Category</span>
+          </button>
+        </div>
       </div>
 
       {/* Tabs: Categories vs Monthly Budgets vs Bank & Card Accounts */}
       <div className="flex flex-wrap gap-2 border-b border-nothing pb-3">
         <button
           type="button"
-          onClick={() => setActiveTab('categories')}
-          className={`px-4 py-2 text-xs font-mono font-bold uppercase rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'categories'
-              ? 'bg-white text-black'
+          onClick={() => setActiveTab('budgets')}
+          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer flex items-center gap-2 ${
+            activeTab === 'budgets'
+              ? 'bg-white text-black shadow-sm'
               : 'text-[#888] hover:text-white hover:bg-obsidian'
           }`}
         >
-          Categories & Subcategories
+          <TrendingUp className="w-3.5 h-3.5" />
+          <span>Monthly Budget Limits & Progress</span>
+          {budgetSummary.overThresholdCount > 0 && (
+            <span className="px-1.5 py-0.2 bg-red-600 text-white rounded-full text-[9px] font-bold animate-pulse">
+              {budgetSummary.overThresholdCount} Alert{budgetSummary.overThresholdCount > 1 ? 's' : ''}
+            </span>
+          )}
         </button>
+
         <button
           type="button"
-          onClick={() => setActiveTab('budgets')}
-          className={`px-4 py-2 text-xs font-mono font-bold uppercase rounded-xl transition-colors cursor-pointer ${
-            activeTab === 'budgets'
-              ? 'bg-white text-black'
+          onClick={() => setActiveTab('categories')}
+          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer flex items-center gap-2 ${
+            activeTab === 'categories'
+              ? 'bg-white text-black shadow-sm'
               : 'text-[#888] hover:text-white hover:bg-obsidian'
           }`}
         >
-          Monthly Budget Limits
+          <span>Categories & Subcategories</span>
         </button>
+
         <button
           type="button"
           onClick={() => setActiveTab('accounts')}
-          className={`px-4 py-2 text-xs font-mono font-bold uppercase rounded-xl transition-colors cursor-pointer ${
+          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === 'accounts'
-              ? 'bg-white text-black'
+              ? 'bg-white text-black shadow-sm'
               : 'text-[#888] hover:text-white hover:bg-obsidian'
           }`}
         >
-          Manage Bank & Card Accounts ({accounts.length})
+          <Building2 className="w-3.5 h-3.5" />
+          <span>Manage Bank & Card Accounts ({accounts.length})</span>
         </button>
       </div>
 
-      {/* View 1: Categories & Subcategories List */}
+      {/* View 1: Budget Setup & Limits with Visual Progress Bars */}
+      {activeTab === 'budgets' && (
+        <div className="space-y-5">
+          {/* Executive Summary Metrics Card */}
+          <div className="bg-carbon border border-nothing p-4 sm:p-5 rounded-2xl">
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-3 border-b border-[#222] pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                  <span>MONTHLY EXPENSE BUDGETS ({formatMonthLabel(selectedMonth)})</span>
+                </h3>
+                <p className="text-xs text-[#777] mt-0.5">
+                  Visual progress meters turn <span className="text-red-400 font-bold">RED</span> when actual spending crosses the 80% limit threshold
+                </p>
+              </div>
+
+              {budgetSummary.overThresholdCount > 0 ? (
+                <span className="px-2.5 py-1 bg-red-950/90 text-red-400 border border-red-600 rounded-lg text-xs font-bold flex items-center gap-1.5 animate-pulse">
+                  <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
+                  <span>{budgetSummary.overThresholdCount} {budgetSummary.overThresholdCount === 1 ? 'Category Exceeded' : 'Categories Exceeded'} &gt;80% Limit</span>
+                </span>
+              ) : (
+                <span className="px-2.5 py-1 bg-emerald-950/80 text-emerald-400 border border-emerald-700/60 rounded-lg text-xs font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>All Monitored Budgets Safe (&lt;80%)</span>
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-obsidian border border-[#222] p-3 rounded-xl">
+                <div className="text-[9px] text-[#777] uppercase font-bold">Total Budget Tracked</div>
+                <div className="text-sm sm:text-base font-bold text-white mt-0.5">
+                  {currencySymbol}{budgetSummary.totalBudget.toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div className="bg-obsidian border border-[#222] p-3 rounded-xl">
+                <div className="text-[9px] text-[#777] uppercase font-bold">Actual Month Spend</div>
+                <div className="text-sm sm:text-base font-bold text-white mt-0.5">
+                  {currencySymbol}{budgetSummary.totalSpent.toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div className="bg-obsidian border border-[#222] p-3 rounded-xl">
+                <div className="text-[9px] text-[#777] uppercase font-bold">Overall Utilization</div>
+                <div className={`text-sm sm:text-base font-bold mt-0.5 ${
+                  budgetSummary.overallPercent >= 80 ? 'text-red-400' : 'text-emerald-400'
+                }`}>
+                  {budgetSummary.overallPercent.toFixed(1)}%
+                </div>
+              </div>
+
+              <div className="bg-obsidian border border-[#222] p-3 rounded-xl">
+                <div className="text-[9px] text-[#777] uppercase font-bold">80% Threshold Status</div>
+                <div className={`text-sm sm:text-base font-bold mt-0.5 ${
+                  budgetSummary.overThresholdCount > 0 ? 'text-red-400' : 'text-emerald-400'
+                }`}>
+                  {budgetSummary.overThresholdCount > 0 ? `${budgetSummary.overThresholdCount} In Alert` : 'Normal'}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* List of Categories with Visual Progress Bars */}
+          <div className="space-y-3.5">
+            {categories
+              .filter((c) => c.type === 'expense')
+              .map((cat) => {
+                const isEditing = editingBudgetId === cat.id;
+                const spendData = getCategorySpendData(cat);
+                const hasBudget = spendData.budgetLimit > 0;
+                const clampedBarWidth = Math.min(100, Math.max(spendData.actualSpent > 0 ? 2 : 0, spendData.percent));
+
+                return (
+                  <div
+                    key={cat.id}
+                    className={`p-4 rounded-2xl border transition-all duration-200 ${
+                      spendData.isOverBudget
+                        ? 'bg-[#191113] border-red-600/80 shadow-[0_4px_20px_rgba(220,38,38,0.15)]'
+                        : spendData.isOverThreshold
+                        ? 'bg-[#191314] border-red-500/60 shadow-[0_4px_20px_rgba(239,68,68,0.1)]'
+                        : 'bg-obsidian border-nothing hover:border-[#333]'
+                    }`}
+                  >
+                    {/* Header Row: Category Name, Subcategories & Budget Controls */}
+                    <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm text-white">{cat.name}</span>
+                          
+                          {/* 80% Threshold Warning Pill */}
+                          {hasBudget && spendData.isOverBudget && (
+                            <span className="px-2 py-0.5 bg-red-950 text-red-400 border border-red-700 rounded-lg text-[9px] font-bold flex items-center gap-1 animate-pulse">
+                              <Flame className="w-3 h-3 text-red-400 shrink-0" />
+                              <span>🚨 {spendData.percent.toFixed(1)}% (OVER BUDGET)</span>
+                            </span>
+                          )}
+
+                          {hasBudget && spendData.isOverThreshold && !spendData.isOverBudget && (
+                            <span className="px-2 py-0.5 bg-red-950/90 text-red-400 border border-red-500 rounded-lg text-[9px] font-bold flex items-center gap-1 animate-pulse">
+                              <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                              <span>⚠️ {spendData.percent.toFixed(1)}% (CROSSES 80% THRESHOLD)</span>
+                            </span>
+                          )}
+
+                          {hasBudget && !spendData.isOverThreshold && (
+                            <span className="px-2 py-0.5 bg-emerald-950/70 text-emerald-400 border border-emerald-800/60 rounded-lg text-[9px] font-bold">
+                              ✅ {spendData.percent.toFixed(1)}% SAFE
+                            </span>
+                          )}
+
+                          {!hasBudget && (
+                            <span className="px-2 py-0.5 bg-[#1f1f23] text-[#888] border border-[#333] rounded-lg text-[9px] font-bold">
+                              NO LIMIT SET
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-[10px] text-[#666] mt-0.5 truncate">
+                          {cat.subcategories.join(', ')} • ({spendData.txCount} txns in {formatMonthLabel(selectedMonth)})
+                        </div>
+                      </div>
+
+                      {/* Right: Budget Limit Setting / Inline Edit Form */}
+                      <div className="flex items-center gap-3 shrink-0">
+                        {isEditing ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-[#888]">{currencySymbol}</span>
+                            <input
+                              type="number"
+                              value={editingBudgetVal}
+                              onChange={(e) => setEditingBudgetVal(e.target.value)}
+                              placeholder="e.g. 15000"
+                              className="px-2.5 py-1 bg-carbon border border-red-500 rounded text-xs font-mono text-white w-28 focus:outline-none"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => handleSaveBudgetLimit(cat)}
+                              className="p-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors cursor-pointer"
+                              title="Save Limit"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingBudgetId(null)}
+                              className="p-1.5 bg-[#222] text-[#888] hover:text-white rounded-lg transition-colors cursor-pointer"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="text-right">
+                            <div className="text-xs sm:text-sm font-bold text-white">
+                              {hasBudget
+                                ? `${currencySymbol}${cat.budgetLimit?.toLocaleString('en-IN')}`
+                                : 'No Limit'}
+                            </div>
+                            <button
+                              onClick={() => {
+                                setEditingBudgetId(cat.id);
+                                setEditingBudgetVal(cat.budgetLimit ? cat.budgetLimit.toString() : '');
+                              }}
+                              className="text-[10px] text-red-400 hover:underline hover:text-red-300 transition-colors cursor-pointer"
+                            >
+                              {hasBudget ? 'Edit Limit' : '+ Set Budget Limit'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Actual vs Budget Spent Row */}
+                    <div className="flex items-baseline justify-between text-xs mb-2 gap-2 flex-wrap">
+                      <div className="flex items-baseline gap-1.5">
+                        <span className="text-[10px] text-[#777] uppercase font-bold">Actual Spent:</span>
+                        <span className={`font-bold ${
+                          spendData.isOverThreshold ? 'text-red-400' : 'text-white'
+                        }`}>
+                          {currencySymbol}{spendData.actualSpent.toLocaleString('en-IN')}
+                        </span>
+                        {hasBudget && (
+                          <span className="text-[10px] text-[#777]">
+                            of {currencySymbol}{spendData.budgetLimit.toLocaleString('en-IN')} limit
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="text-[10px] font-bold">
+                        {hasBudget ? (
+                          spendData.isOverBudget ? (
+                            <span className="text-red-400">
+                              +{currencySymbol}{spendData.overAmount.toLocaleString('en-IN')} over budget
+                            </span>
+                          ) : spendData.isOverThreshold ? (
+                            <span className="text-red-400 font-bold">
+                              Only {currencySymbol}{spendData.remaining.toLocaleString('en-IN')} remaining before limit
+                            </span>
+                          ) : (
+                            <span className="text-emerald-400">
+                              {currencySymbol}{spendData.remaining.toLocaleString('en-IN')} remaining
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-[#666]">Budget limit not configured</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* ==================== VISUAL PROGRESS BAR ==================== */}
+                    <div className="relative pt-1 pb-1">
+                      {/* 80% Threshold Vertical Marker Line */}
+                      {hasBudget && (
+                        <div
+                          className="absolute top-0 bottom-0 z-20 flex flex-col items-center pointer-events-none"
+                          style={{ left: '80%' }}
+                        >
+                          <span className="text-[8px] font-bold text-red-400 bg-black/90 px-1 py-0.2 rounded border border-red-500/60 -translate-y-1">
+                            80% Alert
+                          </span>
+                          <div className="w-0.5 h-full bg-red-500/90 border-r border-dashed border-red-400" />
+                        </div>
+                      )}
+
+                      {/* Progress Track */}
+                      <div className="w-full h-3 bg-[#0a0a0c] rounded-full overflow-hidden p-0.5 border border-[#2a2a2e] relative z-10">
+                        {hasBudget ? (
+                          <div
+                            className={`h-full rounded-full transition-all duration-700 ease-out ${
+                              spendData.isOverThreshold
+                                ? 'bg-gradient-to-r from-red-600 via-red-500 to-rose-500 shadow-[0_0_12px_rgba(239,68,68,0.7)]'
+                                : 'bg-gradient-to-r from-emerald-600 to-teal-500'
+                            }`}
+                            style={{ width: `${clampedBarWidth}%` }}
+                          />
+                        ) : (
+                          <div className="h-full w-full bg-[#161618] rounded-full border border-dashed border-[#333]" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Threshold Explainer Footer */}
+                    <div className="flex items-center justify-between text-[9px] text-[#777] mt-2 pt-2 border-t border-[#1f1f23]">
+                      <span>
+                        {hasBudget ? (
+                          spendData.isOverThreshold ? (
+                            <span className="text-red-400 font-bold flex items-center gap-1">
+                              <span>⚠️ Status: Turned RED as spending crossed the 80% threshold</span>
+                            </span>
+                          ) : (
+                            <span>Status: Normal spending within safe boundary (&lt;80%)</span>
+                          )
+                        ) : (
+                          <span>Assign a monthly limit to enable the visual 80% threshold tracker</span>
+                        )}
+                      </span>
+
+                      {hasBudget && (
+                        <span className="font-bold">
+                          {spendData.percent.toFixed(1)}% Used
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
+      {/* View 2: Categories & Subcategories List with Progress Bars */}
       {activeTab === 'categories' && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {['expense', 'income', 'investment'].map((typeKey) => {
@@ -143,116 +541,104 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
             return (
               <div key={typeKey} className="bg-carbon border border-nothing p-5 rounded-3xl space-y-4">
                 <div className="flex items-center justify-between pb-3 border-b border-nothing">
-                  <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
+                  <h3 className="text-sm font-bold text-white uppercase tracking-wider">
                     {typeKey} Categories
                   </h3>
-                  <span className="text-[10px] text-[#666] font-mono">{filteredCats.length} total</span>
+                  <span className="text-[10px] text-[#666]">{filteredCats.length} total</span>
                 </div>
 
                 <div className="space-y-3">
-                  {filteredCats.map((cat) => (
-                    <div key={cat.id} className="p-3.5 bg-obsidian border border-nothing rounded-2xl">
-                      <div className="flex justify-between items-start mb-2">
-                        <div className="font-bold text-xs font-mono text-white">{cat.name}</div>
-                        <button
-                          onClick={() => onDeleteCategory(cat.id)}
-                          className="text-[#666] hover:text-red-500 transition-colors"
-                          title="Delete category"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                  {filteredCats.map((cat) => {
+                    const spendData = getCategorySpendData(cat);
+                    const hasBudget = cat.type === 'expense' && spendData.budgetLimit > 0;
+                    const clampedBarWidth = Math.min(100, Math.max(spendData.actualSpent > 0 ? 2 : 0, spendData.percent));
 
-                      {/* Subcategories Tags */}
-                      <div className="flex flex-wrap gap-1.5 mt-2">
-                        {cat.subcategories.map((sub, idx) => (
-                          <span
-                            key={idx}
-                            className="px-2 py-0.5 bg-[#181818] border border-[#2a2a2a] text-[10px] font-mono text-[#aaa] rounded"
+                    return (
+                      <div 
+                        key={cat.id} 
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          hasBudget && spendData.isOverThreshold
+                            ? 'bg-[#191113] border-red-600/70 shadow-sm'
+                            : 'bg-obsidian border-nothing'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start mb-2">
+                          <div className="font-bold text-xs text-white">{cat.name}</div>
+                          <button
+                            onClick={() => onDeleteCategory(cat.id)}
+                            className="text-[#666] hover:text-red-500 transition-colors cursor-pointer"
+                            title="Delete category"
                           >
-                            {sub}
-                          </span>
-                        ))}
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Subcategories Tags */}
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {cat.subcategories.map((sub, idx) => (
+                            <span
+                              key={idx}
+                              className="px-2 py-0.5 bg-[#181818] border border-[#2a2a2a] text-[10px] text-[#aaa] rounded"
+                            >
+                              {sub}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Visual Progress Bar under expense category */}
+                        {cat.type === 'expense' && (
+                          <div className="mt-3 pt-2.5 border-t border-[#222]/80 space-y-1.5">
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-[#777]">Actual vs Budget:</span>
+                              <span className={`font-bold ${
+                                spendData.isOverThreshold ? 'text-red-400' : 'text-white'
+                              }`}>
+                                {hasBudget
+                                  ? `${currencySymbol}${spendData.actualSpent.toLocaleString('en-IN')} / ${currencySymbol}${spendData.budgetLimit.toLocaleString('en-IN')}`
+                                  : `${currencySymbol}${spendData.actualSpent.toLocaleString('en-IN')} (No limit)`}
+                              </span>
+                            </div>
+
+                            {/* Progress bar */}
+                            {hasBudget ? (
+                              <div className="relative">
+                                <div className="w-full h-2 bg-[#0d0d0f] rounded-full overflow-hidden p-0.5 border border-[#26262a]">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      spendData.isOverThreshold
+                                        ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.6)]'
+                                        : 'bg-emerald-500'
+                                    }`}
+                                    style={{ width: `${clampedBarWidth}%` }}
+                                  />
+                                </div>
+                                {spendData.isOverThreshold && (
+                                  <div className="text-[9px] text-red-400 font-bold mt-1 flex items-center gap-1">
+                                    <span>⚠️ Exceeded 80% threshold ({spendData.percent.toFixed(0)}%)</span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('budgets');
+                                  setEditingBudgetId(cat.id);
+                                }}
+                                className="text-[9px] text-red-400 hover:underline cursor-pointer"
+                              >
+                                + Set Budget Limit
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
-        </div>
-      )}
-
-      {/* View 2: Budget Setup & Limits */}
-      {activeTab === 'budgets' && (
-        <div className="bg-carbon border border-nothing p-6 rounded-3xl space-y-4">
-          <div className="mb-4">
-            <h3 className="text-sm font-bold font-mono text-white uppercase tracking-wider">
-              Monthly Expense Budgets
-            </h3>
-            <p className="text-xs text-[#777] font-mono">
-              Set spending thresholds to receive warning notifications when spending exceeds limits
-            </p>
-          </div>
-
-          <div className="space-y-3">
-            {categories
-              .filter((c) => c.type === 'expense')
-              .map((cat) => {
-                const isEditing = editingBudgetId === cat.id;
-
-                return (
-                  <div
-                    key={cat.id}
-                    className="p-4 bg-obsidian border border-nothing rounded-2xl flex items-center justify-between flex-wrap gap-4"
-                  >
-                    <div>
-                      <div className="font-bold text-xs font-mono text-white">{cat.name}</div>
-                      <div className="text-[10px] text-[#666] font-mono mt-0.5">
-                        {cat.subcategories.join(', ')}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      {isEditing ? (
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="number"
-                            value={editingBudgetVal}
-                            onChange={(e) => setEditingBudgetVal(e.target.value)}
-                            placeholder="e.g. 15000"
-                            className="px-2.5 py-1 bg-carbon border border-red-500 rounded text-xs font-mono text-white w-28 focus:outline-none"
-                          />
-                          <button
-                            onClick={() => handleSaveBudgetLimit(cat)}
-                            className="p-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                          >
-                            <Check className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="text-right">
-                          <div className="text-sm font-mono font-bold text-white">
-                            {cat.budgetLimit
-                              ? `${currencySymbol}${cat.budgetLimit.toLocaleString('en-IN')}`
-                              : 'No Limit Set'}
-                          </div>
-                          <button
-                            onClick={() => {
-                              setEditingBudgetId(cat.id);
-                              setEditingBudgetVal(cat.budgetLimit ? cat.budgetLimit.toString() : '');
-                            }}
-                            className="text-[10px] font-mono text-red-400 hover:underline mt-0.5"
-                          >
-                            {cat.budgetLimit ? 'Edit Limit' : '+ Set Monthly Budget'}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-          </div>
         </div>
       )}
 

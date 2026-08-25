@@ -295,3 +295,27 @@ body {
   animation: pulse-red 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Tactile UI Hover & Lift Animation Utilities */
+.tactile-lift {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, background-color 0.2s ease;
+  will-change: transform;
+}
+.tactile-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.4), 0 2px 6px -2px rgba(0, 0, 0, 0.2);
+}
+.tactile-lift:active {
+  transform: translateY(0px) scale(0.99);
+}
+
+.nav-lift {
+  transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), color 0.15s ease, background-color 0.15s ease;
+  will-change: transform;
+}
+.nav-lift:hover {
+  transform: translateY(-1.5px);
+}
+.nav-lift:active {
+  transform: translateY(0px) scale(0.96);
+}
+

@@ -22,6 +22,8 @@ import { FloatingActionButton } from './components/FloatingActionButton';
 import { AuthModal } from './components/AuthModal';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
 import { ConfirmationModal, ConfirmDialogConfig } from './components/ConfirmationModal';
+import { BudgetPushNotificationBanner } from './components/BudgetPushNotificationBanner';
+import { BudgetAlertPayload, checkBudgetThresholds } from './services/budgetAlertService';
 
 import {
   Transaction,
@@ -109,6 +111,7 @@ export default function App() {
       locationTracking: true,
       autoExtractSms: true,
       notificationsEnabled: true,
+      budgetAlertsEnabled: true,
     };
   });
 
@@ -163,6 +166,7 @@ export default function App() {
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [modalInitialCategoryType, setModalInitialCategoryType] = useState<CategoryType>('Expense');
   const [topBarToast, setTopBarToast] = useState<ToastMessage | null>(null);
+  const [activeBudgetPushAlert, setActiveBudgetPushAlert] = useState<BudgetAlertPayload | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
 
   const showToast = (
@@ -469,6 +473,15 @@ export default function App() {
     localStorage.setItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
   }, [pendingNotifications]);
 
+  // Real-time Push-Style Budget Notification Monitor (80% and 100% Thresholds)
+  useEffect(() => {
+    if (!settings.notificationsEnabled || settings.budgetAlertsEnabled === false) return;
+    const newAlerts = checkBudgetThresholds(transactions, categories, settings.currencySymbol);
+    if (newAlerts && newAlerts.length > 0) {
+      setActiveBudgetPushAlert(newAlerts[0]);
+    }
+  }, [transactions, categories, settings.currencySymbol, settings.notificationsEnabled, settings.budgetAlertsEnabled]);
+
   // Passcode verification with brute-force lockout protection
   const handlePasscodeUnlock = (e: React.FormEvent) => {
     e.preventDefault();
@@ -639,6 +652,14 @@ export default function App() {
   // Investment Actions
   const handleAddInvestment = (inv: InvestmentRecord) => {
     setInvestments((prev) => [...prev, inv]);
+  };
+
+  const handleUpdateInvestment = (updatedInv: InvestmentRecord) => {
+    setInvestments((prev) => prev.map((inv) => (inv.id === updatedInv.id ? updatedInv : inv)));
+  };
+
+  const handleDeleteInvestment = (id: string) => {
+    setInvestments((prev) => prev.filter((inv) => inv.id !== id));
   };
 
   // Loan Actions
@@ -1007,6 +1028,8 @@ export default function App() {
               onOpenAddTransaction={() => handleOpenAddModal()}
               onNavigateToTransactions={() => setActiveTab('transactions')}
               onNavigateToInvestments={() => setActiveTab('investments')}
+              onNavigateToCustomisations={() => setActiveTab('customisations')}
+              onTriggerBudgetAlert={(alert) => setActiveBudgetPushAlert(alert)}
               currencySymbol={settings.currencySymbol}
               defaultNetWorthMasked={settings.defaultNetWorthMasked}
               isCloudSynced={isAuthenticated && (!syncStatus || syncStatus.success)}
@@ -1039,7 +1062,12 @@ export default function App() {
           {activeTab === 'investments' && (
             <InvestmentsView
               investments={investments}
+              transactions={transactions}
               onAddInvestment={handleAddInvestment}
+              onUpdateInvestment={handleUpdateInvestment}
+              onDeleteInvestment={handleDeleteInvestment}
+              onEditTransaction={handleEditTransaction}
+              onDeleteTransaction={handleDeleteTransaction}
               currencySymbol={settings.currencySymbol}
             />
           )}
@@ -1060,6 +1088,7 @@ export default function App() {
             <CustomisationsView
               categories={categories}
               accounts={accounts}
+              transactions={transactions}
               onAddCategory={handleAddCategory}
               onUpdateCategory={handleUpdateCategory}
               onDeleteCategory={handleDeleteCategory}
@@ -1075,6 +1104,7 @@ export default function App() {
               settings={settings}
               categories={categories}
               accounts={accounts}
+              transactions={transactions}
               onUpdateSettings={setSettings}
               onAddCategory={handleAddCategory}
               onUpdateCategory={handleUpdateCategory}
@@ -1104,7 +1134,7 @@ export default function App() {
         />
 
         {/* Mobile Bottom Navigation Bar */}
-        <div className="lg:hidden border-t border-nothing bg-carbon px-2 py-2 flex items-center justify-around shrink-0">
+        <div className="lg:hidden border-t border-nothing bg-carbon px-2 py-2 flex items-center justify-around shrink-0 z-30">
           {[
             { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
             { id: 'transactions', label: 'Txns', icon: ReceiptText },
@@ -1120,8 +1150,10 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center gap-1 px-2 py-1 rounded-lg transition-colors cursor-pointer ${
-                  isActive ? 'text-red-500 font-bold' : 'text-[#666]'
+                className={`flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all nav-lift cursor-pointer ${
+                  isActive
+                    ? 'text-red-500 font-bold -translate-y-1 scale-105 bg-red-950/20'
+                    : 'text-[#666] hover:text-white hover:bg-white/5'
                 }`}
               >
                 <Icon className="w-4 h-4" />
@@ -1138,6 +1170,21 @@ export default function App() {
           <TopBarToast
             toast={topBarToast}
             onDismiss={() => setTopBarToast(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* Real-time Push-Style Budget Notification Banner (80% / 100% Thresholds) */}
+      <AnimatePresence>
+        {activeBudgetPushAlert && (
+          <BudgetPushNotificationBanner
+            alert={activeBudgetPushAlert}
+            currencySymbol={settings.currencySymbol}
+            onDismiss={() => setActiveBudgetPushAlert(null)}
+            onNavigateToCustomisations={() => {
+              setActiveBudgetPushAlert(null);
+              setActiveTab('customisations');
+            }}
           />
         )}
       </AnimatePresence>

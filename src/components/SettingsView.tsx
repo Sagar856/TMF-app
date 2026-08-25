@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserSettings, Category, FinancialAccount } from '../types/finance';
+import { UserSettings, Category, FinancialAccount, Transaction } from '../types/finance';
 import { isCloudBackendConfigured, getAuthRedirectUrl } from '../services/supabaseClient';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
 import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing, Copy } from 'lucide-react';
@@ -9,6 +9,7 @@ interface SettingsViewProps {
   settings: UserSettings;
   categories: Category[];
   accounts?: FinancialAccount[];
+  transactions?: Transaction[];
   onUpdateSettings: (newSettings: UserSettings) => void;
   onAddCategory: (cat: Category) => void;
   onUpdateCategory: (cat: Category) => void;
@@ -30,6 +31,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   categories,
   accounts = [],
+  transactions = [],
   onUpdateSettings,
   onAddCategory,
   onUpdateCategory,
@@ -64,7 +66,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // sign-in session).
   const cloudConfigured = isCloudBackendConfigured();
 
-  // UPI/SMS Interceptor
+  // UPI/SMS Interceptor & Notifications
   const [autoExtractSms, setAutoExtractSms] = useState<boolean>(settings?.autoExtractSms ?? true);
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(settings?.notificationsEnabled ?? true);
   const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
@@ -139,6 +141,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         <CustomisationsView
           categories={categories}
           accounts={accounts}
+          transactions={transactions}
           onAddCategory={onAddCategory}
           onUpdateCategory={onUpdateCategory}
           onDeleteCategory={onDeleteCategory}
@@ -346,7 +349,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               setNotificationsEnabled(updated);
               onUpdateSettings({ ...settings, notificationsEnabled: updated });
             }}
-            className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors ${
+            className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer ${
               notificationsEnabled ? 'bg-red-600 text-white' : 'bg-carbon text-[#777] border border-nothing'
             }`}
           >
@@ -450,25 +453,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
 
-            {(forceSyncResult || (syncStatus && !syncStatus.success)) && (
-              <div className={`p-3 rounded-xl border text-xs font-mono flex items-start gap-2 ${
-                (forceSyncResult ?? { success: false }).success
-                  ? 'bg-green-950/40 border-green-800 text-green-400'
-                  : 'bg-red-950/40 border-red-800 text-red-400'
-              }`}>
-                {(forceSyncResult ?? { success: false }).success ? (
-                  <>
-                    <Check className="w-4 h-4 shrink-0" />
+            {(forceSyncResult || (syncStatus && !syncStatus.success)) && (() => {
+              const isSuccess = (forceSyncResult ?? { success: false }).success;
+              const errorText = forceSyncResult?.error || syncStatus?.error || 'Sync failed for an unknown reason.';
+              const isOffline = errorText.toLowerCase().includes('offline') || errorText.toLowerCase().includes('unreachable');
+
+              if (isSuccess) {
+                return (
+                  <div className="p-3 rounded-xl border border-green-800 bg-green-950/40 text-green-400 text-xs font-mono flex items-start gap-2">
+                    <Check className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>All records synced to the cloud successfully.</span>
-                  </>
-                ) : (
-                  <>
-                    <AlertCircle className="w-4 h-4 shrink-0" />
-                    <span>{forceSyncResult?.error || syncStatus?.error || 'Sync failed for an unknown reason.'}</span>
-                  </>
-                )}
-              </div>
-            )}
+                  </div>
+                );
+              }
+
+              if (isOffline) {
+                return (
+                  <div className="p-3 rounded-xl border border-amber-800/80 bg-amber-950/40 text-amber-300 text-xs font-mono flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{errorText}</span>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="p-3 rounded-xl border border-red-800 bg-red-950/40 text-red-400 text-xs font-mono flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{errorText}</span>
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
