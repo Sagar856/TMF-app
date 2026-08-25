@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { LoanRecord, Repayment } from '../types/finance';
-import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, TrendingDown, TrendingUp, Wallet, FileText, MoreVertical } from 'lucide-react';
+import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, TrendingDown, TrendingUp, Wallet, FileText, MoreVertical, Eye, EyeOff } from 'lucide-react';
 
 interface LoansViewProps {
   loans: LoanRecord[];
@@ -59,6 +59,29 @@ export const LoansView: React.FC<LoansViewProps> = ({
   // Collapsible Filters State
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const [showOwedToMe, setShowOwedToMe] = useState<boolean>(true);
+  const [showIowe, setShowIowe] = useState<boolean>(true);
+  const [showOpenRecords, setShowOpenRecords] = useState<boolean>(true);
+  const [showNetPosition, setShowNetPosition] = useState<boolean>(true);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const diffY = touchEndY - touchStartY;
+    if (diffY > 25) {
+      // Swiped down -> Expand vertically
+      setIsKpiStacked(false);
+    } else if (diffY < -25) {
+      // Swiped up -> Stack vertically with overlap
+      setIsKpiStacked(true);
+    }
+    setTouchStartY(null);
+  };
 
   // Auto-collapse when user scrolls down
   useEffect(() => {
@@ -498,106 +521,163 @@ export const LoansView: React.FC<LoansViewProps> = ({
           </button>
         </div>
 
+        {/* Vertical Stack / Expanded Container with Touch Swipe Support */}
         <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
               ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
-              : 'grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-3'
+              : 'space-y-2.5 sm:space-y-3'
           }`}
         >
-          {/* OWED TO ME (ON TOP WHEN COLLAPSED) */}
+          {/* 1. OWED TO ME */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-40 scale-100 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                OWED TO ME
-              </span>
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Owed to Me</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOwedToMe(!showOwedToMe);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showOwedToMe ? "Hide amount" : "Show amount"}
+              >
+                {showOwedToMe ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-emerald-400 truncate">
-              {currencySymbol}{totalOwedToMe.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              Assets / Receivables
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+                {showOwedToMe ? `${currencySymbol}${totalOwedToMe.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Assets / Receivables
+              </div>
             </div>
           </div>
 
-          {/* I OWE */}
+          {/* 2. I OWE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-30 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                I OWE
-              </span>
-              <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                <span className="font-bold text-white tracking-wider">I Owe</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowIowe(!showIowe);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showIowe ? "Hide amount" : "Show amount"}
+              >
+                {showIowe ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-red-500 truncate">
-              {currencySymbol}{totalIowe.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              Liabilities / Payables
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
+                {showIowe ? `${currencySymbol}${totalIowe.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Liabilities / Payables
+              </div>
             </div>
           </div>
 
-          {/* OPEN COUNT */}
+          {/* 3. OPEN RECORDS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-purple-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-20 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                OPEN RECORDS
-              </span>
-              <FileText className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <FileText className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Open Records</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOpenRecords(!showOpenRecords);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showOpenRecords ? "Hide amount" : "Show amount"}
+              >
+                {showOpenRecords ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-white truncate">
-              {openCount}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              Active loans/lends
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
+                {showOpenRecords ? openCount : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Active loans/lends
+              </div>
             </div>
           </div>
 
-          {/* NET POSITION (POSITIONED LAST IN THE STACK LAYOUT) */}
+          {/* 4. NET POSITION */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-10 scale-[0.94] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                NET POS
-              </span>
-              <Wallet className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Net Position</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowNetPosition(!showNetPosition);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showNetPosition ? "Hide amount" : "Show amount"}
+              >
+                {showNetPosition ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div
-              className={`text-xs sm:text-lg font-bold font-mono truncate ${
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
                 netPosition >= 0 ? 'text-emerald-400' : 'text-red-500'
-              }`}
-            >
-              {currencySymbol}{netPosition.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              {netPosition >= 0 ? 'Net Surplus' : 'Net Deficit'}
+              }`}>
+                {showNetPosition ? `${currencySymbol}${netPosition.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {netPosition >= 0 ? 'Net Surplus' : 'Net Deficit'}
+              </div>
             </div>
           </div>
         </div>

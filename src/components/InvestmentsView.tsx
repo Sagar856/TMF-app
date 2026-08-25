@@ -20,7 +20,9 @@ import {
   LayoutList,
   MoreVertical,
   Trash2,
-  Edit2
+  Edit2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -74,6 +76,28 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
   const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const [showCurrentValue, setShowCurrentValue] = useState<boolean>(true);
+  const [showInvestedCapital, setShowInvestedCapital] = useState<boolean>(true);
+  const [showTotalProfit, setShowTotalProfit] = useState<boolean>(true);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const diffY = touchEndY - touchStartY;
+    if (diffY > 25) {
+      // Swiped down -> Expand vertically
+      setIsKpiStacked(false);
+    } else if (diffY < -25) {
+      // Swiped up -> Stack vertically with overlap
+      setIsKpiStacked(true);
+    }
+    setTouchStartY(null);
+  };
   const [viewMode, setViewMode] = useState<'table' | 'detail'>('table');
   const [selectedMonth, setSelectedMonth] = useState<string>('All');
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
@@ -633,82 +657,127 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           </button>
         </div>
 
+        {/* Vertical Stack / Expanded Container with Touch Swipe Support */}
         <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
               ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
-              : 'grid grid-cols-3 gap-1.5 sm:gap-3'
+              : 'space-y-2.5 sm:space-y-3'
           }`}
         >
-          {/* CURRENT VALUE */}
+          {/* 1. CURRENT VALUE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                CURRENT VALUE
-              </span>
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Current Value</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCurrentValue(!showCurrentValue);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showCurrentValue ? "Hide amount" : "Show amount"}
+              >
+                {showCurrentValue ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-white truncate">
-              {currencySymbol}{totalCurrentValue.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-emerald-400 font-mono flex items-center gap-0.5 truncate">
-              <TrendingUp className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
-              <span>+{overallReturnPercent}%</span>
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
+                {showCurrentValue ? `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
+                <TrendingUp className="w-3 h-3" />
+                <span>+{overallReturnPercent}% Returns</span>
+              </div>
             </div>
           </div>
 
-          {/* CAPITAL INVESTED */}
+          {/* 2. CAPITAL INVESTED */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                CAPITAL INVESTED
-              </span>
-              <DollarSign className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <DollarSign className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Capital Invested</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowInvestedCapital(!showInvestedCapital);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showInvestedCapital ? "Hide amount" : "Show amount"}
+              >
+                {showInvestedCapital ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-[#aaa] truncate">
-              {currencySymbol}{totalInvestedCapital.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-[#666] font-mono truncate">
-              Net Principal
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-[#aaa] tracking-tight">
+                {showInvestedCapital ? `${currencySymbol}${totalInvestedCapital.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Net Principal
+              </div>
             </div>
           </div>
 
-          {/* TOTAL RETURNS / GAIN */}
+          {/* 3. TOTAL PROFIT/LOSS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-purple-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                TOTAL PROFIT/LOSS
-              </span>
-              <PieIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <PieIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Total Profit/Loss</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTotalProfit(!showTotalProfit);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showTotalProfit ? "Hide amount" : "Show amount"}
+              >
+                {showTotalProfit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className={`text-xs sm:text-lg font-bold font-mono truncate ${
-              totalProfit >= 0 ? 'text-emerald-400' : 'text-red-500'
-            }`}>
-              {totalProfit >= 0 ? '+' : ''}{currencySymbol}{totalProfit.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-[#666] font-mono truncate">
-              Unrealized Gain
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
+                totalProfit >= 0 ? 'text-emerald-400' : 'text-red-500'
+              }`}>
+                {showTotalProfit ? `${totalProfit >= 0 ? '+' : ''}${currencySymbol}${totalProfit.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Unrealized Gain
+              </div>
             </div>
           </div>
         </div>

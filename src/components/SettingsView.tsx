@@ -596,12 +596,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <div className="flex items-center justify-between gap-3 pt-2 border-t border-[#1e1e1e]">
-            {/* Load Sample Data Button on Left Side */}
+            {/* Blue Text Button on Left Side */}
             {onLoadSampleData && (
               <button
                 type="button"
                 onClick={onLoadSampleData}
-                className="px-3 py-1.5 border border-blue-800/80 bg-blue-950/30 hover:bg-blue-900/40 text-blue-400 font-mono text-xs font-bold rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="text-blue-400 hover:text-blue-300 hover:underline font-mono text-xs font-bold flex items-center gap-1.5 cursor-pointer bg-transparent border-none p-0"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-blue-400" />
                 <span>Load Sample Data</span>

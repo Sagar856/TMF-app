@@ -1118,6 +1118,10 @@ export default function App() {
               pendingNotifications={pendingNotifications}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenAddTransaction={() => handleOpenAddModal()}
+              onQuickLogTransaction={(tx) => {
+                handleSaveTransaction(tx);
+                showToast(`Logged recurring payment for ${tx.title}`, 'success');
+              }}
               onNavigateToTransactions={() => setActiveTab('transactions')}
               onNavigateToInvestments={() => setActiveTab('investments')}
               onNavigateToCustomisations={() => setActiveTab('customisations')}

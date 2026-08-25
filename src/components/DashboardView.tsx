@@ -7,6 +7,7 @@ import { CategoryDonutChart } from './CategoryDonutChart';
 import { TopMerchantsCard } from './TopMerchantsCard';
 import { TopCategoriesCard } from './TopCategoriesCard';
 import { BudgetThresholdMonitor } from './BudgetThresholdMonitor';
+import { RecurringTransactionsCard } from './RecurringTransactionsCard';
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -33,6 +34,7 @@ interface DashboardViewProps {
   pendingNotifications: ParsedNotification[];
   onOpenNotifications: () => void;
   onOpenAddTransaction: () => void;
+  onQuickLogTransaction?: (tx: Transaction) => void;
   onNavigateToTransactions?: () => void;
   onNavigateToInvestments?: () => void;
   onNavigateToCustomisations?: () => void;
@@ -51,6 +53,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   pendingNotifications,
   onOpenNotifications,
   onOpenAddTransaction,
+  onQuickLogTransaction,
   onNavigateToTransactions,
   onNavigateToInvestments,
   onNavigateToCustomisations,
@@ -464,6 +467,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onNavigateToTransactions={onNavigateToTransactions}
         onNavigateToCustomisations={onNavigateToCustomisations}
         onTriggerAlert={onTriggerBudgetAlert}
+      />
+
+      {/* ==================== RECURRING BILLS & UPCOMING PAYMENTS (COLLAPSIBLE) ==================== */}
+      <RecurringTransactionsCard
+        transactions={transactions}
+        categories={categories}
+        currencySymbol={currencySymbol}
+        onQuickLogTransaction={onQuickLogTransaction}
+        onNavigateToTransactions={onNavigateToTransactions}
       />
 
       {/* ==================== 5. 7-DAY SPENDING TREND (COLLAPSIBLE) ==================== */}

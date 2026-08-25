@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Transaction, Category } from '../types/finance';
-import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X } from 'lucide-react';
+import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -39,6 +39,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Stack vs Expanded state for Top KPIs
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  const [showNetBalance, setShowNetBalance] = useState<boolean>(true);
+  const [showCredit, setShowCredit] = useState<boolean>(true);
+  const [showDebit, setShowDebit] = useState<boolean>(true);
+  const [touchStartY, setTouchStartY] = useState<number | null>(null);
 
   // Auto-collapse expanded KPIs when user scrolls down
   useEffect(() => {
@@ -52,6 +56,24 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     mainEl?.addEventListener('scroll', handleScroll);
     return () => mainEl?.removeEventListener('scroll', handleScroll);
   }, [isKpiStacked]);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setTouchStartY(e.touches[0].clientY);
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartY === null) return;
+    const touchEndY = e.changedTouches[0].clientY;
+    const diffY = touchEndY - touchStartY;
+    if (diffY > 25) {
+      // Swiped down -> Expand vertically
+      setIsKpiStacked(false);
+    } else if (diffY < -25) {
+      // Swiped up -> Stack vertically with overlap
+      setIsKpiStacked(true);
+    }
+    setTouchStartY(null);
+  };
 
   // View Mode: 'table' | 'detail'
   const [viewMode, setViewMode] = useState<'table' | 'detail'>('table');
@@ -461,83 +483,130 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </button>
         </div>
 
+        {/* Vertical Stack / Expanded Container with Touch Swipe Support */}
         <div
+          onTouchStart={handleTouchStart}
+          onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
               ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
-              : 'grid grid-cols-3 gap-1.5 sm:gap-3'
+              : 'space-y-2.5 sm:space-y-3'
           }`}
         >
-          {/* DEBIT */}
+          {/* 1. NET BALANCE CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                ? 'z-40 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                DEBIT
-              </span>
-              <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <Wallet className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Filtered Net Balance</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowNetBalance(!showNetBalance);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showNetBalance ? "Hide amount" : "Show amount"}
+              >
+                {showNetBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-red-500 truncate">
-              -{currencySymbol}{totalDebit.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              {filteredTransactions.filter(t => t.type === 'Debit' || t.amount < 0).length} debits logged
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div
+                className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
+                  netBalance >= 0 ? 'text-emerald-400' : 'text-red-500'
+                }`}
+              >
+                {showNetBalance
+                  ? `${netBalance < 0 ? '-' : ''}${currencySymbol}${Math.abs(netBalance).toLocaleString('en-IN')}`
+                  : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {filteredTransactions.length} records shown
+              </div>
             </div>
           </div>
 
-          {/* CREDIT */}
+          {/* 2. TOTAL CREDIT CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                ? 'z-30 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                CREDIT
-              </span>
-              <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Total Credit (Income)</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCredit(!showCredit);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showCredit ? "Hide amount" : "Show amount"}
+              >
+                {showCredit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold font-mono text-emerald-400 truncate">
-              {currencySymbol}{totalCredit.toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              {filteredTransactions.filter(t => t.type === 'Credit' || t.amount > 0).length} credits logged
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+                {showCredit ? `+${currencySymbol}${totalCredit.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {filteredTransactions.filter((t) => t.type === 'credit' || t.type === 'Credit' || t.amount > 0).length} Deposits
+              </div>
             </div>
           </div>
 
-          {/* NET */}
+          {/* 3. TOTAL DEBIT CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl space-y-1 min-w-0 transition-all duration-300 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                ? 'z-20 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between">
-              <span className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider truncate">
-                NET
-              </span>
-              <Wallet className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <TrendingDown className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Total Debit (Expenses)</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDebit(!showDebit);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showDebit ? "Hide amount" : "Show amount"}
+              >
+                {showDebit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div
-              className={`text-xs sm:text-lg font-bold font-mono truncate ${
-                netBalance >= 0 ? 'text-emerald-400' : 'text-red-500'
-              }`}
-            >
-              {netBalance < 0 ? '-' : ''}{currencySymbol}{Math.abs(netBalance).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}
-            </div>
-            <div className="text-[9px] text-[#888] font-mono truncate">
-              {filteredTransactions.length} total records
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
+                {showDebit ? `-${currencySymbol}${totalDebit.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {filteredTransactions.filter((t) => t.type === 'debit' || t.type === 'Debit' || t.amount < 0).length} Debits
+              </div>
             </div>
           </div>
         </div>

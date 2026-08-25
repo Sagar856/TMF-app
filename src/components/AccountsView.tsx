@@ -53,8 +53,11 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
 
   // Stack vs Side-by-side state for KPIs
-  const [isKpiStacked, setIsKpiStacked] = useState<boolean>(false);
+  const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const [showNetLiquid, setShowNetLiquid] = useState<boolean>(true);
+  const [showCardSpent, setShowCardSpent] = useState<boolean>(true);
+  const [showEstBills, setShowEstBills] = useState<boolean>(true);
 
   // Credit Cards Stack state
   const [isCardsStacked, setIsCardsStacked] = useState<boolean>(true);
@@ -526,7 +529,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         </div>
       )}
 
-      {/* KPI Overview Summary Bar - Stackable or Side-by-Side in 1 Row */}
+      {/* KPI Overview Summary Bar - Stackable or Full-Width Vertical List like FINANCIAL METRICS */}
       <div className="space-y-2">
         <div className="flex items-center justify-between text-xs font-mono text-[#888]">
           <div className="flex items-center gap-1.5">
@@ -547,74 +550,125 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           </button>
         </div>
 
+        {/* Vertical Stack / Expanded Container with Touch Swipe Support */}
         <div
           onTouchStart={handleKpiTouchStart}
           onTouchEnd={handleKpiTouchEnd}
-          className={`${
+          className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
               ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
-              : 'grid grid-cols-3 gap-1.5 sm:gap-3'
+              : 'space-y-2.5 sm:space-y-3'
           }`}
         >
-          {/* NET LIQUID BALANCE */}
+          {/* 1. NET LIQUID BALANCE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl space-y-1 min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] cursor-pointer ring-1 ring-white/10'
-                : 'shadow-md'
+                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider flex items-center justify-between">
-              <span className="truncate">NET LIQUID</span>
-              <Building2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Net Liquid Balance</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowNetLiquid(!showNetLiquid);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showNetLiquid ? "Hide amount" : "Show amount"}
+              >
+                {showNetLiquid ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold text-emerald-400 font-mono truncate">
-              {currencySymbol}{totalLiquidAssets.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-[#888] font-mono truncate">
-              {bankAccounts.length} Banks + {wallets.length} Wallets
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+                {showNetLiquid ? `${currencySymbol}${totalLiquidAssets.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {bankAccounts.length} Banks + {wallets.length} Wallets
+              </div>
             </div>
           </div>
 
-          {/* CREDIT CARD SPENT */}
+          {/* 2. CREDIT CARD SPENT */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl space-y-1 min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] cursor-pointer ring-1 ring-white/10'
-                : 'shadow-md'
+                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider flex items-center justify-between">
-              <span className="truncate">CARD SPENT</span>
-              <CreditCard className="w-3.5 h-3.5 text-red-500 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <CreditCard className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Card Spent</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowCardSpent(!showCardSpent);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showCardSpent ? "Hide amount" : "Show amount"}
+              >
+                {showCardSpent ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold text-red-500 font-mono truncate">
-              {currencySymbol}{totalCreditCardSpent.toLocaleString('en-IN')}
-            </div>
-            <div className="text-[9px] sm:text-[10px] text-[#888] font-mono truncate">
-              Across {creditCards.length} Cards
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
+                {showCardSpent ? `${currencySymbol}${totalCreditCardSpent.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Across {creditCards.length} Cards
+              </div>
             </div>
           </div>
 
-          {/* EST. MONTHLY BILLS */}
+          {/* 3. EST. MONTHLY BILLS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-2.5 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-amber-400 rounded-xl space-y-1 min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-amber-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] cursor-pointer ring-1 ring-white/10'
-                : 'shadow-md'
+                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="text-[8px] sm:text-[9px] font-mono font-bold text-[#aaa] uppercase tracking-wider flex items-center justify-between">
-              <span className="truncate">EST. BILLS</span>
-              <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Est. Monthly Bills</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowEstBills(!showEstBills);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showEstBills ? "Hide amount" : "Show amount"}
+              >
+                {showEstBills ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
             </div>
-            <div className="text-xs sm:text-lg font-bold text-amber-400 font-mono truncate">
-              {currencySymbol}{totalApproxMonthlyBill.toLocaleString('en-IN')}
+
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-amber-400 tracking-tight">
+                {showEstBills ? `${currencySymbol}${totalApproxMonthlyBill.toLocaleString('en-IN')}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                Approx statement due
+              </div>
             </div>
-            <div className="text-[9px] sm:text-[10px] text-[#888] font-mono truncate">Approx statement due</div>
           </div>
         </div>
       </div>
