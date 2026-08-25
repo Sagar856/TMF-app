@@ -134,4 +134,7 @@ export interface UserSettings {
   budgetAlertsEnabled?: boolean;
   defaultNetWorthMasked?: boolean;
   sampleDataLoaded?: boolean;
+  skipDeleteConfirmation?: boolean;
+  skipInvestmentDeleteConfirmation?: boolean;
+  skipLoanDeleteConfirmation?: boolean;
 }

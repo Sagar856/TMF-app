@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Transaction, Category } from '../types/finance';
-import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Transaction, Category, UserSettings } from '../types/finance';
+import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -9,6 +10,8 @@ interface TransactionsViewProps {
   onEditTransaction: (tx: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
   currencySymbol: string;
+  settings: UserSettings;
+  onUpdateSettings: (newSettings: UserSettings) => void;
 }
 
 export const TransactionsView: React.FC<TransactionsViewProps> = ({
@@ -18,6 +21,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onEditTransaction,
   onDeleteTransaction,
   currencySymbol,
+  settings,
+  onUpdateSettings,
 }) => {
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -43,6 +48,31 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [showCredit, setShowCredit] = useState<boolean>(true);
   const [showDebit, setShowDebit] = useState<boolean>(true);
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
+
+  // Delete confirmation modal state
+  const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
+
+  const handleDeleteClick = (tx: Transaction) => {
+    if (settings.skipDeleteConfirmation) {
+      onDeleteTransaction(tx.id);
+    } else {
+      setTransactionToDelete(tx);
+      setDoNotAskAgainChecked(false);
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (!transactionToDelete) return;
+    if (doNotAskAgainChecked) {
+      onUpdateSettings({
+        ...settings,
+        skipDeleteConfirmation: true,
+      });
+    }
+    onDeleteTransaction(transactionToDelete.id);
+    setTransactionToDelete(null);
+  };
 
   // Auto-collapse expanded KPIs when user scrolls down
   useEffect(() => {
@@ -725,7 +755,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteTransaction(tx.id);
+                        handleDeleteClick(tx);
                       }}
                       className="px-2 py-1 border border-red-900/80 hover:border-red-500 text-red-500 hover:text-red-300 hover:bg-red-950/40 text-[10px] uppercase font-bold rounded-lg transition-all nav-lift cursor-pointer shrink-0"
                     >
@@ -811,7 +841,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     </button>
                     <button
                       type="button"
-                      onClick={() => onDeleteTransaction(tx.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteClick(tx);
+                      }}
                       className="px-2 py-1 border border-red-900/80 text-red-500 hover:bg-red-950/40 text-[10px] uppercase rounded transition-all nav-lift cursor-pointer"
                     >
                       DEL
@@ -823,6 +856,107 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           )}
         </div>
       )}
+
+      {/* Delete Confirmation Modal Dialog */}
+      <AnimatePresence>
+        {transactionToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono select-none">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setTransactionToDelete(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Dialog Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+              className="relative z-10 w-full max-w-md bg-[#121216] border border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white tracking-wide uppercase">
+                      Delete Transaction?
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTransactionToDelete(null)}
+                  className="p-1.5 text-[#555] hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Transaction details card summary */}
+              <div className="p-4 bg-[#181820] border border-[#26262f] rounded-2xl">
+                <div className="space-y-1.5 font-mono">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Title / Payee:</span>
+                    <span className="font-bold text-white max-w-[200px] truncate">
+                      {transactionToDelete.title}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Category:</span>
+                    <span className="text-white font-bold">{transactionToDelete.category}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Amount:</span>
+                    <span className={`font-bold ${transactionToDelete.type === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
+                      {transactionToDelete.type === 'debit' ? '-' : '+'}{currencySymbol}{transactionToDelete.amount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Date:</span>
+                    <span className="text-[#aaa]">{formatDateDisplay(transactionToDelete.date)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Checkbox */}
+              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={doNotAskAgainChecked}
+                  onChange={(e) => setDoNotAskAgainChecked(e.target.checked)}
+                  className="w-4.5 h-4.5 accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">Do not ask again</span>
+              </label>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTransactionToDelete(null)}
+                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  className="px-5 py-2 text-xs font-mono uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all cursor-pointer"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

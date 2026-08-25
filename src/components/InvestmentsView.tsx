@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { InvestmentRecord, InvestmentType, Transaction } from '../types/finance';
+import { motion, AnimatePresence } from 'motion/react';
+import { InvestmentRecord, InvestmentType, Transaction, UserSettings } from '../types/finance';
 import {
   TrendingUp,
   Plus,
@@ -22,7 +23,8 @@ import {
   Trash2,
   Edit2,
   Eye,
-  EyeOff
+  EyeOff,
+  AlertTriangle
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -45,6 +47,8 @@ interface InvestmentsViewProps {
   onEditTransaction?: (tx: Transaction) => void;
   onDeleteTransaction?: (id: string) => void;
   currencySymbol: string;
+  settings: UserSettings;
+  onUpdateSettings: (newSettings: UserSettings) => void;
 }
 
 interface InvestmentTxn {
@@ -67,9 +71,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   onEditTransaction,
   onDeleteTransaction,
   currencySymbol,
+  settings,
+  onUpdateSettings,
 }) => {
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
+
+  // Deletion modal state
+  const [txnToDelete, setTxnToDelete] = useState<InvestmentTxn | null>(null);
+  const [assetToDelete, setAssetToDelete] = useState<{ id: string; name: string; type: string; amount: number } | null>(null);
+  const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
 
   // Collapsible filter state
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
@@ -378,11 +389,26 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setNotes('');
   };
 
-  const handleDeleteInv = (id: string, e: React.MouseEvent) => {
+  const handleDeleteInv = (id: string, name: string, type: string, amount: number, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (window.confirm('Delete this investment record?')) {
+    if (settings.skipInvestmentDeleteConfirmation) {
       onDeleteInvestment?.(id);
+    } else {
+      setAssetToDelete({ id, name, type, amount });
+      setDoNotAskAgainChecked(false);
     }
+  };
+
+  const handleConfirmDeleteAsset = () => {
+    if (!assetToDelete) return;
+    if (doNotAskAgainChecked) {
+      onUpdateSettings({
+        ...settings,
+        skipInvestmentDeleteConfirmation: true,
+      });
+    }
+    onDeleteInvestment?.(assetToDelete.id);
+    setAssetToDelete(null);
   };
 
   const handleEditTxn = (tx: InvestmentTxn) => {
@@ -410,10 +436,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     }
   };
 
-  const handleDeleteTxn = (tx: InvestmentTxn) => {
-    if (!window.confirm(`Delete transaction "${tx.category}" (${currencySymbol}${tx.amount})?`)) {
-      return;
-    }
+  const performDeleteTxn = (tx: InvestmentTxn) => {
     const realTx = transactions.find((t) => t.id === tx.id);
     if (realTx && onDeleteTransaction) {
       onDeleteTransaction(realTx.id);
@@ -427,6 +450,27 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     if (onDeleteTransaction) {
       onDeleteTransaction(tx.id);
     }
+  };
+
+  const handleDeleteTxn = (tx: InvestmentTxn) => {
+    if (settings.skipDeleteConfirmation) {
+      performDeleteTxn(tx);
+    } else {
+      setTxnToDelete(tx);
+      setDoNotAskAgainChecked(false);
+    }
+  };
+
+  const handleConfirmDeleteTxn = () => {
+    if (!txnToDelete) return;
+    if (doNotAskAgainChecked) {
+      onUpdateSettings({
+        ...settings,
+        skipDeleteConfirmation: true,
+      });
+    }
+    performDeleteTxn(txnToDelete);
+    setTxnToDelete(null);
   };
 
   return (
@@ -1113,7 +1157,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     {onDeleteInvestment && (
                       <button
                         type="button"
-                        onClick={(e) => handleDeleteInv(inv.id, e)}
+                        onClick={(e) => handleDeleteInv(inv.id, inv.name, inv.type, inv.amountInvested, e)}
                         className="p-1 text-[#888] hover:text-red-400 hover:bg-[#222] rounded-lg transition-colors cursor-pointer"
                         title="Delete"
                       >
@@ -1253,6 +1297,203 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           </div>
         </div>
       )}
+      {/* Delete Ledger Transaction Modal Dialog */}
+      <AnimatePresence>
+        {txnToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono select-none">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setTxnToDelete(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Dialog Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+              className="relative z-10 w-full max-w-md bg-[#121216] border border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white tracking-wide uppercase">
+                      Delete Transaction?
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTxnToDelete(null)}
+                  className="p-1.5 text-[#555] hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Details card */}
+              <div className="p-4 bg-[#181820] border border-[#26262f] rounded-2xl">
+                <div className="space-y-1.5 font-mono">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Title / Payee:</span>
+                    <span className="font-bold text-white max-w-[200px] truncate">
+                      {txnToDelete.category}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Account:</span>
+                    <span className="text-white font-bold">{txnToDelete.account}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Amount:</span>
+                    <span className="font-bold text-cyan-400">
+                      {currencySymbol}{txnToDelete.amount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Date:</span>
+                    <span className="text-[#aaa]">{formatDateDisplay(txnToDelete.date)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Checkbox */}
+              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={doNotAskAgainChecked}
+                  onChange={(e) => setDoNotAskAgainChecked(e.target.checked)}
+                  className="w-4.5 h-4.5 accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">Do not ask again</span>
+              </label>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTxnToDelete(null)}
+                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteTxn}
+                  className="px-5 py-2 text-xs font-mono uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all cursor-pointer"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Asset Holding Modal Dialog */}
+      <AnimatePresence>
+        {assetToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono select-none">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAssetToDelete(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Dialog Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+              className="relative z-10 w-full max-w-md bg-[#121216] border border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white tracking-wide uppercase">
+                      Delete Asset?
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAssetToDelete(null)}
+                  className="p-1.5 text-[#555] hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Details card */}
+              <div className="p-4 bg-[#181820] border border-[#26262f] rounded-2xl">
+                <div className="space-y-1.5 font-mono">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Asset Name:</span>
+                    <span className="font-bold text-white max-w-[200px] truncate">
+                      {assetToDelete.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Asset Type:</span>
+                    <span className="text-white font-bold">{assetToDelete.type}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Invested Capital:</span>
+                    <span className="font-bold text-red-400">
+                      {currencySymbol}{assetToDelete.amount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Checkbox */}
+              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+                <input
+                  type="checkbox"
+                  checked={doNotAskAgainChecked}
+                  onChange={(e) => setDoNotAskAgainChecked(e.target.checked)}
+                  className="w-4.5 h-4.5 accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-xs font-bold text-white">Do not ask again</span>
+              </label>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAssetToDelete(null)}
+                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteAsset}
+                  className="px-5 py-2 text-xs font-mono uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all cursor-pointer"
+                >
+                  Delete
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

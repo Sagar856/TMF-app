@@ -105,6 +105,9 @@ export default function App() {
       return {
         ...parsed,
         sampleDataLoaded: parsed.sampleDataLoaded !== undefined ? parsed.sampleDataLoaded : true,
+        skipDeleteConfirmation: parsed.skipDeleteConfirmation !== undefined ? parsed.skipDeleteConfirmation : false,
+        skipInvestmentDeleteConfirmation: parsed.skipInvestmentDeleteConfirmation !== undefined ? parsed.skipInvestmentDeleteConfirmation : false,
+        skipLoanDeleteConfirmation: parsed.skipLoanDeleteConfirmation !== undefined ? parsed.skipLoanDeleteConfirmation : false,
       };
     }
     return {
@@ -124,6 +127,9 @@ export default function App() {
       notificationsEnabled: true,
       budgetAlertsEnabled: true,
       sampleDataLoaded: true,
+      skipDeleteConfirmation: false,
+      skipInvestmentDeleteConfirmation: false,
+      skipLoanDeleteConfirmation: false,
     };
   });
 
@@ -1141,6 +1147,8 @@ export default function App() {
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
               currencySymbol={settings.currencySymbol}
+              settings={settings}
+              onUpdateSettings={setSettings}
             />
           )}
 
@@ -1165,6 +1173,8 @@ export default function App() {
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
               currencySymbol={settings.currencySymbol}
+              settings={settings}
+              onUpdateSettings={setSettings}
             />
           )}
 
@@ -1177,6 +1187,8 @@ export default function App() {
               onDeleteLoan={handleDeleteLoan}
               onUpdateLoan={handleUpdateLoan}
               currencySymbol={settings.currencySymbol}
+              settings={settings}
+              onUpdateSettings={setSettings}
             />
           )}
 
