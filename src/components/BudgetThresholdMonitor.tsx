@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { 
@@ -16,6 +16,8 @@ import {
   ArrowUpRight,
   ReceiptText
 } from 'lucide-react';
+import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
+import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 
 interface BudgetThresholdMonitorProps {
   transactions: Transaction[];
@@ -24,6 +26,10 @@ interface BudgetThresholdMonitorProps {
   onNavigateToTransactions?: () => void;
   onNavigateToCustomisations?: () => void;
   onTriggerAlert?: (alert: BudgetAlertPayload) => void;
+  carouselState?: CarouselSectionState;
+  containerRef?: (el: HTMLDivElement | null) => void;
+  contentRef?: (el: HTMLDivElement | null) => void;
+  onToggleExpand?: () => void;
 }
 
 export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
@@ -33,7 +39,56 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
   onNavigateToTransactions,
   onNavigateToCustomisations,
   onTriggerAlert,
+  carouselState,
+  containerRef: externalContainerRef,
+  contentRef: externalContentRef,
+  onToggleExpand: externalToggleExpand,
 }) => {
+  // Self-managed scroll focus if not controlled by parent group
+  const selfScroll = useScrollFocusSection({
+    enabled: !carouselState,
+    centerFocusRatio: 0.46,
+    focusRadius: 0.38,
+  });
+
+  const internalContainerRef = useRef<HTMLDivElement | null>(null);
+  const internalContentRef = useRef<HTMLDivElement | null>(null);
+
+  // Combine external and internal refs
+  const handleContainerRef = (el: HTMLDivElement | null) => {
+    internalContainerRef.current = el;
+    if (externalContainerRef) externalContainerRef(el);
+    if (!carouselState && selfScroll.containerRef) {
+      (selfScroll.containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const handleContentRef = (el: HTMLDivElement | null) => {
+    internalContentRef.current = el;
+    if (externalContentRef) externalContentRef(el);
+    if (!carouselState && selfScroll.contentRef) {
+      (selfScroll.contentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const effectiveState: CarouselSectionState = carouselState || {
+    progress: selfScroll.progress,
+    contentHeight: selfScroll.contentHeight,
+    isExpanded: selfScroll.isExpanded,
+    isFocused: selfScroll.isFocused,
+    chevronRotation: selfScroll.chevronRotation,
+    buttonLabel: selfScroll.buttonLabel,
+    bodyStyle: selfScroll.bodyStyle,
+  };
+
+  const handleToggleExpand = () => {
+    if (externalToggleExpand) {
+      externalToggleExpand();
+    } else {
+      selfScroll.toggleManualExpand();
+    }
+  };
+
   // Extract all distinct year-month strings from transactions (e.g., '2026-07', '2026-08')
   const availableMonths = useMemo(() => {
     const monthsSet = new Set<string>();
@@ -58,8 +113,6 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
 
   // Filter mode: 'alerts' (shows only >= 80%) or 'all' (shows all categories with budgets)
   const [filterMode, setFilterMode] = useState<'alerts' | 'all'>('alerts');
-  // Collapsed by default as requested
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   // Format YYYY-MM to readable label e.g., "July 2026"
   const formatMonthLabel = (ym: string) => {
@@ -137,10 +190,15 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
 
   return (
     <div 
+      ref={handleContainerRef}
       id="budget-threshold-monitor"
       className={`rounded-2xl border transition-all duration-300 font-mono ${
-        hasAlerts
-          ? 'bg-gradient-to-br from-[#1c1214] via-[#141215] to-[#121214] border-red-500/60 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20'
+        effectiveState.isFocused
+          ? hasAlerts
+            ? 'bg-gradient-to-br from-[#1c1214] via-[#141215] to-[#121214] border-red-500 shadow-[0_10px_30px_rgba(220,38,38,0.2)] ring-1 ring-red-500/30'
+            : 'bg-[#141418] border-red-500/60 shadow-lg ring-1 ring-red-500/20'
+          : hasAlerts
+          ? 'bg-[#181113] border-red-500/40 shadow-sm'
           : 'bg-[#111113] border-[#242428] shadow-md'
       }`}
     >
@@ -148,13 +206,15 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
       <div className="p-4 sm:p-5 border-b border-[#26262a] flex flex-col md:flex-row md:items-center justify-between gap-4">
         {/* Left: Icon & Alert Status */}
         <div 
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={handleToggleExpand}
           className="flex items-center gap-3 min-w-0 cursor-pointer select-none"
         >
           <div 
-            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border shadow-inner ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border shadow-inner transition-colors ${
               hasAlerts
                 ? 'bg-red-950/80 border-red-500 text-red-400 animate-pulse'
+                : effectiveState.isFocused
+                ? 'bg-emerald-950/90 border-emerald-500 text-emerald-400'
                 : 'bg-emerald-950/70 border-emerald-600/50 text-emerald-400'
             }`}
           >
@@ -227,19 +287,26 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
           {/* Expand/Collapse Toggle */}
           <button
             type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 bg-[#18181c] hover:bg-[#222226] border border-[#333] rounded-xl text-[#aaa] hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold"
-            title={isExpanded ? "Collapse Details" : "Expand Details"}
+            onClick={handleToggleExpand}
+            className={`p-1.5 bg-[#18181c] hover:bg-[#222226] border rounded-xl hover:text-white transition-all cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
+              effectiveState.isFocused ? 'border-red-500 text-white' : 'border-[#333] text-[#aaa]'
+            }`}
+            title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse Details" : "Expand Details"}
           >
-            <span>{isExpanded ? 'COLLAPSE' : 'EXPAND'}</span>
-            {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            <span>{effectiveState.buttonLabel}</span>
+            <div
+              style={{ transform: `rotate(${effectiveState.chevronRotation}deg)`, transition: 'transform 0.1s linear' }}
+              className="shrink-0"
+            >
+              <ChevronDown className="w-4 h-4 text-red-400" />
+            </div>
           </button>
         </div>
       </div>
 
-      {/* ==================== EXPANDED MONITOR BODY ==================== */}
-      {isExpanded && (
-        <div className="p-4 sm:p-5 space-y-4">
+      {/* ==================== PROGRESSIVE SCROLL-DRIVEN MONITOR BODY ==================== */}
+      <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
+        <div ref={handleContentRef} className="p-4 sm:p-5 space-y-4">
           {/* Summary Metric Ribbon */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <div className="bg-black/50 border border-[#222] p-2.5 sm:p-3 rounded-xl">
@@ -494,7 +561,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 };

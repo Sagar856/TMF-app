@@ -133,6 +133,7 @@ export interface UserSettings {
   notificationsEnabled: boolean;
   budgetAlertsEnabled?: boolean;
   defaultNetWorthMasked?: boolean;
+  autoCollapseExpandOnScroll?: boolean;
   sampleDataLoaded?: boolean;
   skipDeleteConfirmation?: boolean;
   skipInvestmentDeleteConfirmation?: boolean;

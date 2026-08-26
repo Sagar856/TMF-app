@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   CreditCard,
   Building2,
@@ -11,6 +12,7 @@ import {
   Calendar,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Sparkles,
   ChevronRight,
   ArrowUpRight,
@@ -27,6 +29,7 @@ import {
   Check
 } from 'lucide-react';
 import { FinancialAccount, Transaction, AccountType } from '../types/finance';
+import { EmptyState } from './EmptyState';
 
 interface AccountsViewProps {
   accounts: FinancialAccount[];
@@ -51,6 +54,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
+
+  // Deletion modal state
+  const [accountToDelete, setAccountToDelete] = useState<FinancialAccount | null>(null);
 
   // Stack vs Side-by-side state for KPIs
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
@@ -378,6 +384,17 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         </div>
       </div>
 
+      {/* ==================== EMPTY STATE IF NO ACCOUNTS ==================== */}
+      {accounts.length === 0 && (
+        <EmptyState
+          icon={Building2}
+          title="No Accounts Linked"
+          description="Add your bank accounts, credit cards, and digital wallets to organize your payment channels and monitor balances."
+          actionLabel="Add Account"
+          onAction={handleOpenAdd}
+        />
+      )}
+
       {/* ==================== REALISTIC CREDIT CARDS SECTION (COLLAPSIBLE STACK LIKE FINANCIAL METRICS) ==================== */}
       {(selectedType === 'All' || selectedType === 'Credit Card') && creditCards.length > 0 && (
         <div className="space-y-2">
@@ -455,10 +472,21 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                           e.stopPropagation();
                           handleOpenEdit(card, e);
                         }}
-                        className={`p-1 rounded bg-black/20 hover:bg-black/40 ${textColor} transition-colors`}
+                        className={`p-1 rounded bg-black/20 hover:bg-black/40 ${textColor} transition-colors cursor-pointer`}
                         title="Edit Card"
                       >
                         <Edit2 className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAccountToDelete(card);
+                        }}
+                        className={`p-1 rounded bg-black/20 hover:bg-red-950/80 hover:text-red-400 ${textColor} transition-colors cursor-pointer`}
+                        title="Delete Card"
+                      >
+                        <Trash2 className="w-3 h-3" />
                       </button>
                       <span className={`px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border ${
                         isSilver ? 'border-slate-800 text-slate-950' : 'border-white/30 text-white'
@@ -709,7 +737,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <button
                         type="button"
                         onClick={(e) => handleOpenEdit(acc, e)}
-                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-white transition-all nav-lift"
+                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-white transition-all nav-lift cursor-pointer"
                         title="Edit Account"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -718,11 +746,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (confirm(`Are you sure you want to delete ${acc.name}?`)) {
-                            onDeleteAccount(acc.id);
-                          }
+                          setAccountToDelete(acc);
                         }}
-                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-red-400 transition-all nav-lift"
+                        className="p-1.5 rounded-lg bg-[#1a1a1a] text-[#888] hover:text-red-400 transition-all nav-lift cursor-pointer"
                         title="Delete Account"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -970,13 +996,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 bg-[#1c1c1c] text-[#888] rounded-xl hover:text-white"
+                  className="px-4 py-2 bg-[#1c1c1c] text-[#888] rounded-xl hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl"
+                  className="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl cursor-pointer"
                 >
                   {editingAcc ? 'Update Account' : 'Save Account'}
                 </button>
@@ -985,6 +1011,109 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Delete Account Confirmation Dialog Modal */}
+      <AnimatePresence>
+        {accountToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono select-none">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAccountToDelete(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+
+            {/* Dialog Box */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+              className="relative z-10 w-full max-w-md bg-[#121216] border border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              {/* Header */}
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white tracking-wide uppercase">
+                      Delete Account?
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(null)}
+                  className="p-1.5 text-[#555] hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Account Details */}
+              <div className="p-4 bg-[#181820] border border-[#26262f] rounded-2xl">
+                <div className="space-y-1.5 font-mono">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Account Name:</span>
+                    <span className="font-bold text-white max-w-[200px] truncate">
+                      {accountToDelete.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Type & Institution:</span>
+                    <span className="text-white font-bold">{accountToDelete.type} ({accountToDelete.bankName})</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Account Number:</span>
+                    <span className="text-amber-400 font-bold">•••• {accountToDelete.accountNumberLast4}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Current Balance:</span>
+                    <span className="font-bold text-emerald-400">
+                      {currencySymbol}{accountToDelete.balance.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Warning Alert */}
+              <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-2xl text-[11px] font-mono text-red-300 leading-relaxed">
+                Deleting this account will remove it from your linked accounts and payment methods. Any previous transaction records will be preserved safely.
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(null)}
+                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (accountToDelete) {
+                      onDeleteAccount(accountToDelete.id);
+                      setAccountToDelete(null);
+                      if (selectedAccountId === accountToDelete.id) {
+                        setSelectedAccountId(null);
+                      }
+                    }
+                  }}
+                  className="px-5 py-2 text-xs font-mono uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all cursor-pointer"
+                >
+                  Delete Account
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

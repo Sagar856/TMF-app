@@ -26,6 +26,7 @@ import {
   EyeOff,
   AlertTriangle
 } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 import {
   ResponsiveContainer,
   LineChart,
@@ -678,6 +679,17 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* ==================== EMPTY STATE IF NO INVESTMENTS ==================== */}
+      {investments.length === 0 && (
+        <EmptyState
+          icon={TrendingUp}
+          title="No Investments Logged"
+          description="Track your mutual funds, equities, crypto, and fixed deposits in real time."
+          actionLabel="Add Investment"
+          onAction={() => setShowAddModal(true)}
+        />
       )}
 
       {/* ==================== PORTFOLIO SUMMARY & ASSETS ==================== */}

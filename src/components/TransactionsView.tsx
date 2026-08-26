@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Category, UserSettings } from '../types/finance';
 import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -491,6 +492,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             )}
           </div>
         )}
+
+      {/* ==================== EMPTY STATE IF NO TRANSACTIONS ==================== */}
+      {transactions.length === 0 && (
+        <EmptyState
+          icon={LayoutList}
+          title="No Transactions Logged"
+          description="Track your income, expense payments, and transfers by logging your first transaction."
+          actionLabel="Add Transaction"
+          onAction={onAddTransaction}
+        />
+      )}
 
       {/* ==================== KPI SUMMARY CARDS ==================== */}
       <div className="space-y-2">

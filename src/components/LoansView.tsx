@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoanRecord, Repayment, UserSettings } from '../types/finance';
 import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, TrendingDown, TrendingUp, Wallet, FileText, MoreVertical, Eye, EyeOff, AlertTriangle } from 'lucide-react';
+import { EmptyState } from './EmptyState';
 
 interface LoansViewProps {
   loans: LoanRecord[];
@@ -529,6 +530,17 @@ export const LoansView: React.FC<LoansViewProps> = ({
               </div>
             )}
         </div>
+      )}
+
+      {/* ==================== EMPTY STATE IF NO LOANS ==================== */}
+      {loans.length === 0 && (
+        <EmptyState
+          icon={FileText}
+          title="No Loans or Lends"
+          description="Keep track of money you've lent to friends or borrowed from banks and institutions."
+          actionLabel="Add Loan / Lend"
+          onAction={() => setIsAddModalOpen(true)}
+        />
       )}
 
       {/* ==================== KPI CARDS ==================== */}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { 
   Repeat, 
@@ -29,6 +29,8 @@ import {
   Filter,
   Info
 } from 'lucide-react';
+import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
+import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 
 export interface CustomRecurringBill {
   id: string;
@@ -65,6 +67,10 @@ interface RecurringTransactionsCardProps {
   currencySymbol: string;
   onQuickLogTransaction?: (tx: Transaction) => void;
   onNavigateToTransactions?: () => void;
+  carouselState?: CarouselSectionState;
+  containerRef?: (el: HTMLDivElement | null) => void;
+  contentRef?: (el: HTMLDivElement | null) => void;
+  onToggleExpand?: () => void;
 }
 
 export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps> = ({
@@ -73,9 +79,56 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   currencySymbol,
   onQuickLogTransaction,
   onNavigateToTransactions,
+  carouselState,
+  containerRef: externalContainerRef,
+  contentRef: externalContentRef,
+  onToggleExpand: externalToggleExpand,
 }) => {
-  // Collapsed by default as requested in prompt requirement #1
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  // Self-managed scroll focus if not controlled by parent group
+  const selfScroll = useScrollFocusSection({
+    enabled: !carouselState,
+    centerFocusRatio: 0.46,
+    focusRadius: 0.38,
+  });
+
+  const internalContainerRef = useRef<HTMLDivElement | null>(null);
+  const internalContentRef = useRef<HTMLDivElement | null>(null);
+
+  // Combine external and internal refs
+  const handleContainerRef = (el: HTMLDivElement | null) => {
+    internalContainerRef.current = el;
+    if (externalContainerRef) externalContainerRef(el);
+    if (!carouselState && selfScroll.containerRef) {
+      (selfScroll.containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const handleContentRef = (el: HTMLDivElement | null) => {
+    internalContentRef.current = el;
+    if (externalContentRef) externalContentRef(el);
+    if (!carouselState && selfScroll.contentRef) {
+      (selfScroll.contentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const effectiveState: CarouselSectionState = carouselState || {
+    progress: selfScroll.progress,
+    contentHeight: selfScroll.contentHeight,
+    isExpanded: selfScroll.isExpanded,
+    isFocused: selfScroll.isFocused,
+    chevronRotation: selfScroll.chevronRotation,
+    buttonLabel: selfScroll.buttonLabel,
+    bodyStyle: selfScroll.bodyStyle,
+  };
+
+  const handleToggleExpand = () => {
+    if (externalToggleExpand) {
+      externalToggleExpand();
+    } else {
+      selfScroll.toggleManualExpand();
+    }
+  };
+
   const [filter, setFilter] = useState<'ALL' | 'DUE_SOON' | 'EXPENSE' | 'INCOME'>('ALL');
   const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
@@ -510,14 +563,26 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   };
 
   return (
-    <div className="bg-carbon border border-nothing rounded-2xl shadow-xl font-mono overflow-hidden transition-all duration-300">
+    <div 
+      ref={handleContainerRef} 
+      id="recurring-transactions-card"
+      className={`bg-carbon border rounded-2xl shadow-xl font-mono overflow-hidden transition-all duration-300 ${
+        effectiveState.isFocused 
+          ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
+          : 'border-nothing'
+      }`}
+    >
       {/* Header Bar - Collapsible Trigger */}
       <div 
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={handleToggleExpand}
         className="p-3.5 sm:p-4 flex items-center justify-between flex-wrap gap-2.5 cursor-pointer hover:bg-[#1a1a1a] transition-colors select-none"
       >
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-8 h-8 rounded-xl bg-red-950/60 border border-red-600/50 flex items-center justify-center text-red-500 shrink-0 shadow-inner">
+          <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-inner transition-colors ${
+            effectiveState.isFocused 
+              ? 'bg-red-950/90 border border-red-500 text-red-400' 
+              : 'bg-red-950/60 border border-red-600/50 text-red-500'
+          }`}>
             <Repeat className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -555,18 +620,31 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             <span className="hidden sm:inline">Add Recurring</span>
           </button>
 
-          <div 
-            className="p-1.5 bg-obsidian border border-nothing rounded-xl text-white transition-all"
-            title={isExpanded ? "Collapse Section" : "Expand Section"}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleToggleExpand();
+            }}
+            className={`p-1.5 px-2.5 bg-obsidian border rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
+              effectiveState.isFocused ? 'border-red-500 text-white' : 'border-nothing text-[#aaa]'
+            }`}
+            title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse Section" : "Expand Section"}
           >
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-red-400" /> : <ChevronDown className="w-4 h-4 text-red-400" />}
-          </div>
+            <span>{effectiveState.buttonLabel}</span>
+            <div
+              style={{ transform: `rotate(${effectiveState.chevronRotation}deg)`, transition: 'transform 0.1s linear' }}
+              className="shrink-0"
+            >
+              <ChevronDown className="w-4 h-4 text-red-400" />
+            </div>
+          </button>
         </div>
       </div>
 
-      {/* Expanded Body Content */}
-      {isExpanded && (
-        <div className="p-3.5 sm:p-4 pt-0 space-y-4 border-t border-nothing/60 bg-carbon">
+      {/* Progressive Scroll-Driven Body Content */}
+      <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
+        <div ref={handleContentRef} className="p-3.5 sm:p-4 pt-0 space-y-4 border-t border-nothing/60 bg-carbon">
           {/* Top Month Selector & Projected Outflows Banner */}
           <div className="p-3.5 bg-obsidian border border-nothing rounded-xl space-y-3 mt-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1009,7 +1087,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             </div>
           )}
         </div>
-      )}
+      </div>
 
       {/* Modal: Add Custom Recurring Bill */}
       {showAddModal && (

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Transaction,
   Category,
@@ -10,8 +10,9 @@ import {
   InvestmentType,
   LoanType,
 } from '../types/finance';
-import { X, Plus, Sparkles } from 'lucide-react';
+import { X, Plus, Sparkles, MapPin, Loader2 } from 'lucide-react';
 import { suggestCategoryForTitle } from '../services/notification/CategoryClassifier';
+import { getCurrentDeviceLocation } from '../services/locationService';
 
 export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend';
 
@@ -48,6 +49,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     return 'Expense';
   });
 
+  // Filter categories strictly by current Category Type (Expense -> expense, Income -> income, Investment -> investment)
+  const filteredCategories = useMemo(() => {
+    const targetType = categoryType.toLowerCase();
+    return categories.filter((cat) => (cat.type || 'expense').toLowerCase() === targetType);
+  }, [categories, categoryType]);
+
   // --- Transaction State (Expense / Income) ---
   const [txDate, setTxDate] = useState<string>(
     transaction?.date || new Date().toISOString().slice(0, 10)
@@ -55,9 +62,24 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [txAmount, setTxAmount] = useState<string>(
     transaction?.amount ? transaction.amount.toString() : ''
   );
-  const [selectedCategory, setSelectedCategory] = useState<string>(
-    transaction?.category || ''
-  );
+  const [selectedCategory, setSelectedCategory] = useState<string>(() => {
+    const initType = (
+      initialCategoryType ||
+      (transaction?.type === 'credit' ? 'Income' : 'Expense')
+    ).toLowerCase();
+    
+    if (transaction?.category) {
+      const match = categories.find(
+        (c) =>
+          c.name.toLowerCase() === transaction.category!.toLowerCase() &&
+          (c.type || 'expense').toLowerCase() === initType
+      );
+      if (match) return match.name;
+    }
+    const relevant = categories.filter((c) => (c.type || 'expense').toLowerCase() === initType);
+    return relevant.length > 0 ? relevant[0].name : '';
+  });
+
   const [txType, setTxType] = useState<TransactionType>(
     transaction?.type || (categoryType === 'Income' ? 'credit' : 'debit')
   );
@@ -65,7 +87,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [description, setDescription] = useState<string>(
     transaction?.title || transaction?.note || ''
   );
+
+  // --- Geolocation & Place State ---
   const [place, setPlace] = useState<string>(transaction?.location?.name || '');
+  const [coordinates, setCoordinates] = useState<{ lat: number; lng: number } | null>(
+    transaction?.location ? { lat: transaction.location.lat, lng: transaction.location.lng } : null
+  );
+  const [isLocating, setIsLocating] = useState<boolean>(false);
+
   const [referenceNum, setReferenceNum] = useState<string>('NA');
   const [tags, setTags] = useState<string[]>(['coffee', 'daily']);
   const [tagInput, setTagInput] = useState<string>('');
@@ -88,7 +117,44 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const [autoMatchedCategory, setAutoMatchedCategory] = useState<string | null>(null);
 
-  // Handle category type change
+  // Retrieve current user location on modal open for new transaction
+  useEffect(() => {
+    if (!isEditingExisting && !place) {
+      let isMounted = true;
+      setIsLocating(true);
+      getCurrentDeviceLocation()
+        .then((loc) => {
+          if (!isMounted) return;
+          setIsLocating(false);
+          if (loc && loc.formattedLocation) {
+            setPlace((prev) => (prev ? prev : loc.formattedLocation));
+            setCoordinates({ lat: loc.lat, lng: loc.lng });
+          }
+        })
+        .catch(() => {
+          if (isMounted) setIsLocating(false);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [isEditingExisting]);
+
+  const handleFetchCurrentLocation = async () => {
+    setIsLocating(true);
+    try {
+      const loc = await getCurrentDeviceLocation();
+      if (loc && loc.formattedLocation) {
+        setPlace(loc.formattedLocation);
+        setCoordinates({ lat: loc.lat, lng: loc.lng });
+      }
+    } finally {
+      setIsLocating(false);
+    }
+  };
+
+  // Handle category type change: refresh/reset category selection
   const handleCategoryTypeChange = (newType: CategoryType) => {
     setCategoryType(newType);
     if (newType === 'Income') {
@@ -96,6 +162,16 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     } else if (newType === 'Expense') {
       setTxType('debit');
     }
+
+    const relevantCats = categories.filter(
+      (c) => (c.type || 'expense').toLowerCase() === newType.toLowerCase()
+    );
+    if (relevantCats.length > 0) {
+      setSelectedCategory(relevantCats[0].name);
+    } else {
+      setSelectedCategory('');
+    }
+    setAutoMatchedCategory(null);
   };
 
   const handleDescriptionChange = (val: string) => {
@@ -103,11 +179,20 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (!isEditingExisting) {
       const match = suggestCategoryForTitle(val, txType);
       if (match) {
-        setSelectedCategory(match.category);
-        if (match.categoryType !== categoryType) {
-          setCategoryType(match.categoryType);
+        const catExists = categories.some(
+          (c) =>
+            c.name.toLowerCase() === match.category.toLowerCase() &&
+            (c.type || 'expense').toLowerCase() === match.categoryType.toLowerCase()
+        );
+        if (catExists) {
+          if (match.categoryType !== categoryType) {
+            setCategoryType(match.categoryType);
+            if (match.categoryType === 'Income') setTxType('credit');
+            else if (match.categoryType === 'Expense') setTxType('debit');
+          }
+          setSelectedCategory(match.category);
+          setAutoMatchedCategory(match.category);
         }
-        setAutoMatchedCategory(match.category);
       }
     }
   };
@@ -117,11 +202,20 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (!isEditingExisting && !description) {
       const match = suggestCategoryForTitle(val, txType);
       if (match) {
-        setSelectedCategory(match.category);
-        if (match.categoryType !== categoryType) {
-          setCategoryType(match.categoryType);
+        const catExists = categories.some(
+          (c) =>
+            c.name.toLowerCase() === match.category.toLowerCase() &&
+            (c.type || 'expense').toLowerCase() === match.categoryType.toLowerCase()
+        );
+        if (catExists) {
+          if (match.categoryType !== categoryType) {
+            setCategoryType(match.categoryType);
+            if (match.categoryType === 'Income') setTxType('credit');
+            else if (match.categoryType === 'Expense') setTxType('debit');
+          }
+          setSelectedCategory(match.category);
+          setAutoMatchedCategory(match.category);
         }
-        setAutoMatchedCategory(match.category);
       }
     }
   };
@@ -145,7 +239,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (isNaN(numAmount) || numAmount <= 0) return;
 
     const savedCategory =
-      selectedCategory || (categories.length > 0 ? categories[0].name : 'General');
+      selectedCategory || (filteredCategories.length > 0 ? filteredCategories[0].name : 'General');
 
     const savedTx: Transaction = {
       id:
@@ -161,11 +255,19 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       source: (account === 'UPI' ? 'UPI' : 'Manual') as PaymentSource,
       payeeOrPayer: place.trim() || description.trim() || 'Merchant',
       paymentMethod: account,
-      location: {
-        lat: transaction?.location?.lat || 19.076,
-        lng: transaction?.location?.lng || 72.8777,
-        name: place.trim() || 'Location',
-      },
+      location: coordinates
+        ? {
+            lat: coordinates.lat,
+            lng: coordinates.lng,
+            name: place.trim() || 'Location',
+          }
+        : transaction?.location
+        ? {
+            lat: transaction.location.lat,
+            lng: transaction.location.lng,
+            name: place.trim() || 'Location',
+          }
+        : undefined,
       rawText: transaction?.rawText,
       note: tags.length > 0 ? `${description} [Tags: #${tags.join(', #')}]` : description,
     };
@@ -308,21 +410,32 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     </span>
                   )}
                 </div>
-                <select
-                  value={selectedCategory}
-                  onChange={(e) => {
-                    setSelectedCategory(e.target.value);
-                    setAutoMatchedCategory(null);
-                  }}
-                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                >
-                  <option value="">Select category</option>
-                  {categories.map((cat) => (
-                    <option key={cat.id} value={cat.name}>
-                      {cat.name}
+                {filteredCategories.length === 0 ? (
+                  <select
+                    disabled
+                    value=""
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-[#666] focus:outline-none cursor-not-allowed opacity-75"
+                  >
+                    <option value="" disabled>
+                      No categories available
                     </option>
-                  ))}
-                </select>
+                  </select>
+                ) : (
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => {
+                      setSelectedCategory(e.target.value);
+                      setAutoMatchedCategory(null);
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  >
+                    {filteredCategories.map((cat) => (
+                      <option key={cat.id} value={cat.name}>
+                        {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               {/* Row 4: TYPE & ACCOUNT */}
@@ -419,16 +532,39 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               {/* Row 6: PLACE & REFERENCE # */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    PLACE
-                  </label>
-                  <input
-                    type="text"
-                    value={place}
-                    onChange={(e) => handlePlaceChange(e.target.value)}
-                    placeholder="Where?"
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                  />
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
+                      PLACE
+                    </label>
+                    {isLocating && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-mono text-red-400">
+                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                        Detecting...
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative flex items-center">
+                    <input
+                      type="text"
+                      value={place}
+                      onChange={(e) => handlePlaceChange(e.target.value)}
+                      placeholder={isLocating ? 'Detecting location...' : 'Where?'}
+                      className="w-full pl-3 pr-8 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 truncate"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleFetchCurrentLocation}
+                      disabled={isLocating}
+                      title="Detect current location"
+                      className="absolute right-2 p-1 text-[#666] hover:text-red-400 disabled:opacity-40 transition-colors cursor-pointer"
+                    >
+                      {isLocating ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-500" />
+                      ) : (
+                        <MapPin className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 <div>

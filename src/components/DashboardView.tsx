@@ -8,6 +8,9 @@ import { TopMerchantsCard } from './TopMerchantsCard';
 import { TopCategoriesCard } from './TopCategoriesCard';
 import { BudgetThresholdMonitor } from './BudgetThresholdMonitor';
 import { RecurringTransactionsCard } from './RecurringTransactionsCard';
+import { useScrollCarouselGroup } from '../hooks/useScrollCarouselGroup';
+
+const DASHBOARD_SECTIONS = ['budget', 'recurring', 'trend'] as const;
 import { 
   ArrowUpRight, 
   ArrowDownLeft, 
@@ -41,6 +44,7 @@ interface DashboardViewProps {
   onTriggerBudgetAlert?: (alert: BudgetAlertPayload) => void;
   currencySymbol: string;
   defaultNetWorthMasked?: boolean;
+  autoCollapseExpandOnScroll?: boolean;
   isCloudSynced?: boolean;
   onOpenCloudSyncStatus?: () => void;
 }
@@ -60,6 +64,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onTriggerBudgetAlert,
   currencySymbol,
   defaultNetWorthMasked = true,
+  autoCollapseExpandOnScroll = true,
   isCloudSynced = false,
   onOpenCloudSyncStatus,
 }) => {
@@ -123,6 +128,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     }
     setTouchStartY(null);
   };
+
+  // Synchronized scroll focus carousel for the 3 target dashboard sections
+  const carousel = useScrollCarouselGroup(DASHBOARD_SECTIONS, {
+    enabled: autoCollapseExpandOnScroll !== false,
+    bottomHoldRatio: 0.30,
+  });
 
   // Calculate key totals
   const totalCredit = transactions
@@ -467,6 +478,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         onNavigateToTransactions={onNavigateToTransactions}
         onNavigateToCustomisations={onNavigateToCustomisations}
         onTriggerAlert={onTriggerBudgetAlert}
+        carouselState={carousel.getSectionState('budget')}
+        containerRef={carousel.registerContainer('budget')}
+        contentRef={carousel.registerContent('budget')}
+        onToggleExpand={() => carousel.toggleSection('budget')}
       />
 
       {/* ==================== RECURRING BILLS & UPCOMING PAYMENTS (COLLAPSIBLE) ==================== */}
@@ -476,10 +491,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         currencySymbol={currencySymbol}
         onQuickLogTransaction={onQuickLogTransaction}
         onNavigateToTransactions={onNavigateToTransactions}
+        carouselState={carousel.getSectionState('recurring')}
+        containerRef={carousel.registerContainer('recurring')}
+        contentRef={carousel.registerContent('recurring')}
+        onToggleExpand={() => carousel.toggleSection('recurring')}
       />
 
       {/* ==================== 5. 7-DAY SPENDING TREND (COLLAPSIBLE) ==================== */}
-      <SevenDaySpendingTrendChart transactions={transactions} currencySymbol={currencySymbol} />
+      <SevenDaySpendingTrendChart 
+        transactions={transactions} 
+        currencySymbol={currencySymbol}
+        carouselState={carousel.getSectionState('trend')}
+        containerRef={carousel.registerContainer('trend')}
+        contentRef={carousel.registerContent('trend')}
+        onToggleExpand={() => carousel.toggleSection('trend')}
+      />
 
       {/* ==================== 6. CASH FLOW TREND TRAJECTORY ==================== */}
       <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />

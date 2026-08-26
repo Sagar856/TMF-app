@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserSettings, Category, FinancialAccount, Transaction } from '../types/finance';
 import { isCloudBackendConfigured, getAuthRedirectUrl } from '../services/supabaseClient';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
-import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing, Copy } from 'lucide-react';
+import { User, Shield, Database, Download, RefreshCw, Key, MapPin, Check, AlertCircle, Trash2, Sun, Moon, Palette, Sliders, Eye, EyeOff, Smartphone, BellRing, Copy, ChevronsUpDown, MousePointerClick } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 
 interface SettingsViewProps {
@@ -234,6 +234,53 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <>
                 <Eye className="w-3.5 h-3.5 text-emerald-400" />
                 <span>VISIBLE</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Dashboard Sections Auto-Expand on Scroll Mode Setting */}
+        <div className="flex items-center justify-between p-3 bg-obsidian border border-nothing rounded-xl">
+          <div>
+            <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+              <span>Dashboard Section Expansion</span>
+              <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded uppercase font-bold ${
+                settings.autoCollapseExpandOnScroll !== false 
+                  ? 'bg-red-950 text-red-400 border border-red-800/50' 
+                  : 'bg-indigo-950 text-indigo-400 border border-indigo-800/50'
+              }`}>
+                {settings.autoCollapseExpandOnScroll !== false ? 'AUTO (ON SCROLL)' : 'MANUAL (ON CLICK)'}
+              </span>
+            </div>
+            <div className="text-[10px] text-[#777] font-mono mt-0.5">
+              Auto-expand & collapse budget, bills & trend sections as you scroll, or keep them manual
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const currentVal = settings.autoCollapseExpandOnScroll !== false;
+              onUpdateSettings({
+                ...settings,
+                autoCollapseExpandOnScroll: !currentVal,
+              });
+            }}
+            className={`px-3.5 py-1.5 border text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 ${
+              settings.autoCollapseExpandOnScroll !== false
+                ? 'bg-red-950/60 border-red-600 text-red-400 hover:bg-red-900/80'
+                : 'bg-indigo-950/60 border-indigo-600 text-indigo-300 hover:bg-indigo-900/80'
+            }`}
+          >
+            {settings.autoCollapseExpandOnScroll !== false ? (
+              <>
+                <ChevronsUpDown className="w-3.5 h-3.5 text-red-400 animate-pulse" />
+                <span>AUTO ON SCROLL</span>
+              </>
+            ) : (
+              <>
+                <MousePointerClick className="w-3.5 h-3.5 text-indigo-400" />
+                <span>MANUAL TOGGLE</span>
               </>
             )}
           </button>

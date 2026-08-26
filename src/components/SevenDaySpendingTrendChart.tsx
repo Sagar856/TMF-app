@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -22,10 +22,16 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
+import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
+import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 
 interface SevenDaySpendingTrendChartProps {
   transactions: Transaction[];
   currencySymbol: string;
+  carouselState?: CarouselSectionState;
+  containerRef?: (el: HTMLDivElement | null) => void;
+  contentRef?: (el: HTMLDivElement | null) => void;
+  onToggleExpand?: () => void;
 }
 
 interface DayTrendPoint {
@@ -42,8 +48,56 @@ interface DayTrendPoint {
 export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProps> = ({
   transactions,
   currencySymbol,
+  carouselState,
+  containerRef: externalContainerRef,
+  contentRef: externalContentRef,
+  onToggleExpand: externalToggleExpand,
 }) => {
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
+  // Self-managed scroll focus if not controlled by parent group
+  const selfScroll = useScrollFocusSection({
+    enabled: !carouselState,
+    centerFocusRatio: 0.46,
+    focusRadius: 0.38,
+  });
+
+  const internalContainerRef = useRef<HTMLDivElement | null>(null);
+  const internalContentRef = useRef<HTMLDivElement | null>(null);
+
+  // Combine external and internal refs
+  const handleContainerRef = (el: HTMLDivElement | null) => {
+    internalContainerRef.current = el;
+    if (externalContainerRef) externalContainerRef(el);
+    if (!carouselState && selfScroll.containerRef) {
+      (selfScroll.containerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const handleContentRef = (el: HTMLDivElement | null) => {
+    internalContentRef.current = el;
+    if (externalContentRef) externalContentRef(el);
+    if (!carouselState && selfScroll.contentRef) {
+      (selfScroll.contentRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    }
+  };
+
+  const effectiveState: CarouselSectionState = carouselState || {
+    progress: selfScroll.progress,
+    contentHeight: selfScroll.contentHeight,
+    isExpanded: selfScroll.isExpanded,
+    isFocused: selfScroll.isFocused,
+    chevronRotation: selfScroll.chevronRotation,
+    buttonLabel: selfScroll.buttonLabel,
+    bodyStyle: selfScroll.bodyStyle,
+  };
+
+  const handleToggleExpand = () => {
+    if (externalToggleExpand) {
+      externalToggleExpand();
+    } else {
+      selfScroll.toggleManualExpand();
+    }
+  };
+
   const [selectedDay, setSelectedDay] = useState<DayTrendPoint | null>(null);
 
   // Compute 7-day window ending at the latest available transaction date (or today if none or recent)
@@ -118,14 +172,26 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
   const activeDay = selectedDay || chartData[chartData.length - 1];
 
   return (
-    <div className="bg-carbon border border-nothing p-4 sm:p-5 rounded-2xl sm:rounded-3xl font-mono text-white shadow-md transition-all duration-300">
+    <div 
+      ref={handleContainerRef}
+      id="seven-day-spending-trend"
+      className={`bg-carbon border rounded-2xl sm:rounded-3xl font-mono text-white shadow-md transition-all duration-300 overflow-hidden ${
+        effectiveState.isFocused 
+          ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
+          : 'border-nothing'
+      }`}
+    >
       {/* Top Header with title, summary statistics and expand/collapse toggle */}
-      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isExpanded ? 'pb-3 border-b border-[#222]' : ''}`}>
+      <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#222]">
         <div 
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={handleToggleExpand}
           className="flex items-center gap-2 cursor-pointer select-none"
         >
-          <div className="p-1.5 bg-red-950/60 border border-red-800/50 rounded-lg text-red-500 shrink-0">
+          <div className={`p-1.5 rounded-lg shrink-0 transition-colors ${
+            effectiveState.isFocused 
+              ? 'bg-red-950/90 border border-red-500 text-red-400' 
+              : 'bg-red-950/60 border border-red-800/50 text-red-500'
+          }`}>
             <Flame className="w-4 h-4" />
           </div>
           <div>
@@ -161,19 +227,26 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
           {/* Expand/Collapse Toggle Button */}
           <button
             type="button"
-            onClick={() => setIsExpanded(!isExpanded)}
-            className="p-1.5 px-2.5 bg-[#18181c] hover:bg-[#222226] border border-[#333] hover:border-red-500 rounded-xl text-[#aaa] hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold"
-            title={isExpanded ? "Collapse 7-Day Spending Trend" : "Expand 7-Day Spending Trend"}
+            onClick={handleToggleExpand}
+            className={`p-1.5 px-2.5 bg-[#18181c] hover:bg-[#222226] border rounded-xl hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
+              effectiveState.isFocused ? 'border-red-500 text-white' : 'border-[#333] text-[#aaa]'
+            }`}
+            title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse 7-Day Spending Trend" : "Expand 7-Day Spending Trend"}
           >
-            <span>{isExpanded ? 'COLLAPSE' : 'EXPAND'}</span>
-            {isExpanded ? <ChevronUp className="w-4 h-4 text-red-400" /> : <ChevronDown className="w-4 h-4 text-red-400" />}
+            <span>{effectiveState.buttonLabel}</span>
+            <div
+              style={{ transform: `rotate(${effectiveState.chevronRotation}deg)`, transition: 'transform 0.1s linear' }}
+              className="shrink-0"
+            >
+              <ChevronDown className="w-4 h-4 text-red-400" />
+            </div>
           </button>
         </div>
       </div>
 
-      {/* Collapsible Content */}
-      {isExpanded && (
-        <div className="space-y-4 pt-4">
+      {/* Progressive Scroll-Driven Body Content */}
+      <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
+        <div ref={handleContentRef} className="p-4 sm:p-5 pt-4 space-y-4">
           {/* Main Recharts Area / Line Chart */}
           <div className="relative w-full bg-obsidian border border-nothing rounded-2xl p-2.5 sm:p-4">
         {/* Chart Canvas */}
@@ -357,8 +430,8 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
           </div>
         </div>
       )}
+        </div>
       </div>
-      )}
     </div>
   );
 };

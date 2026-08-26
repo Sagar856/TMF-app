@@ -108,6 +108,7 @@ export default function App() {
         skipDeleteConfirmation: parsed.skipDeleteConfirmation !== undefined ? parsed.skipDeleteConfirmation : false,
         skipInvestmentDeleteConfirmation: parsed.skipInvestmentDeleteConfirmation !== undefined ? parsed.skipInvestmentDeleteConfirmation : false,
         skipLoanDeleteConfirmation: parsed.skipLoanDeleteConfirmation !== undefined ? parsed.skipLoanDeleteConfirmation : false,
+        autoCollapseExpandOnScroll: parsed.autoCollapseExpandOnScroll !== undefined ? parsed.autoCollapseExpandOnScroll : true,
       };
     }
     return {
@@ -130,6 +131,7 @@ export default function App() {
       skipDeleteConfirmation: false,
       skipInvestmentDeleteConfirmation: false,
       skipLoanDeleteConfirmation: false,
+      autoCollapseExpandOnScroll: true,
     };
   });
 
@@ -234,19 +236,6 @@ export default function App() {
   // Surfaces the most recent backend sync outcome (success or a real error
   // message) so failures are visible instead of vanishing into the console.
   const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; timestamp: number } | null>(null);
-
-  // Account CRUD Handlers
-  const handleAddAccount = (acc: FinancialAccount) => {
-    setAccounts((prev) => [acc, ...prev]);
-  };
-
-  const handleUpdateAccount = (acc: FinancialAccount) => {
-    setAccounts((prev) => prev.map((a) => (a.id === acc.id ? acc : a)));
-  };
-
-  const handleDeleteAccount = (id: string) => {
-    setAccounts((prev) => prev.filter((a) => a.id !== id));
-  };
 
   // Helper to open modal with contextual Category Type based on active tab
   const handleOpenAddModal = (overrideCategoryType?: CategoryType) => {
@@ -682,6 +671,26 @@ export default function App() {
         setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, revertDelta));
       }
       return prev.filter((t) => t.id !== id);
+    });
+  };
+
+  // Account Actions
+  const handleAddAccount = (acc: FinancialAccount) => {
+    setAccounts((prev) => [acc, ...prev]);
+    showToast(`Account "${acc.name}" added`, 'success');
+  };
+
+  const handleUpdateAccount = (updatedAcc: FinancialAccount) => {
+    setAccounts((prev) => prev.map((a) => (a.id === updatedAcc.id ? updatedAcc : a)));
+    showToast(`Account "${updatedAcc.name}" updated`, 'info');
+  };
+
+  const handleDeleteAccount = (id: string) => {
+    setAccounts((prev) => {
+      const accToDelete = prev.find((a) => a.id === id);
+      const accName = accToDelete ? accToDelete.name : 'Account';
+      showToast(`${accName} deleted`, 'warning');
+      return prev.filter((a) => a.id !== id);
     });
   };
 
@@ -1134,6 +1143,7 @@ export default function App() {
               onTriggerBudgetAlert={(alert) => setActiveBudgetPushAlert(alert)}
               currencySymbol={settings.currencySymbol}
               defaultNetWorthMasked={settings.defaultNetWorthMasked}
+              autoCollapseExpandOnScroll={settings.autoCollapseExpandOnScroll !== false}
               isCloudSynced={isAuthenticated && (!syncStatus || syncStatus.success)}
               onOpenCloudSyncStatus={() => setActiveTab('settings')}
             />
@@ -1241,8 +1251,11 @@ export default function App() {
           visible={['dashboard', 'transactions', 'investments', 'loans'].includes(activeTab)}
         />
 
-        {/* Mobile Bottom Navigation Bar */}
-        <div className="lg:hidden border-t border-nothing bg-carbon px-2 py-2 flex items-center justify-around shrink-0 z-30">
+        {/* Mobile Bottom Navigation Bar - Fixed/Sticky with Safe Area Inset Support */}
+        <nav
+          aria-label="Mobile Navigation"
+          className="lg:hidden border-t border-nothing bg-[#0d0d10]/95 backdrop-blur-md px-2 pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] flex items-center justify-around shrink-0 z-40 shadow-[0_-4px_24px_rgba(0,0,0,0.7)]"
+        >
           {[
             { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
             { id: 'transactions', label: 'Txns', icon: ReceiptText },
@@ -1269,7 +1282,7 @@ export default function App() {
               </button>
             );
           })}
-        </div>
+        </nav>
       </div>
 
       {/* Top Bar Auto-Vanishing Pop-up Notification */}

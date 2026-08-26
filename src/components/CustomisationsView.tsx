@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { 
   Sliders, 
@@ -46,6 +47,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'categories' | 'budgets' | 'accounts'>('budgets');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  const [accountToDelete, setAccountToDelete] = useState<FinancialAccount | null>(null);
 
   // Month selector for budget tracking
   const availableMonths = useMemo(() => {
@@ -657,43 +659,63 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-            {accounts.map((acc) => (
-              <div
-                key={acc.id}
-                className="p-4 bg-obsidian border border-nothing rounded-2xl flex items-center justify-between gap-4"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-red-500 font-bold font-mono text-xs">
-                    {acc.bankName.slice(0, 3).toUpperCase()}
-                  </div>
-                  <div>
-                    <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
-                      {acc.name}
-                      <span className="text-[9px] bg-[#222] text-[#aaa] font-mono px-1.5 py-0.5 rounded">
-                        {acc.type}
-                      </span>
+          {accounts.length === 0 ? (
+            <div className="p-8 text-center bg-obsidian border border-nothing rounded-2xl">
+              <Building2 className="w-8 h-8 text-[#555] mx-auto mb-2" />
+              <div className="text-xs font-mono text-[#888]">No linked accounts configured.</div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+              {accounts.map((acc) => (
+                <div
+                  key={acc.id}
+                  className="p-4 bg-obsidian border border-nothing rounded-2xl flex items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-neutral-900 border border-neutral-800 rounded-xl text-red-500 font-bold font-mono text-xs">
+                      {acc.bankName.slice(0, 3).toUpperCase()}
                     </div>
-                    <div className="text-[10px] font-mono text-[#777] mt-0.5">
-                      Bank: {acc.bankName} • Last 4: **{acc.accountNumberLast4}
-                    </div>
-                    {acc.type === 'Credit Card' && (
-                      <div className="text-[10px] font-mono text-amber-400 mt-0.5">
-                        Est Monthly Bill: {currencySymbol}{(acc.approxMonthlyBill || acc.balance).toLocaleString('en-IN')}
+                    <div>
+                      <div className="text-xs font-mono font-bold text-white flex items-center gap-2">
+                        {acc.name}
+                        <span className="text-[9px] bg-[#222] text-[#aaa] font-mono px-1.5 py-0.5 rounded">
+                          {acc.type}
+                        </span>
                       </div>
+                      <div className="text-[10px] font-mono text-[#777] mt-0.5">
+                        Bank: {acc.bankName} • Last 4: **{acc.accountNumberLast4}
+                      </div>
+                      {acc.type === 'Credit Card' && (
+                        <div className="text-[10px] font-mono text-amber-400 mt-0.5">
+                          Est Monthly Bill: {currencySymbol}{(acc.approxMonthlyBill || acc.balance).toLocaleString('en-IN')}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="text-right font-mono">
+                      <div className="text-xs font-bold text-emerald-400">
+                        {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                      </div>
+                      <div className="text-[9px] text-[#666] uppercase">Balance</div>
+                    </div>
+
+                    {onDeleteAccount && (
+                      <button
+                        type="button"
+                        onClick={() => setAccountToDelete(acc)}
+                        className="p-2 bg-neutral-900 border border-neutral-800 rounded-xl text-[#777] hover:text-red-400 hover:border-red-600/50 transition-colors cursor-pointer"
+                        title="Delete Account"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
                 </div>
-
-                <div className="text-right font-mono">
-                  <div className="text-xs font-bold text-emerald-400">
-                    {currencySymbol}{acc.balance.toLocaleString('en-IN')}
-                  </div>
-                  <div className="text-[9px] text-[#666] uppercase">Balance</div>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {showAddModal && (
@@ -803,6 +825,98 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           </div>
         </div>
       )}
+      {/* Delete Account Confirmation Dialog Modal */}
+      <AnimatePresence>
+        {accountToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono select-none">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setAccountToDelete(null)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 12 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 32 }}
+              className="relative z-10 w-full max-w-md bg-[#121216] border border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                    <AlertTriangle className="w-5 h-5 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm sm:text-base font-bold text-white tracking-wide uppercase">
+                      Delete Account?
+                    </h3>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(null)}
+                  className="p-1.5 text-[#555] hover:text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="p-4 bg-[#181820] border border-[#26262f] rounded-2xl">
+                <div className="space-y-1.5 font-mono">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Account Name:</span>
+                    <span className="font-bold text-white max-w-[200px] truncate">
+                      {accountToDelete.name}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Type & Institution:</span>
+                    <span className="text-white font-bold">{accountToDelete.type} ({accountToDelete.bankName})</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Account Number:</span>
+                    <span className="text-amber-400 font-bold">•••• {accountToDelete.accountNumberLast4}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-[#666]">Current Balance:</span>
+                    <span className="font-bold text-emerald-400">
+                      {currencySymbol}{accountToDelete.balance.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-2xl text-[11px] font-mono text-red-300 leading-relaxed">
+                Deleting this account will remove it from your linked accounts and payment methods. Any previous transaction records will be preserved safely.
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setAccountToDelete(null)}
+                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (accountToDelete) {
+                      onDeleteAccount?.(accountToDelete.id);
+                      setAccountToDelete(null);
+                    }
+                  }}
+                  className="px-5 py-2 text-xs font-mono uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.4)] transition-all cursor-pointer"
+                >
+                  Delete Account
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
