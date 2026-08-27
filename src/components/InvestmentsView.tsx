@@ -694,21 +694,21 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
       {/* ==================== PORTFOLIO SUMMARY & ASSETS ==================== */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs font-mono text-[#888]">
+        <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-[#888]">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
-            <span className="uppercase font-bold tracking-wider text-white">PORTFOLIO SUMMARY & ASSETS</span>
+            <span className="uppercase font-bold tracking-wider text-slate-900 dark:text-white">PORTFOLIO SUMMARY & ASSETS</span>
           </div>
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a1a1a] dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] hover:border-red-500 rounded-lg text-slate-700 dark:text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
-              <ChevronDown className="w-3.5 h-3.5 text-red-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-red-400" />
+              <ChevronUp className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             )}
           </button>
         </div>
@@ -726,16 +726,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 1. CURRENT VALUE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-30 shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Current Value</span>
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Current Value</span>
               </div>
               <button
                 type="button"
@@ -743,18 +743,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowCurrentValue(!showCurrentValue);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showCurrentValue ? "Hide amount" : "Show amount"}
               >
-                {showCurrentValue ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showCurrentValue ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 {showCurrentValue ? `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
+              <div className="text-[10px] sm:text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-bold">
                 <TrendingUp className="w-3 h-3" />
                 <span>+{overallReturnPercent}% Returns</span>
               </div>
@@ -764,16 +764,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 2. CAPITAL INVESTED */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-cyan-500 dark:border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-20 scale-[0.98] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Capital Invested</span>
+                <DollarSign className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Capital Invested</span>
               </div>
               <button
                 type="button"
@@ -781,18 +781,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowInvestedCapital(!showInvestedCapital);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showInvestedCapital ? "Hide amount" : "Show amount"}
               >
-                {showInvestedCapital ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showInvestedCapital ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-[#aaa] tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-700 dark:text-[#aaa] tracking-tight">
                 {showInvestedCapital ? `${currencySymbol}${totalInvestedCapital.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 Net Principal
               </div>
             </div>
@@ -801,16 +801,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 3. TOTAL PROFIT/LOSS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-purple-500 dark:border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-10 scale-[0.96] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <PieIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Profit/Loss</span>
+                <PieIcon className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Total Profit/Loss</span>
               </div>
               <button
                 type="button"
@@ -818,20 +818,20 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowTotalProfit(!showTotalProfit);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showTotalProfit ? "Hide amount" : "Show amount"}
               >
-                {showTotalProfit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showTotalProfit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
-                totalProfit >= 0 ? 'text-emerald-400' : 'text-red-500'
+                totalProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-500'
               }`}>
                 {showTotalProfit ? `${totalProfit >= 0 ? '+' : ''}${currencySymbol}${totalProfit.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 Unrealized Gain
               </div>
             </div>

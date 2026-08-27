@@ -30,7 +30,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
     categorySpendMap[t.category].count += 1;
   });
 
-  // Nothing Dot-Matrix Palette for Donut Segments
+  // Dot-Matrix Palette for Donut Segments
   const SEGMENT_COLORS = [
     '#dc2626', // Crimson Red
     '#eab308', // Gold Yellow
@@ -38,7 +38,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
     '#a855f7', // Violet
     '#10b981', // Emerald
     '#f43f5e', // Rose
-    '#ffffff', // Pure White
+    '#3b82f6', // Bright Blue
     '#64748b', // Slate
   ];
 

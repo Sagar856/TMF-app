@@ -559,21 +559,21 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
       {/* KPI Overview Summary Bar - Stackable or Full-Width Vertical List like FINANCIAL METRICS */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs font-mono text-[#888]">
+        <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-[#888]">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
-            <span className="uppercase font-bold tracking-wider text-white">ACCOUNT SUMMARY KPIs</span>
+            <span className="uppercase font-bold tracking-wider text-slate-900 dark:text-white">ACCOUNT SUMMARY KPIs</span>
           </div>
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a1a1a] dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] hover:border-red-500 rounded-lg text-slate-700 dark:text-white cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
-              <ChevronDown className="w-3.5 h-3.5 text-red-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-red-400" />
+              <ChevronUp className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             )}
           </button>
         </div>
@@ -591,16 +591,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           {/* 1. NET LIQUID BALANCE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-30 shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <Building2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Net Liquid Balance</span>
+                <Building2 className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Net Liquid Balance</span>
               </div>
               <button
                 type="button"
@@ -608,18 +608,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   e.stopPropagation();
                   setShowNetLiquid(!showNetLiquid);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showNetLiquid ? "Hide amount" : "Show amount"}
               >
-                {showNetLiquid ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showNetLiquid ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
                 {showNetLiquid ? `${currencySymbol}${totalLiquidAssets.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 {bankAccounts.length} Banks + {wallets.length} Wallets
               </div>
             </div>
@@ -628,16 +628,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           {/* 2. CREDIT CARD SPENT */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-20 scale-[0.98] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
                 <CreditCard className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Card Spent</span>
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Card Spent</span>
               </div>
               <button
                 type="button"
@@ -645,18 +645,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   e.stopPropagation();
                   setShowCardSpent(!showCardSpent);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showCardSpent ? "Hide amount" : "Show amount"}
               >
-                {showCardSpent ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showCardSpent ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-600 dark:text-red-500 tracking-tight">
                 {showCardSpent ? `${currencySymbol}${totalCreditCardSpent.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 Across {creditCards.length} Cards
               </div>
             </div>
@@ -665,16 +665,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           {/* 3. EST. MONTHLY BILLS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-amber-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-amber-500 dark:border-t-amber-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-10 scale-[0.96] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Est. Monthly Bills</span>
+                <Calendar className="w-3.5 h-3.5 text-amber-500 dark:text-amber-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Est. Monthly Bills</span>
               </div>
               <button
                 type="button"
@@ -682,18 +682,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   e.stopPropagation();
                   setShowEstBills(!showEstBills);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showEstBills ? "Hide amount" : "Show amount"}
               >
-                {showEstBills ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showEstBills ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-amber-400 tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-amber-600 dark:text-amber-400 tracking-tight">
                 {showEstBills ? `${currencySymbol}${totalApproxMonthlyBill.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 Approx statement due
               </div>
             </div>

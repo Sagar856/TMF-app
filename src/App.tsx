@@ -64,6 +64,11 @@ import {
   getCurrentUserSession,
   isCloudBackendConfigured,
   signOutUser,
+  deleteTransactionFromSupabase,
+  deleteAccountFromSupabase,
+  deleteCategoryFromSupabase,
+  deleteInvestmentFromSupabase,
+  deleteLoanFromSupabase,
   deleteMultipleTransactionsFromSupabase,
   deleteMultipleAccountsFromSupabase,
   deleteMultipleInvestmentsFromSupabase,
@@ -141,39 +146,71 @@ export default function App() {
   });
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
     const saved = localStorage.getItem('tmf_accounts');
-    if (saved !== null) return JSON.parse(saved);
+    if (saved !== null) {
+      try {
+        const parsed: FinancialAccount[] = JSON.parse(saved);
+        return parsed.filter((a) => !deletedIds.has(a.id));
+      } catch {
+        return [];
+      }
+    }
     const savedSettings = localStorage.getItem('tmf_settings');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
-    return isLoaded ? INITIAL_ACCOUNTS : [];
+    return isLoaded ? INITIAL_ACCOUNTS.filter((a) => !deletedIds.has(a.id)) : [];
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
     const saved = localStorage.getItem('tmf_transactions');
-    if (saved !== null) return JSON.parse(saved);
+    if (saved !== null) {
+      try {
+        const parsed: Transaction[] = JSON.parse(saved);
+        return parsed.filter((t) => !deletedIds.has(t.id));
+      } catch {
+        return [];
+      }
+    }
     const savedSettings = localStorage.getItem('tmf_settings');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
-    return isLoaded ? INITIAL_TRANSACTIONS : [];
+    return isLoaded ? INITIAL_TRANSACTIONS.filter((t) => !deletedIds.has(t.id)) : [];
   });
 
   const [investments, setInvestments] = useState<InvestmentRecord[]>(() => {
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
     const saved = localStorage.getItem('tmf_investments');
-    if (saved !== null) return JSON.parse(saved);
+    if (saved !== null) {
+      try {
+        const parsed: InvestmentRecord[] = JSON.parse(saved);
+        return parsed.filter((i) => !deletedIds.has(i.id));
+      } catch {
+        return [];
+      }
+    }
     const savedSettings = localStorage.getItem('tmf_settings');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
-    return isLoaded ? INITIAL_INVESTMENTS : [];
+    return isLoaded ? INITIAL_INVESTMENTS.filter((i) => !deletedIds.has(i.id)) : [];
   });
 
   const [loans, setLoans] = useState<LoanRecord[]>(() => {
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
     const saved = localStorage.getItem('tmf_loans');
-    if (saved !== null) return JSON.parse(saved);
+    if (saved !== null) {
+      try {
+        const parsed: LoanRecord[] = JSON.parse(saved);
+        return parsed.filter((l) => !deletedIds.has(l.id));
+      } catch {
+        return [];
+      }
+    }
     const savedSettings = localStorage.getItem('tmf_settings');
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
-    return isLoaded ? INITIAL_LOANS : [];
+    return isLoaded ? INITIAL_LOANS.filter((l) => !deletedIds.has(l.id)) : [];
   });
 
   // Pending SMS / UPI Intercepted Notifications Queue
@@ -382,22 +419,52 @@ export default function App() {
       const savedSettings = localStorage.getItem('tmf_settings');
       const isSampleLoaded = savedSettings ? JSON.parse(savedSettings).sampleDataLoaded !== false : true;
 
+      const deletedTxIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
+      const deletedAccIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
+      const deletedInvIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
+      const deletedLoanIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
+
       if (cloudTx) {
-        const filteredTx = isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id));
+        const filteredTx = (isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)))
+          .filter((t) => !deletedTxIds.has(t.id));
         setTransactions(filteredTx);
+        localStorage.setItem('tmf_transactions', JSON.stringify(filteredTx));
       }
       if (cloudAcc) {
-        const filteredAcc = isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id));
+        const filteredAcc = (isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)))
+          .filter((a) => !deletedAccIds.has(a.id));
         setAccounts(filteredAcc);
+        localStorage.setItem('tmf_accounts', JSON.stringify(filteredAcc));
       }
-      if (cloudCat && cloudCat.length > 0) setCategories(cloudCat);
+      if (cloudCat && cloudCat.length > 0) {
+        setCategories(cloudCat);
+        localStorage.setItem('tmf_categories', JSON.stringify(cloudCat));
+      }
       if (cloudInv) {
-        const filteredInv = isSampleLoaded ? cloudInv : cloudInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id));
+        const filteredInv = (isSampleLoaded ? cloudInv : cloudInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)))
+          .filter((i) => !deletedInvIds.has(i.id));
         setInvestments(filteredInv);
+        localStorage.setItem('tmf_investments', JSON.stringify(filteredInv));
       }
       if (cloudLoans) {
-        const filteredLoans = isSampleLoaded ? cloudLoans : cloudLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id));
+        const filteredLoans = (isSampleLoaded ? cloudLoans : cloudLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)))
+          .filter((l) => !deletedLoanIds.has(l.id));
         setLoans(filteredLoans);
+        localStorage.setItem('tmf_loans', JSON.stringify(filteredLoans));
+      }
+
+      // Cleanup any pending deletions in cloud database if deleted while offline
+      if (deletedTxIds.size > 0) {
+        deleteMultipleTransactionsFromSupabase(Array.from(deletedTxIds));
+      }
+      if (deletedAccIds.size > 0) {
+        deleteMultipleAccountsFromSupabase(Array.from(deletedAccIds));
+      }
+      if (deletedInvIds.size > 0) {
+        deleteMultipleInvestmentsFromSupabase(Array.from(deletedInvIds));
+      }
+      if (deletedLoanIds.size > 0) {
+        deleteMultipleLoansFromSupabase(Array.from(deletedLoanIds));
       }
     } catch (err) {
       console.warn('Cloud data fetch failed:', err);
@@ -423,11 +490,11 @@ export default function App() {
     setLoans([]);
     setCategories(INITIAL_CATEGORIES);
     setPendingNotifications([]);
-    localStorage.removeItem('tmf_transactions');
-    localStorage.removeItem('tmf_accounts');
-    localStorage.removeItem('tmf_investments');
-    localStorage.removeItem('tmf_loans');
-    localStorage.removeItem('tmf_pending_notifications');
+    localStorage.setItem('tmf_transactions', '[]');
+    localStorage.setItem('tmf_accounts', '[]');
+    localStorage.setItem('tmf_investments', '[]');
+    localStorage.setItem('tmf_loans', '[]');
+    localStorage.setItem('tmf_pending_notifications', '[]');
     sessionStorage.removeItem('tmf_session_unlocked');
   };
 
@@ -664,14 +731,29 @@ export default function App() {
   };
 
   const handleDeleteTransaction = (id: string) => {
+    // Record locally deleted ID so it is never reloaded from cloud or initial state
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
+    deletedIds.add(id);
+    localStorage.setItem('tmf_deleted_tx_ids', JSON.stringify(Array.from(deletedIds)));
+
     setTransactions((prev) => {
       const tx = prev.find((t) => t.id === id);
       if (tx) {
         const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
         setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, revertDelta));
       }
-      return prev.filter((t) => t.id !== id);
+      const updated = prev.filter((t) => t.id !== id);
+      localStorage.setItem('tmf_transactions', JSON.stringify(updated));
+      return updated;
     });
+
+    if (isCloudBackendConfigured()) {
+      deleteTransactionFromSupabase(id).then((result) => {
+        if (!result.success) {
+          setSyncStatus({ collection: 'delete-transaction', ...result, timestamp: Date.now() });
+        }
+      });
+    }
   };
 
   // Account Actions
@@ -686,12 +768,26 @@ export default function App() {
   };
 
   const handleDeleteAccount = (id: string) => {
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
+    deletedIds.add(id);
+    localStorage.setItem('tmf_deleted_account_ids', JSON.stringify(Array.from(deletedIds)));
+
     setAccounts((prev) => {
       const accToDelete = prev.find((a) => a.id === id);
       const accName = accToDelete ? accToDelete.name : 'Account';
       showToast(`${accName} deleted`, 'warning');
-      return prev.filter((a) => a.id !== id);
+      const updated = prev.filter((a) => a.id !== id);
+      localStorage.setItem('tmf_accounts', JSON.stringify(updated));
+      return updated;
     });
+
+    if (isCloudBackendConfigured()) {
+      deleteAccountFromSupabase(id).then((result) => {
+        if (!result.success) {
+          setSyncStatus({ collection: 'delete-account', ...result, timestamp: Date.now() });
+        }
+      });
+    }
   };
 
   // Category Actions
@@ -704,7 +800,19 @@ export default function App() {
   };
 
   const handleDeleteCategory = (id: string) => {
-    setCategories((prev) => prev.filter((c) => c.id !== id));
+    setCategories((prev) => {
+      const updated = prev.filter((c) => c.id !== id);
+      localStorage.setItem('tmf_categories', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isCloudBackendConfigured()) {
+      deleteCategoryFromSupabase(id).then((result) => {
+        if (!result.success) {
+          setSyncStatus({ collection: 'delete-category', ...result, timestamp: Date.now() });
+        }
+      });
+    }
   };
 
   // Investment Actions
@@ -717,7 +825,23 @@ export default function App() {
   };
 
   const handleDeleteInvestment = (id: string) => {
-    setInvestments((prev) => prev.filter((inv) => inv.id !== id));
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
+    deletedIds.add(id);
+    localStorage.setItem('tmf_deleted_investment_ids', JSON.stringify(Array.from(deletedIds)));
+
+    setInvestments((prev) => {
+      const updated = prev.filter((inv) => inv.id !== id);
+      localStorage.setItem('tmf_investments', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isCloudBackendConfigured()) {
+      deleteInvestmentFromSupabase(id).then((result) => {
+        if (!result.success) {
+          setSyncStatus({ collection: 'delete-investment', ...result, timestamp: Date.now() });
+        }
+      });
+    }
   };
 
   // Loan Actions
@@ -751,7 +875,23 @@ export default function App() {
   };
 
   const handleDeleteLoan = (loanId: string) => {
-    setLoans((prev) => prev.filter((l) => l.id !== loanId));
+    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
+    deletedIds.add(loanId);
+    localStorage.setItem('tmf_deleted_loan_ids', JSON.stringify(Array.from(deletedIds)));
+
+    setLoans((prev) => {
+      const updated = prev.filter((l) => l.id !== loanId);
+      localStorage.setItem('tmf_loans', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (isCloudBackendConfigured()) {
+      deleteLoanFromSupabase(loanId).then((result) => {
+        if (!result.success) {
+          setSyncStatus({ collection: 'delete-loan', ...result, timestamp: Date.now() });
+        }
+      });
+    }
   };
 
   const handleUpdateLoan = (updatedLoan: LoanRecord) => {
@@ -792,6 +932,12 @@ export default function App() {
       intent: 'primary',
       icon: 'refresh',
       onConfirm: () => {
+        // Clear deleted IDs trackers so sample records are allowed to load
+        localStorage.removeItem('tmf_deleted_tx_ids');
+        localStorage.removeItem('tmf_deleted_account_ids');
+        localStorage.removeItem('tmf_deleted_investment_ids');
+        localStorage.removeItem('tmf_deleted_loan_ids');
+
         setAccounts(INITIAL_ACCOUNTS);
         setTransactions(INITIAL_TRANSACTIONS);
         setInvestments(INITIAL_INVESTMENTS);

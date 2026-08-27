@@ -187,29 +187,29 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* ==================== 1. EXECUTIVE SUMMARY ==================== */}
-      <div className="bg-gradient-to-r from-[#141416] via-[#111113] to-[#18181c] border border-[#26262a] p-3.5 sm:p-4 rounded-2xl shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-gradient-to-r dark:from-[#141416] dark:via-[#111113] dark:to-[#18181c] border border-slate-200 dark:border-[#26262a] p-3.5 sm:p-4 rounded-2xl shadow-sm dark:shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-red-950/60 border border-red-600/50 rounded-xl flex items-center justify-center text-red-500 shrink-0 shadow-inner">
+          <div className="w-10 h-10 bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-600/50 rounded-xl flex items-center justify-center text-red-600 dark:text-red-500 shrink-0 shadow-inner">
             <TrendingUp className="w-5 h-5" />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
+              <span className="text-[10px] font-bold text-slate-500 dark:text-[#888] uppercase tracking-widest">
                 EXECUTIVE SUMMARY
               </span>
             </div>
-            <div className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2 mt-0.5">
+            <div className="text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight flex items-center gap-2 mt-0.5">
               <span>NET WORTH:</span>
-              <span className="text-emerald-400 font-extrabold">
+              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
                 {isNetWorthHidden ? '••••••••' : `${currencySymbol}${totalNetWorth.toLocaleString('en-IN')}`}
               </span>
               <button
                 type="button"
                 onClick={handleToggleMasterNetWorth}
-                className="p-1 text-[#888] hover:text-white transition-colors cursor-pointer"
+                className="p-1 text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white transition-colors cursor-pointer"
                 title={isNetWorthHidden ? 'Show All Metrics' : 'Hide All Metrics'}
               >
-                {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
+                {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
             </div>
           </div>
@@ -218,21 +218,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* ==================== 2. FINANCIAL METRICS ==================== */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-[#888]">
+        <div className="flex items-center justify-between text-xs text-slate-500 dark:text-[#888]">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
-            <span className="uppercase font-bold tracking-wider text-white">FINANCIAL METRICS</span>
+            <span className="uppercase font-bold tracking-wider text-slate-900 dark:text-white">FINANCIAL METRICS</span>
           </div>
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a1a1a] dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] hover:border-red-500 rounded-lg text-slate-700 dark:text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
-              <ChevronDown className="w-3.5 h-3.5 text-red-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-red-400" />
+              <ChevronUp className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
             )}
           </button>
         </div>
@@ -250,16 +250,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* 1. Net Balance KPI */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-40 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-40 shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <Wallet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Net Balance</span>
+                <Wallet className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Total Net Balance</span>
               </div>
               <button
                 type="button"
@@ -267,18 +267,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   e.stopPropagation();
                   setShowNetBalance(!showNetBalance);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showNetBalance ? "Hide amount" : "Show amount"}
               >
-                {showNetBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showNetBalance ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 {showNetBalance ? `${currencySymbol}${netBalance.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
+              <div className="text-[10px] sm:text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-bold">
                 <ArrowUpRight className="w-3 h-3" />
                 <span>+4.2% MoM</span>
               </div>
@@ -288,16 +288,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* 2. Total Credit KPI */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-30 scale-[0.98] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Credit (Income)</span>
+                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Total Credit (Income)</span>
               </div>
               <button
                 type="button"
@@ -305,18 +305,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   e.stopPropagation();
                   setShowCredit(!showCredit);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showCredit ? "Hide amount" : "Show amount"}
               >
-                {showCredit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showCredit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-600 dark:text-emerald-400 tracking-tight">
                 {showCredit ? `+${currencySymbol}${totalCredit.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 {transactions.filter((t) => t.type === 'credit').length} Deposits
               </div>
             </div>
@@ -325,16 +325,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           {/* 3. Total Debit KPI */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
-                : 'hover:border-white/30 shadow-md'
+                ? 'z-20 scale-[0.96] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
                 <ArrowUpRight className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Debit (Expenses)</span>
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Total Debit (Expenses)</span>
               </div>
               <button
                 type="button"
@@ -342,18 +342,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   e.stopPropagation();
                   setShowDebit(!showDebit);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showDebit ? "Hide amount" : "Show amount"}
               >
-                {showDebit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showDebit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-red-600 dark:text-red-500 tracking-tight">
                 {showDebit ? `-${currencySymbol}${totalDebit.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
                 {transactions.filter((t) => t.type === 'debit').length} Expenses
               </div>
             </div>
@@ -369,16 +369,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 onNavigateToInvestments();
               }
             }}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 cursor-pointer group ${
+            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-cyan-500 dark:border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 cursor-pointer group ${
               isKpiStacked
-                ? 'z-10 scale-[0.94] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 ring-1 ring-white/10'
-                : 'hover:border-cyan-400/80 shadow-md'
+                ? 'z-10 scale-[0.94] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 ring-1 ring-slate-200 dark:ring-white/10'
+                : 'hover:border-cyan-400/80 shadow-sm dark:shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider group-hover:text-cyan-400 transition-colors">Invested Portfolio</span>
+                <TrendingUp className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                <span className="font-bold text-slate-900 dark:text-white tracking-wider group-hover:text-cyan-600 dark:group-hover:text-cyan-400 transition-colors">Invested Portfolio</span>
               </div>
               <button
                 type="button"
@@ -386,15 +386,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   e.stopPropagation();
                   setShowInvestments(!showInvestments);
                 }}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showInvestments ? "Hide amount" : "Show amount"}
               >
-                {showInvestments ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+                {showInvestments ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
                 {showInvestments ? `${currencySymbol}${totalInvested.toLocaleString('en-IN')}` : '••••••••'}
               </div>
               

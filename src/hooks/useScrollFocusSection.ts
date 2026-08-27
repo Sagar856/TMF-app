@@ -1,10 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 
-/**
- * Cooldown duration (in milliseconds) after a user manually collapses a section.
- */
-export const MANUAL_COLLAPSE_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes
-
 export interface UseScrollFocusSectionOptions {
   /**
    * Whether auto scroll-driven expansion/collapse is enabled.
@@ -31,10 +26,6 @@ export interface UseScrollFocusSectionOptions {
    * Whether to enable manual override tracking.
    */
   allowManualOverride?: boolean;
-  /**
-   * Configurable manual collapse suppression cooldown.
-   */
-  manualCollapseCooldownMs?: number;
 }
 
 export interface UseScrollFocusSectionReturn {
@@ -56,7 +47,6 @@ export function useScrollFocusSection({
   bottomHoldRatio = 0.30,
   initialProgress = 0,
   allowManualOverride = true,
-  manualCollapseCooldownMs = MANUAL_COLLAPSE_COOLDOWN_MS,
 }: UseScrollFocusSectionOptions = {}): UseScrollFocusSectionReturn {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -71,18 +61,27 @@ export function useScrollFocusSection({
     progressRef.current = progress;
   }, [progress]);
 
+  const contentHeightRef = useRef<number>(0);
   const [contentHeight, setContentHeight] = useState<number>(0);
+
+  const manualOverrideRef = useRef<boolean | null>(null);
   const [manualOverride, setManualOverride] = useState<boolean | null>(null);
 
-  const manualCollapseCooldownUntilRef = useRef<number>(0);
   const lastScrollYRef = useRef<number>(0);
-  const scrollDirectionRef = useRef<'down' | 'up' | 'idle'>('idle');
-
   const isMountedRef = useRef<boolean>(true);
-
-  // requestAnimationFrame interpolation engine
   const animatingRef = useRef<boolean>(false);
   const interpolationLoopRef = useRef<number | null>(null);
+
+  const measureHeight = useCallback(() => {
+    if (!isMountedRef.current || !contentRef.current) return;
+    const el = contentRef.current;
+    const measured = Math.max(el.scrollHeight, el.offsetHeight, Math.round(el.getBoundingClientRect().height));
+    const prev = contentHeightRef.current || 0;
+    if (measured > 0 && Math.abs(measured - prev) > 4) {
+      contentHeightRef.current = measured;
+      setContentHeight(measured);
+    }
+  }, []);
 
   // Continuous frame LERP tick function
   const tickInterpolation = useCallback(() => {
@@ -92,9 +91,8 @@ export function useScrollFocusSection({
     const target = targetProgressRef.current;
     const diff = target - current;
 
-    if (Math.abs(diff) > 0.001) {
-      // Interpolate smoothly using LERP factor of 0.12
-      const nextValue = current + diff * 0.12;
+    if (Math.abs(diff) > 0.002) {
+      const nextValue = current + diff * 0.16;
       const cleanNext = Math.max(0, Math.min(1, nextValue));
       progressRef.current = cleanNext;
       setProgress(cleanNext);
@@ -125,18 +123,10 @@ export function useScrollFocusSection({
     const contentEl = contentRef.current;
     if (!contentEl) return;
 
-    const measure = () => {
-      if (!contentRef.current) return;
-      const height = contentRef.current.scrollHeight || contentRef.current.getBoundingClientRect().height;
-      if (height > 0) {
-        setContentHeight(height);
-      }
-    };
-
-    measure();
+    measureHeight();
 
     const resizeObserver = new ResizeObserver(() => {
-      measure();
+      measureHeight();
     });
 
     resizeObserver.observe(contentEl);
@@ -148,7 +138,7 @@ export function useScrollFocusSection({
         cancelAnimationFrame(interpolationLoopRef.current);
       }
     };
-  }, []);
+  }, [measureHeight]);
 
   // Compute scroll-synchronized progress
   const updateScrollProgress = useCallback(() => {
@@ -172,61 +162,36 @@ export function useScrollFocusSection({
       currentScrollY = window.scrollY || window.pageYOffset;
     }
 
-    // Direction tracking
-    const scrollDelta = currentScrollY - lastScrollYRef.current;
-    if (scrollDelta > 2) {
-      scrollDirectionRef.current = 'down';
-    } else if (scrollDelta < -2) {
-      scrollDirectionRef.current = 'up';
-    }
     lastScrollYRef.current = currentScrollY;
 
     // Check manual override
-    if (manualOverride !== null) {
-      const target = manualOverride ? 1 : 0;
-      if (Math.abs(target - targetProgressRef.current) > 0.001) {
-        targetProgressRef.current = target;
-        triggerInterpolation();
+    if (manualOverrideRef.current !== null) {
+      const rect = container.getBoundingClientRect();
+      if (rect.bottom < -350 || rect.top > viewportHeight + 350) {
+        setManualOverride(null);
+        manualOverrideRef.current = null;
+      } else {
+        const target = manualOverrideRef.current ? 1 : 0;
+        if (Math.abs(target - targetProgressRef.current) > 0.001) {
+          targetProgressRef.current = target;
+          triggerInterpolation();
+        }
+        return;
       }
-      return;
-    }
-
-    // Check manual collapse cooldown
-    const now = Date.now();
-    if (now < manualCollapseCooldownUntilRef.current) {
-      if (targetProgressRef.current !== 0) {
-        targetProgressRef.current = 0;
-        triggerInterpolation();
-      }
-      return;
-    }
-
-    const currentProg = targetProgressRef.current;
-
-    // When scrolling UP, do NOT auto-expand
-    if (scrollDirectionRef.current === 'up' && currentProg < 0.1) {
-      if (targetProgressRef.current !== 0) {
-        targetProgressRef.current = 0;
-        triggerInterpolation();
-      }
-      return;
     }
 
     const rect = container.getBoundingClientRect();
     const containerTop = rect.top - parentTop;
     const containerBottom = rect.bottom - parentTop;
 
-    // Viewport threshold zones:
     const entryStart = viewportHeight * 0.88;
-    const entryFull = viewportHeight * 0.54;
+    const entryFull = viewportHeight * 0.50;
     const entryDistance = entryStart - entryFull;
 
-    // Correct application of bottom hold threshold (30% bottom-offset requirement)
-    const exitStart = viewportHeight * (1 - bottomHoldRatio); // 0.70 * H
+    const exitStart = viewportHeight * (1 - bottomHoldRatio);
     const exitComplete = viewportHeight * 0.15;
     const exitDistance = Math.max(80, exitStart - exitComplete);
 
-    // 1. Entry calculation
     let entryProg = 1;
     if (containerTop > entryStart) {
       entryProg = 0;
@@ -236,7 +201,6 @@ export function useScrollFocusSection({
       entryProg = 1;
     }
 
-    // 2. Exit calculation
     let exitProg = 1;
     if (containerBottom >= exitStart) {
       exitProg = 1;
@@ -252,11 +216,11 @@ export function useScrollFocusSection({
     const smoothProgress = rawProgress * rawProgress * (3 - 2 * rawProgress);
     const cleanProgress = Math.round(smoothProgress * 1000) / 1000;
 
-    if (Math.abs(cleanProgress - currentProg) > 0.001) {
+    if (Math.abs(cleanProgress - targetProgressRef.current) > 0.001) {
       targetProgressRef.current = cleanProgress;
       triggerInterpolation();
     }
-  }, [bottomHoldRatio, enabled, manualOverride, triggerInterpolation]);
+  }, [bottomHoldRatio, enabled, triggerInterpolation]);
 
   // Scroll and Resize Event Listener
   useEffect(() => {
@@ -274,8 +238,6 @@ export function useScrollFocusSection({
     scrollParent.addEventListener('scroll', handleScrollOrResize, { passive: true });
     window.addEventListener('resize', handleScrollOrResize, { passive: true });
 
-    handleScrollOrResize();
-
     return () => {
       scrollParent.removeEventListener('scroll', handleScrollOrResize);
       window.removeEventListener('resize', handleScrollOrResize);
@@ -287,34 +249,35 @@ export function useScrollFocusSection({
     if (!allowManualOverride) return;
 
     const currentProgress = targetProgressRef.current;
-    const isCurrentlyExpanded = currentProgress >= 0.5 || manualOverride === true;
+    const isCurrentlyExpanded = currentProgress >= 0.5 || manualOverrideRef.current === true;
     const nextState = !isCurrentlyExpanded;
 
-    if (!nextState) {
-      manualCollapseCooldownUntilRef.current = Date.now() + manualCollapseCooldownMs;
-    } else {
-      manualCollapseCooldownUntilRef.current = 0;
-    }
-
     setManualOverride(nextState);
+    manualOverrideRef.current = nextState;
     const nextProg = nextState ? 1 : 0;
     targetProgressRef.current = nextProg;
+
+    if (nextState) {
+      measureHeight();
+    }
+
     triggerInterpolation();
-  }, [allowManualOverride, manualCollapseCooldownMs, manualOverride, triggerInterpolation]);
+  }, [allowManualOverride, measureHeight, triggerInterpolation]);
 
   const isExpanded = progress > 0.02;
   const isFullyExpanded = progress >= 0.98;
-  const calculatedHeight = Math.round(progress * contentHeight);
+  const effectiveHeight = contentHeight > 0 ? contentHeight : 500;
+  const calculatedHeight = Math.max(0, Math.round(progress * effectiveHeight));
 
   const bodyStyle: React.CSSProperties = {
     height: isFullyExpanded ? 'auto' : `${calculatedHeight}px`,
     maxHeight: isFullyExpanded ? 'none' : `${calculatedHeight}px`,
-    opacity: Math.max(0, Math.min(1, Math.pow(progress, 1.25))),
-    transform: `translateY(${(1 - progress) * -6}px)`,
+    opacity: Math.max(0, Math.min(1, Math.pow(progress, 1.15))),
+    transform: isFullyExpanded ? 'none' : `translateY(${(1 - progress) * -6}px)`,
     overflow: isFullyExpanded ? 'visible' : 'hidden',
-    transition: 'none', // Frame-by-frame LERP animation via requestAnimationFrame
-    pointerEvents: progress > 0.35 ? 'auto' : 'none',
-    visibility: progress <= 0.005 ? 'hidden' : 'visible',
+    transition: 'none',
+    pointerEvents: progress > 0.25 ? 'auto' : 'none',
+    visibility: progress <= 0.002 ? 'hidden' : 'visible',
   };
 
   const chevronRotation = Math.round(progress * 180);
@@ -326,7 +289,7 @@ export function useScrollFocusSection({
     contentRef,
     progress,
     isExpanded,
-    contentHeight,
+    contentHeight: effectiveHeight,
     manualOverride,
     toggleManualExpand,
     bodyStyle,
