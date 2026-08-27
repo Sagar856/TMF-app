@@ -36,7 +36,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
     <button
       id="global-fab-add-transaction"
       onClick={onClick}
-      className={`fixed bottom-16 right-4 sm:bottom-8 sm:right-8 z-50 w-11 h-11 sm:w-13 sm:h-13 bg-red-600 text-white rounded-full shadow-[0_0_20px_rgba(220,38,38,0.45)] flex items-center justify-center hover:bg-red-500 hover:scale-105 active:scale-95 hover:opacity-100 transition-all duration-300 cursor-pointer border border-red-500/80 group ${
+      className={`fixed bottom-20 right-4 sm:bottom-8 sm:right-8 z-50 w-11 h-11 sm:w-13 sm:h-13 bg-red-600 text-white rounded-full shadow-[0_0_20px_rgba(220,38,38,0.45)] flex items-center justify-center hover:bg-red-500 hover:scale-105 active:scale-95 hover:opacity-100 transition-all duration-300 cursor-pointer border border-red-500/80 group ${
         isScrolled ? 'opacity-30 backdrop-blur-sm shadow-none' : 'opacity-100'
       }`}
       title="Add Record (+)"

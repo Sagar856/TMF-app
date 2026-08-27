@@ -19,6 +19,7 @@ import { NotificationPromptModal } from './components/NotificationPromptModal';
 import { SmsSimulatorWidget } from './components/SmsSimulatorWidget';
 import { EditTransactionModal, CategoryType } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
+import { BottomNav } from './components/BottomNav';
 import { AuthModal } from './components/AuthModal';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
 import { ConfirmationModal, ConfirmDialogConfig } from './components/ConfirmationModal';
@@ -1398,37 +1399,11 @@ export default function App() {
         />
 
         {/* Mobile Bottom Navigation Bar - Fixed/Sticky with Safe Area Inset Support */}
-        <nav
-          aria-label="Mobile Navigation"
-          className="lg:hidden border-t border-nothing bg-[#0d0d10]/95 backdrop-blur-md px-2 pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] flex items-center justify-around shrink-0 z-40 shadow-[0_-4px_24px_rgba(0,0,0,0.7)]"
-        >
-          {[
-            { id: 'dashboard', label: 'Home', icon: LayoutDashboard },
-            { id: 'transactions', label: 'Txns', icon: ReceiptText },
-            { id: 'accounts', label: 'Accounts', icon: Building2 },
-            { id: 'investments', label: 'Invest', icon: TrendingUp },
-            { id: 'loans', label: 'Loans', icon: HandCoins },
-            { id: 'settings', label: 'Settings', icon: Settings },
-          ].map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => setActiveTab(item.id)}
-                className={`flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-xl transition-all nav-lift cursor-pointer ${
-                  isActive
-                    ? 'text-red-500 font-bold -translate-y-1 scale-105 bg-red-950/20'
-                    : 'text-[#666] hover:text-white hover:bg-white/5'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                <span className="text-[9px] font-mono">{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          pendingNotificationsCount={pendingNotifications.length}
+        />
       </div>
 
       {/* Top Bar Auto-Vanishing Pop-up Notification */}

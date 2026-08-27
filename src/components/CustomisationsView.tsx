@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { 
@@ -35,7 +35,8 @@ import {
   Code,
   DollarSign,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Info
 } from 'lucide-react';
 
 interface CustomisationsViewProps {
@@ -101,9 +102,12 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [categoryTypeFilter, setCategoryTypeFilter] = useState<'all' | 'expense' | 'income' | 'investment'>('all');
   const [budgetStatusFilter, setBudgetStatusFilter] = useState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('all');
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('all');
+  const [showInfoPopover, setShowInfoPopover] = useState<boolean>(false);
 
   // Month selector for budget tracking
   const availableMonths = useMemo(() => {
@@ -478,34 +482,187 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     return <IconComponent className="w-4 h-4" />;
   };
 
-  return (
-    <div className="space-y-6 pb-12 font-mono">
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER & PRIMARY ACTIONS                                           */}
-      {/* ========================================================================= */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-[#121217] border border-slate-200 dark:border-[#202028] p-4 sm:p-5 rounded-3xl shadow-sm">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800/60 rounded-xl text-red-600 dark:text-red-500">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight uppercase">
-                Personalisation &amp; Budgets
-              </h2>
-              <p className="text-[11px] text-slate-500 dark:text-[#888] mt-0.5">
-                Customise spending thresholds, categories, linked accounts, and smart rules
-              </p>
-            </div>
+  // Reusable Month Selector Stepper
+  const renderMonthSelector = () => (
+    <div className="flex items-center bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl p-0.5 text-xs shadow-xs shrink-0 max-w-[170px] sm:max-w-none">
+      <button
+        type="button"
+        onClick={handlePrevMonth}
+        title="Previous Month"
+        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] rounded-xl transition-colors cursor-pointer shrink-0"
+      >
+        <ChevronLeft className="w-3.5 h-3.5" />
+      </button>
+
+      <div className="flex items-center gap-1 px-1 font-bold text-slate-900 dark:text-white text-xs truncate">
+        <Calendar className="w-3.5 h-3.5 text-red-500 shrink-0" />
+        <select
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="bg-transparent text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-none cursor-pointer py-0.5 truncate max-w-[95px] sm:max-w-none"
+          title="Select month"
+        >
+          {availableMonths.map((m) => (
+            <option key={m} value={m} className="bg-white dark:bg-[#141416] text-slate-900 dark:text-white font-mono">
+              {formatMonthLabel(m)}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <button
+        type="button"
+        onClick={handleNextMonth}
+        title="Next Month"
+        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] rounded-xl transition-colors cursor-pointer shrink-0"
+      >
+        <ChevronRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+
+  // Single-row 3-element Action Row: Search Icon (expands) + Month Stepper + Add Button (Plus Icon)
+  const renderActionRow = (options: {
+    onAdd: () => void;
+    addTitle: string;
+    addAriaLabel?: string;
+    addBtnId?: string;
+    showMonthSelector?: boolean;
+    searchPlaceholder?: string;
+  }) => {
+    const isExpanded = isSearchExpanded || Boolean(searchQuery);
+
+    return (
+      <div className="flex items-center justify-between gap-2 w-full">
+        {/* 1. Search: Collapsed Icon Button or Smoothly Expanded Input */}
+        {!isExpanded ? (
+          <button
+            type="button"
+            onClick={() => {
+              setIsSearchExpanded(true);
+              setTimeout(() => searchInputRef.current?.focus(), 50);
+            }}
+            className="p-2 sm:p-2.5 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] transition-colors cursor-pointer shrink-0 shadow-xs flex items-center justify-center active:scale-95"
+            title="Search"
+            aria-label="Search"
+          >
+            <Search className="w-4 h-4 stroke-[2]" />
+          </button>
+        ) : (
+          <div className="relative flex-1 min-w-0 transition-all duration-300">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 shrink-0 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={options.searchPlaceholder || "Search..."}
+              className="w-full pl-8 pr-7 py-2 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setIsSearchExpanded(false);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-0.5"
+              title="Clear & Close Search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
           </div>
+        )}
+
+        {/* 2. Month Selector Stepper (in the middle) */}
+        {options.showMonthSelector !== false ? renderMonthSelector() : <div className="flex-1" />}
+
+        {/* 3. Add Item Button (Plus Icon Only) */}
+        <button
+          type="button"
+          id={options.addBtnId}
+          onClick={options.onAdd}
+          className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer shrink-0 active:scale-95 border border-red-500/80"
+          title={options.addTitle}
+          aria-label={options.addAriaLabel || options.addTitle}
+        >
+          <Plus className="w-4 h-4 stroke-[2.5]" />
+        </button>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4 sm:space-y-5 pb-12 font-mono">
+      {/* ========================================================================= */}
+      {/* 1. TOP HEADER & PRIMARY ACTIONS (Compact & Space-Conserving)              */}
+      {/* ========================================================================= */}
+      <div className="relative flex items-center justify-between gap-2.5 bg-white dark:bg-[#121217] border border-slate-200 dark:border-[#202028] px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xs">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1.5 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800/60 rounded-xl text-red-600 dark:text-red-500 shrink-0">
+            <Sliders className="w-4 h-4" />
+          </div>
+          <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight uppercase truncate">
+            Personalisation &amp; Budgets
+          </h2>
         </div>
 
-        {/* Global Header Actions: Sync Now + Month Navigation + Add Button */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Global Header Actions: Info Icon Popover + Sync Now */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Info Popover Button */}
+          <div className="relative">
+            <button
+              type="button"
+              id="btn-personalisation-info"
+              onClick={() => setShowInfoPopover(!showInfoPopover)}
+              onMouseEnter={() => setShowInfoPopover(true)}
+              className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
+                showInfoPopover
+                  ? 'bg-red-50 dark:bg-red-950/70 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400'
+                  : 'bg-slate-100 dark:bg-[#181820] border-slate-200 dark:border-[#2a2a34] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/80 dark:hover:bg-[#22222c]'
+              }`}
+              title="Information & Guide"
+              aria-label="Information & Guide"
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Info Popover Card */}
+            <AnimatePresence>
+              {showInfoPopover && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  onMouseLeave={() => setShowInfoPopover(false)}
+                  className="absolute right-0 top-full mt-2 w-72 sm:w-80 p-3.5 bg-white/95 dark:bg-[#16161d]/95 backdrop-blur-xl border border-slate-200 dark:border-[#2e2e3a] rounded-2xl shadow-xl z-30 text-xs font-mono"
+                >
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-bold uppercase text-[11px]">
+                      <Info className="w-3.5 h-3.5" />
+                      <span>Personalisation Guide</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowInfoPopover(false)}
+                      className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <p className="text-slate-600 dark:text-[#aaa] leading-relaxed text-[11px]">
+                    Customise spending thresholds, categories, linked accounts, and smart rules for automated transaction classification and 80% spending alerts.
+                  </p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
           {/* Sync Now */}
           {onForceSyncNow && (
             <button
               type="button"
+              id="btn-sync-now"
               disabled={isForceSyncing}
               onClick={async () => {
                 setIsForceSyncing(true);
@@ -514,72 +671,16 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 setForceSyncResult(result);
                 setIsForceSyncing(false);
               }}
-              className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 dark:bg-[#181820] hover:bg-slate-200 dark:hover:bg-[#24242e] border border-slate-200 dark:border-[#2a2a34] text-slate-800 dark:text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer disabled:opacity-60 shadow-sm"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-[#181820] hover:bg-slate-200 dark:hover:bg-[#24242e] border border-slate-200 dark:border-[#2a2a34] text-slate-800 dark:text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer disabled:opacity-60 shadow-xs"
               title="Synchronize all categories, budgets, and accounts with cloud database"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-red-500 ${isForceSyncing ? 'animate-spin' : ''}`} />
-              <span>{isForceSyncing ? 'Syncing...' : 'Sync Now'}</span>
+              <span className="hidden sm:inline">{isForceSyncing ? 'Syncing...' : 'Sync'}</span>
               {syncStatus?.timestamp && (
                 <span
                   className={`w-2 h-2 rounded-full ${syncStatus.success ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-red-500'}`}
                 />
               )}
-            </button>
-          )}
-
-          {/* Month Selector with Prev/Next Steppers */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#181820] border border-slate-200 dark:border-[#2a2a34] rounded-xl p-0.5 text-xs">
-            <button
-              type="button"
-              onClick={handlePrevMonth}
-              title="Previous Month"
-              className="p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-[#252530] rounded-lg transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-
-            <div className="flex items-center gap-1.5 px-2 font-bold text-slate-900 dark:text-white text-xs">
-              <Calendar className="w-3.5 h-3.5 text-red-500 shrink-0" />
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="bg-transparent text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-none cursor-pointer py-1"
-                title="Select month"
-              >
-                {availableMonths.map((m) => (
-                  <option key={m} value={m} className="bg-white dark:bg-[#141416] text-slate-900 dark:text-white font-mono">
-                    {formatMonthLabel(m)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleNextMonth}
-              title="Next Month"
-              className="p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-[#252530] rounded-lg transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Contextual Primary Action Button */}
-          {activeTab === 'accounts' ? (
-            <button
-              onClick={openAddAccountModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all shadow-sm cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Account</span>
-            </button>
-          ) : (
-            <button
-              onClick={openAddCategoryModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all shadow-sm cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Category</span>
             </button>
           )}
         </div>
@@ -772,28 +873,14 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
             </div>
           </div>
 
-          {/* Search & Filter Bar */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search expense category or subcategory..."
-                className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          {/* Search, Month Filter, Add Category & Status Filters Toolbar */}
+          <div className="space-y-3">
+            {renderActionRow({
+              onAdd: openAddCategoryModal,
+              addTitle: "Add Category (+)",
+              addBtnId: "btn-add-category-budget-tab",
+              searchPlaceholder: "Search expense category..."
+            })}
 
             {/* Filter Chips */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
@@ -808,7 +895,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   key={chip.id}
                   type="button"
                   onClick={() => setBudgetStatusFilter(chip.id as any)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     budgetStatusFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
                       : 'bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
@@ -1080,28 +1167,14 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {activeTab === 'categories' && (
         <div className="space-y-5">
-          {/* Filter & Search Bar */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            {/* Search */}
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search categories or subcategory tags..."
-                className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+          {/* Search, Month Filter, Add Category & Type Filters Toolbar */}
+          <div className="space-y-3">
+            {renderActionRow({
+              onAdd: openAddCategoryModal,
+              addTitle: "Add Category (+)",
+              addBtnId: "btn-add-category-icon",
+              searchPlaceholder: "Search categories..."
+            })}
 
             {/* Category Type Pills */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
@@ -1317,17 +1390,15 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           </div>
 
           {/* Account Type Filters & Search */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search account name, bank or last 4 digits..."
-                className="w-full pl-9 pr-4 py-2 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500"
-              />
-            </div>
+          {/* Search, Filter & Add Account Bar */}
+          <div className="space-y-3">
+            {renderActionRow({
+              onAdd: openAddAccountModal,
+              addTitle: "Add Bank or Card Account (+)",
+              addBtnId: "btn-add-account-icon",
+              showMonthSelector: false,
+              searchPlaceholder: "Search account or bank..."
+            })}
 
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
               {[

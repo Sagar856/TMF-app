@@ -36,6 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'accounts', label: 'Accounts', icon: Building2, section: 'Main' },
     { id: 'investments', label: 'Investments', icon: TrendingUp, section: 'Main' },
     { id: 'loans', label: 'Loans & Lends', icon: HandCoins, section: 'Main' },
+    { id: 'customisations', label: 'Personalisation', icon: Sliders, section: 'System' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'System' },
   ];
 
