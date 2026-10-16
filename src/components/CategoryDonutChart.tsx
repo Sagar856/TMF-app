@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { PieChart } from 'lucide-react';
+import { InfoButton } from './InfoButton';
 
 interface CategoryDonutChartProps {
   transactions: Transaction[];
@@ -79,6 +80,12 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
           <h3 className="text-xs sm:text-sm font-mono font-bold uppercase tracking-widest text-white">
             Category Expense Donut
           </h3>
+          <InfoButton
+            id="category-donut-info"
+            title="Category Expense Donut"
+            content="Proportional breakdown of total monthly debits grouped by spending category."
+            align="left"
+          />
         </div>
         <span className="text-[10px] text-[#666] font-mono uppercase tracking-wider">
           {categoryData.length} Categories

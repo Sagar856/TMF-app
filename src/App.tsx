@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
@@ -25,6 +25,7 @@ import { TopBarToast, ToastMessage } from './components/TopBarToast';
 import { ConfirmationModal, ConfirmDialogConfig } from './components/ConfirmationModal';
 import { BudgetPushNotificationBanner } from './components/BudgetPushNotificationBanner';
 import { BudgetAlertPayload, checkBudgetThresholds } from './services/budgetAlertService';
+import { EmiConfirmationPromptModal } from './components/EmiConfirmationPromptModal';
 
 import {
   Transaction,
@@ -34,7 +35,9 @@ import {
   LoanRecord,
   ParsedNotification,
   UserSettings,
-  Repayment
+  Repayment,
+  InvestmentRedemption,
+  EmiConfirmationRequest
 } from './types/finance';
 
 import {
@@ -242,6 +245,31 @@ export default function App() {
   const [topBarToast, setTopBarToast] = useState<ToastMessage | null>(null);
   const [activeBudgetPushAlert, setActiveBudgetPushAlert] = useState<BudgetAlertPayload | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+  const [isEmiModalOpen, setIsEmiModalOpen] = useState<boolean>(false);
+
+  const pendingEmiRequests: EmiConfirmationRequest[] = useMemo(() => {
+    const reqs: EmiConfirmationRequest[] = [];
+    loans.forEach((loan) => {
+      if (loan.status === 'repaid' || loan.remainingAmount <= 0 || !loan.schedule) return;
+      loan.schedule.forEach((inst) => {
+        if (inst.status === 'scheduled' || inst.status === 'pending_confirmation') {
+          reqs.push({
+            id: `emi_req_${loan.id}_${inst.installmentNumber}`,
+            loanId: loan.id,
+            installmentNumber: inst.installmentNumber,
+            loanTitle: loan.name || loan.personOrBank,
+            lenderOrBank: loan.personOrBank,
+            amount: inst.emiAmount,
+            dueDate: inst.dueDate,
+            linkedAccountId: loan.paymentAccountId || inst.paymentAccountId,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          });
+        }
+      });
+    });
+    return reqs;
+  }, [loans]);
 
   const showToast = (
     text: string,
@@ -899,6 +927,167 @@ export default function App() {
     setLoans((prev) => prev.map((l) => (l.id === updatedLoan.id ? updatedLoan : l)));
   };
 
+  // Automated & Scheduled EMI Installment Payment Confirmation
+  const handleConfirmInstallmentPayment = (
+    loanId: string,
+    installmentNumber: number,
+    paymentAccountId: string,
+    amount: number,
+    paidDate: string,
+    notes?: string
+  ) => {
+    const targetLoan = loans.find((l) => l.id === loanId);
+    if (!targetLoan) return;
+
+    // Guard against duplicate confirmation
+    const inst = targetLoan.schedule?.find((s) => s.installmentNumber === installmentNumber);
+    if (inst && inst.status === 'paid') {
+      showToast('This installment is already recorded as paid.', 'info');
+      return;
+    }
+
+    // 1. Update loan schedule and remaining balance
+    const updatedLoans = loans.map((l) => {
+      if (l.id !== loanId) return l;
+      const newSchedule = (l.schedule || []).map((s) => {
+        if (s.installmentNumber === installmentNumber) {
+          return {
+            ...s,
+            status: 'paid' as const,
+            paidDate,
+            paymentAccountId,
+            notes: notes || s.notes,
+          };
+        }
+        return s;
+      });
+
+      const newRepayment: Repayment = {
+        id: `rep_${Date.now()}_${installmentNumber}`,
+        amount,
+        date: paidDate,
+        note: notes || `EMI Installment #${installmentNumber}`,
+      };
+      const newRepayments = [newRepayment, ...(l.repayments || [])];
+      const newRemaining = Math.max(0, l.remainingAmount - amount);
+      const isFullyPaid = newRemaining === 0 || newSchedule.every((s) => s.status === 'paid');
+
+      return {
+        ...l,
+        remainingAmount: newRemaining,
+        schedule: newSchedule,
+        repayments: newRepayments,
+        status: isFullyPaid ? ('repaid' as const) : ('active' as const),
+      };
+    });
+    setLoans(updatedLoans);
+
+    // 2. Deduct amount from payment bank account
+    if (paymentAccountId) {
+      setAccounts((prev) =>
+        prev.map((acc) => {
+          if (acc.id === paymentAccountId) {
+            return {
+              ...acc,
+              balance: Math.round((acc.balance - amount) * 100) / 100,
+            };
+          }
+          return acc;
+        })
+      );
+    }
+
+    // 3. Record transaction in actual financial ledger
+    const targetAcc = accounts.find((a) => a.id === paymentAccountId);
+    const emiTx: Transaction = {
+      id: `tx_emi_${loanId}_${installmentNumber}_${Date.now()}`,
+      title: `EMI Payment: ${targetLoan.name || targetLoan.personOrBank} (#${installmentNumber})`,
+      amount,
+      type: 'debit',
+      category: 'Loans & Lends',
+      subcategory: 'EMI Repayment',
+      date: paidDate,
+      time: new Date().toTimeString().slice(0, 5),
+      source: 'Manual',
+      payeeOrPayer: targetLoan.personOrBank,
+      paymentMethod: targetAcc ? `${targetAcc.name}` : 'Bank Auto-Debit',
+      note: notes || `Scheduled installment #${installmentNumber} of ${targetLoan.personOrBank}`,
+    };
+    setTransactions((prev) => [emiTx, ...prev]);
+
+    showToast(`EMI payment of ${settings.currencySymbol}${amount.toLocaleString('en-IN')} confirmed and recorded!`, 'success');
+  };
+
+  const handleSkipInstallment = (loanId: string, installmentNumber: number) => {
+    setLoans((prev) =>
+      prev.map((l) => {
+        if (l.id !== loanId) return l;
+        const newSchedule = (l.schedule || []).map((s) => {
+          if (s.installmentNumber === installmentNumber) {
+            return {
+              ...s,
+              status: 'skipped' as const,
+              skippedAt: new Date().toISOString(),
+            };
+          }
+          return s;
+        });
+        return { ...l, schedule: newSchedule };
+      })
+    );
+    showToast(`Installment #${installmentNumber} marked as skipped.`, 'info');
+  };
+
+  // Investment Redemption Handler (Full & Partial Liquidation)
+  const handleConfirmRedemption = (
+    investmentId: string,
+    redemption: InvestmentRedemption,
+    updatedInvestment: InvestmentRecord
+  ) => {
+    // 1. Update investment holding state
+    setInvestments((prev) =>
+      prev.map((inv) => (inv.id === investmentId ? updatedInvestment : inv))
+    );
+
+    // 2. Credit net proceeds to destination bank account
+    if (redemption.creditedAccountId) {
+      setAccounts((prev) =>
+        prev.map((acc) => {
+          if (acc.id === redemption.creditedAccountId) {
+            return {
+              ...acc,
+              balance: Math.round((acc.balance + redemption.netCredited) * 100) / 100,
+            };
+          }
+          return acc;
+        })
+      );
+    }
+
+    // 3. Record ledger transaction
+    const targetAcc = accounts.find((a) => a.id === redemption.creditedAccountId);
+    const redemptionTx: Transaction = {
+      id: `tx_redemp_${redemption.id}`,
+      title: `Redemption: ${updatedInvestment.name} (${redemption.isFullRedemption ? 'Full' : `${redemption.unitsOrSharesRedeemed} units`})`,
+      amount: redemption.netCredited,
+      type: 'credit',
+      category: 'Investment',
+      subcategory: 'Redemption',
+      date: redemption.date,
+      time: new Date().toTimeString().slice(0, 5),
+      source: 'Manual',
+      payeeOrPayer: targetAcc ? targetAcc.name : 'Investment Proceeds',
+      paymentMethod: targetAcc ? `${targetAcc.name}` : 'Direct Credit',
+      note: `Gross proceeds: ${settings.currencySymbol}${redemption.grossProceeds.toLocaleString('en-IN')}, Fees: ${settings.currencySymbol}${(redemption.charges || 0).toLocaleString('en-IN')}, Tax: ${settings.currencySymbol}${(redemption.taxes || 0).toLocaleString('en-IN')}, Realized P&L: ${redemption.realizedGainLoss >= 0 ? '+' : ''}${settings.currencySymbol}${redemption.realizedGainLoss.toLocaleString('en-IN')}`,
+    };
+    setTransactions((prev) => [redemptionTx, ...prev]);
+
+    showToast(
+      `Redeemed successfully! ${settings.currencySymbol}${redemption.netCredited.toLocaleString('en-IN')} credited to ${targetAcc?.name || 'account'}.`,
+      'success'
+    );
+  };
+
   // Auth & Data Handlers. The real session/user comes from the
   // onAuthStateChange listener above — this just updates the display name/
   // email and triggers an immediate cloud fetch so the user doesn't have to
@@ -1019,7 +1208,7 @@ export default function App() {
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(backupData, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `TMF_Backup_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `MTracker_Backup_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -1081,13 +1270,13 @@ export default function App() {
               className="w-20 h-20 rounded-full border-2 border-dashed border-red-600/60"
             />
             <div className="absolute w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-[0_0_25px_rgba(220,38,38,0.6)]">
-              <span className="font-mono font-black text-white text-lg tracking-wider">TMF</span>
+              <span className="font-mono font-black text-white text-base tracking-wider">MTracker</span>
             </div>
           </div>
 
           <div>
             <h1 className="text-sm font-bold tracking-[0.25em] text-white uppercase font-mono">
-              Track Money Flow
+              MTracker
             </h1>
             <p className="text-[10px] text-[#777] font-mono mt-1 uppercase tracking-widest">
               Initializing Engine
@@ -1143,8 +1332,8 @@ export default function App() {
           <div className="w-12 h-12 bg-obsidian border border-nothing rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
             <Lock className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-mono font-bold uppercase mb-1">TMF Passcode Lock</h2>
-          <p className="text-xs text-[#777] font-mono mb-6">Enter your security PIN to access Track Money Flow</p>
+          <h2 className="text-xl font-mono font-bold uppercase mb-1">MTracker Passcode Lock</h2>
+          <p className="text-xs text-[#777] font-mono mb-6">Enter your security PIN to access MTracker</p>
 
           <form onSubmit={handlePasscodeUnlock} className="space-y-4">
             <input
@@ -1235,7 +1424,9 @@ export default function App() {
           userName={settings.userName || 'User'}
           userPhoto={settings.userPhoto || ''}
           pendingNotificationsCount={pendingNotifications.length}
+          pendingEmiCount={pendingEmiRequests.length}
           onOpenNotifications={() => setIsNotificationModalOpen(true)}
+          onOpenEmiConfirmations={() => setIsEmiModalOpen(true)}
           onOpenAddTransaction={() => handleOpenAddModal()}
           onOpenSimulator={() => setIsSimulatorOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
@@ -1324,11 +1515,13 @@ export default function App() {
             <InvestmentsView
               investments={investments}
               transactions={transactions}
+              accounts={accounts}
               onAddInvestment={handleAddInvestment}
               onUpdateInvestment={handleUpdateInvestment}
               onDeleteInvestment={handleDeleteInvestment}
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
+              onConfirmRedemption={handleConfirmRedemption}
               currencySymbol={settings.currencySymbol}
               settings={settings}
               onUpdateSettings={setSettings}
@@ -1338,11 +1531,14 @@ export default function App() {
           {activeTab === 'loans' && (
             <LoansView
               loans={loans}
+              accounts={accounts}
               onAddLoan={handleAddLoan}
               onRecordRepayment={handleRecordRepayment}
               onSettleLoan={handleSettleLoan}
               onDeleteLoan={handleDeleteLoan}
               onUpdateLoan={handleUpdateLoan}
+              onConfirmInstallmentPayment={handleConfirmInstallmentPayment}
+              onSkipInstallment={handleSkipInstallment}
               currencySymbol={settings.currencySymbol}
               settings={settings}
               onUpdateSettings={setSettings}
@@ -1370,6 +1566,7 @@ export default function App() {
               categories={categories}
               accounts={accounts}
               transactions={transactions}
+              investments={investments}
               onUpdateSettings={setSettings}
               onAddCategory={handleAddCategory}
               onUpdateCategory={handleUpdateCategory}
@@ -1464,6 +1661,45 @@ export default function App() {
           onIgnore={handleIgnoreNotification}
           onClose={() => setIsNotificationModalOpen(false)}
           currencySymbol={settings.currencySymbol}
+        />
+      )}
+
+      {/* 2.5 EMI Repayment Installment Confirmation Prompt Modal */}
+      {isEmiModalOpen && pendingEmiRequests.length > 0 && (
+        <EmiConfirmationPromptModal
+          requests={pendingEmiRequests}
+          accounts={accounts}
+          currencySymbol={settings.currencySymbol}
+          onConfirm={(reqId, accountId, notes) => {
+            const req = pendingEmiRequests.find((r) => r.id === reqId);
+            if (req) {
+              handleConfirmInstallmentPayment(
+                req.loanId,
+                req.installmentNumber,
+                accountId,
+                req.amount,
+                new Date().toISOString().slice(0, 10),
+                notes
+              );
+            }
+            if (pendingEmiRequests.length <= 1) {
+              setIsEmiModalOpen(false);
+            }
+          }}
+          onSkip={(reqId) => {
+            const req = pendingEmiRequests.find((r) => r.id === reqId);
+            if (req) {
+              handleSkipInstallment(req.loanId, req.installmentNumber);
+            }
+            if (pendingEmiRequests.length <= 1) {
+              setIsEmiModalOpen(false);
+            }
+          }}
+          onRemindLater={() => {
+            setIsEmiModalOpen(false);
+            showToast('EMI payment confirmation deferred.', 'info');
+          }}
+          onClose={() => setIsEmiModalOpen(false)}
         />
       )}
 

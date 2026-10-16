@@ -1,6 +1,7 @@
 import React from 'react';
 import { Transaction } from '../types/finance';
 import { MapPin, Store, ShoppingBag, Coffee, Car, Zap, Building2, ExternalLink } from 'lucide-react';
+import { InfoButton } from './InfoButton';
 
 interface TopMerchantsCardProps {
   transactions: Transaction[];
@@ -73,6 +74,12 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
           <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-white truncate">
             Most Spend Places & Merchants
           </h3>
+          <InfoButton
+            id="top-merchants-info"
+            title="Top Places & Merchants"
+            content="Most frequent vendor and store locations where debit transactions occurred."
+            align="left"
+          />
         </div>
         <span className="text-[10px] font-mono font-bold text-[#888] bg-[#1a1a1a] px-2 py-0.5 rounded-full border border-[#262626]">
           {sortedMerchants.length} Outlets

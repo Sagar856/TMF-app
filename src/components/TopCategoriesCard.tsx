@@ -1,6 +1,7 @@
 import React from 'react';
 import { Transaction, Category } from '../types/finance';
 import { Flame, PieChart, ShieldCheck } from 'lucide-react';
+import { InfoButton } from './InfoButton';
 
 interface TopCategoriesCardProps {
   transactions: Transaction[];
@@ -56,6 +57,12 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
           <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-white truncate">
             Top Spend Categories
           </h3>
+          <InfoButton
+            id="top-categories-info"
+            title="Top Spend Categories"
+            content="Top monthly expense categories ranked by transaction volume and budget utilization."
+            align="left"
+          />
         </div>
         <div className="flex items-center gap-1.5">
           {categoryStats.some(s => s.isOverThreshold || s.isOverBudget) && (

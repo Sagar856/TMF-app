@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Category, UserSettings } from '../types/finance';
 import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 import { EmptyState } from './EmptyState';
+import { InfoButton } from './InfoButton';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -289,9 +290,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </div>
         ) : (
           /* Page Title */
-          <h2 className="text-xs sm:text-sm font-mono font-bold text-white uppercase tracking-wider shrink-0">
-            TRANSACTIONS
-          </h2>
+          <div className="flex items-center gap-2 shrink-0">
+            <h2 className="text-xs sm:text-sm font-mono font-bold text-white uppercase tracking-wider">
+              TRANSACTIONS
+            </h2>
+            <InfoButton
+              id="transactions-header-info"
+              title="Transactions"
+              content="Detailed ledger of your cash flow. Filter by date, category, account, type, or subcategory, and export to CSV."
+              align="left"
+            />
+          </div>
         )}
 
         {/* Right Action Icons (Search Icon, Filter Icon, Three-Dot Menu) */}
@@ -510,6 +519,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
             <span className="uppercase font-bold tracking-wider text-white">TRANSACTION METRICS</span>
+            <InfoButton
+              id="tx-metrics-info"
+              title="Transaction Metrics"
+              content="Calculates net flow, cumulative income, and total expenses matching current filter criteria."
+              align="left"
+            />
           </div>
           <button
             type="button"

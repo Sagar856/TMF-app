@@ -51,8 +51,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
           <div>
-            <h1 className="text-xl font-bold tracking-tighter uppercase font-mono tmf-logo-text">TMF</h1>
-            <div className="text-[9px] text-slate-500 dark:text-[#666] tracking-[0.25em] font-mono">TRACK MONEY FLOW</div>
+            <h1 className="text-lg font-bold tracking-tight uppercase font-mono tmf-logo-text">MTracker</h1>
+            <div className="text-[8px] text-slate-500 dark:text-[#888] tracking-[0.2em] font-mono">SMART EXPENSE TRACKER</div>
           </div>
         </div>
       </div>

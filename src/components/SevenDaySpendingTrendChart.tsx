@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
 import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
+import { InfoButton } from './InfoButton';
 
 interface SevenDaySpendingTrendChartProps {
   transactions: Transaction[];
@@ -199,13 +200,16 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
               <h3 className="text-xs sm:text-sm font-bold uppercase tracking-widest text-white">
                 7-Day Spending Trend
               </h3>
+              <InfoButton
+                id="seven-day-trend-info"
+                title="7-Day Spending Trend"
+                content="Visualizes trailing 7-day expense velocity, day-by-day burn rate, and daily average spend."
+                align="left"
+              />
               <span className="px-1.5 py-0.5 bg-red-950/80 text-red-400 text-[9px] font-bold rounded border border-red-800/50">
                 DAILY OUTFLOW
               </span>
             </div>
-            <p className="text-[10px] text-[#777] mt-0.5">
-              Trailing 7-day expense velocity & day-by-day burn rate
-            </p>
           </div>
         </div>
 

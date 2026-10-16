@@ -27,6 +27,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { EmptyState } from './EmptyState';
+import { InfoButton } from './InfoButton';
 import {
   ResponsiveContainer,
   LineChart,
@@ -38,15 +39,31 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import { InvestmentRedemptionModal } from './InvestmentRedemptionModal';
+import { InvestmentRedemption, FinancialAccount } from '../types/finance';
+import { fetchStockPrice, fetchMutualFundNav } from '../services/marketDataService';
+import { calculateFixedDeposit, roundCurrency } from '../services/financialCalculations';
+import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } from 'lucide-react';
+import { StockSelector } from './StockSelector';
+import { DematManagerModal } from './DematManagerModal';
+import { StockItem } from '../services/stocksDatabase';
 
 interface InvestmentsViewProps {
   investments: InvestmentRecord[];
   transactions?: Transaction[];
+  accounts?: FinancialAccount[];
   onAddInvestment: (inv: InvestmentRecord) => void;
   onUpdateInvestment?: (inv: InvestmentRecord) => void;
   onDeleteInvestment?: (id: string) => void;
   onEditTransaction?: (tx: Transaction) => void;
   onDeleteTransaction?: (id: string) => void;
+  onConfirmRedemption?: (
+    investmentId: string,
+    redemption: InvestmentRedemption,
+    updatedInvestment: InvestmentRecord,
+    creditedAccountId: string,
+    netProceeds: number
+  ) => void;
   currencySymbol: string;
   settings: UserSettings;
   onUpdateSettings: (newSettings: UserSettings) => void;
@@ -66,17 +83,25 @@ const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6
 export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   investments,
   transactions = [],
+  accounts = [],
   onAddInvestment,
   onUpdateInvestment,
   onDeleteInvestment,
   onEditTransaction,
   onDeleteTransaction,
+  onConfirmRedemption,
   currencySymbol,
   settings,
   onUpdateSettings,
 }) => {
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
+  const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
+  const [activeViewTab, setActiveViewTab] = useState<'HOLDINGS' | 'REDEMPTIONS' | 'LEDGER'>('HOLDINGS');
+  const [isRefreshingQuotes, setIsRefreshingQuotes] = useState<boolean>(false);
+  const [lastQuoteRefreshTime, setLastQuoteRefreshTime] = useState<string>(() => {
+    return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  });
 
   // Deletion modal state
   const [txnToDelete, setTxnToDelete] = useState<InvestmentTxn | null>(null);
@@ -102,10 +127,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     const touchEndY = e.changedTouches[0].clientY;
     const diffY = touchEndY - touchStartY;
     if (diffY > 25) {
-      // Swiped down -> Expand vertically
       setIsKpiStacked(false);
     } else if (diffY < -25) {
-      // Swiped up -> Stack vertically with overlap
       setIsKpiStacked(true);
     }
     setTouchStartY(null);
@@ -115,7 +138,32 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
   const [selectedAccount, setSelectedAccount] = useState<string>('All Accounts');
   const [selectedType, setSelectedType] = useState<string>('All');
+  const [selectedDemat, setSelectedDemat] = useState<string>('All');
+  const [showDematManager, setShowDematManager] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Auto-refresh quotes on page load
+  const hasAutoRefreshedOnMount = React.useRef<boolean>(false);
+  useEffect(() => {
+    if (!hasAutoRefreshedOnMount.current && investments.length > 0) {
+      hasAutoRefreshedOnMount.current = true;
+      handleRefreshMarketQuotes();
+    }
+  }, [investments.length]);
+
+  // Global handler to prevent number inputs from changing value on scroll
+  useEffect(() => {
+    const handleWheelPrevent = (e: WheelEvent) => {
+      if (
+        document.activeElement instanceof HTMLInputElement &&
+        document.activeElement.type === 'number'
+      ) {
+        document.activeElement.blur();
+      }
+    };
+    window.addEventListener('wheel', handleWheelPrevent, { passive: true });
+    return () => window.removeEventListener('wheel', handleWheelPrevent);
+  }, []);
 
   // Auto-collapse when user scrolls down
   useEffect(() => {
@@ -136,6 +184,28 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [amountInvested, setAmountInvested] = useState<string>('');
   const [currentValue, setCurrentValue] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [dematAccount, setDematAccount] = useState<string>('Zerodha');
+  
+  // Asset specific inputs
+  const [schemeCode, setSchemeCode] = useState<string>('120716');
+  const [investmentPlan, setInvestmentPlan] = useState<'lump_sum' | 'sip'>('lump_sum');
+  const [purchaseNav, setPurchaseNav] = useState<string>('150.0');
+  const [units, setUnits] = useState<string>('');
+  const [exitLoadPercent, setExitLoadPercent] = useState<string>('0');
+  
+  const [stockSymbol, setStockSymbol] = useState<string>('NATIONALUM');
+  const [stockExchange, setStockExchange] = useState<'NSE' | 'BSE' | 'US'>('NSE');
+  const [shares, setShares] = useState<string>('');
+  const [purchasePrice, setPurchasePrice] = useState<string>('');
+  const [brokerageFees, setBrokerageFees] = useState<string>('50');
+
+  const [fdBankName, setFdBankName] = useState<string>('HDFC Bank');
+  const [fdInterestRate, setFdInterestRate] = useState<string>('7.25');
+  const [fdTenureMonths, setFdTenureMonths] = useState<string>('12');
+  const [fdCompounding, setFdCompounding] = useState<'quarterly' | 'monthly' | 'yearly' | 'simple'>('quarterly');
+  const [fdPayout, setFdPayout] = useState<'at_maturity' | 'monthly' | 'quarterly'>('at_maturity');
+  const [fdPrematurePenalty, setFdPrematurePenalty] = useState<string>('1.0');
+  const [linkedAccountId, setLinkedAccountId] = useState<string>(accounts[0]?.id || '');
 
   // Count active filters
   const activeFilterCount = useMemo(() => {
@@ -144,9 +214,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     if (selectedCategory !== 'All Categories') count++;
     if (selectedAccount !== 'All Accounts') count++;
     if (selectedType !== 'All') count++;
+    if (selectedDemat !== 'All') count++;
     if (searchQuery.trim()) count++;
     return count;
-  }, [selectedMonth, selectedCategory, selectedAccount, selectedType, searchQuery]);
+  }, [selectedMonth, selectedCategory, selectedAccount, selectedType, selectedDemat, searchQuery]);
 
   // Derive investment transaction history dynamically from real transactions & investment records
   const investmentTransactions: InvestmentTxn[] = useMemo(() => {
@@ -343,17 +414,160 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setAmountInvested(inv.amountInvested.toString());
     setCurrentValue(inv.currentValue.toString());
     setNotes(inv.notes || '');
+    setDematAccount(inv.dematAccount || 'Zerodha');
+    if (inv.symbol) setStockSymbol(inv.symbol);
+    if (inv.exchange && (inv.exchange === 'NSE' || inv.exchange === 'BSE' || inv.exchange === 'US')) {
+      setStockExchange(inv.exchange);
+    }
+    if (inv.shares) setShares(inv.shares.toString());
+    if (inv.purchasePrice) setPurchasePrice(inv.purchasePrice.toString());
     setShowAddModal(true);
+  };
+
+  // Filter investments according to Demat account, Type, and Search query
+  const filteredInvestments = useMemo(() => {
+    return investments.filter((inv) => {
+      if (selectedDemat !== 'All' && (inv.dematAccount || 'Unassigned') !== selectedDemat) return false;
+      if (selectedType !== 'All' && inv.type !== selectedType) return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchName = inv.name.toLowerCase().includes(q);
+        const matchSym = inv.symbol?.toLowerCase().includes(q);
+        const matchType = inv.type.toLowerCase().includes(q);
+        const matchBroker = inv.dematAccount?.toLowerCase().includes(q);
+        if (!matchName && !matchSym && !matchType && !matchBroker) return false;
+      }
+      return true;
+    });
+  }, [investments, selectedDemat, selectedType, searchQuery]);
+
+  // Collect all historical redemptions across all investments
+  const allRedemptions = useMemo(() => {
+    const list: InvestmentRedemption[] = [];
+    investments.forEach((inv) => {
+      if (inv.redemptions && inv.redemptions.length > 0) {
+        inv.redemptions.forEach((r) => {
+          list.push({
+            ...r,
+            notes: r.notes || inv.name,
+          });
+        });
+      }
+    });
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [investments]);
+
+  const totalRealizedGain = useMemo(() => {
+    return roundCurrency(
+      investments.reduce((sum, i) => sum + (i.realizedProfitLoss || 0), 0)
+    );
+  }, [investments]);
+
+  const handleRefreshMarketQuotes = async () => {
+    setIsRefreshingQuotes(true);
+    try {
+      for (const inv of investments) {
+        if (inv.type === 'Stocks' && (inv.symbol || inv.name)) {
+          const sym = inv.symbol || inv.name;
+          const quote = await fetchStockPrice(sym);
+          if (quote && quote.currentPrice > 0) {
+            const sh = inv.shares || (inv.amountInvested / (inv.purchasePrice || quote.currentPrice || 100));
+            const newCurVal = roundCurrency(sh * quote.currentPrice);
+            const returnPct = inv.amountInvested > 0
+              ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
+              : 0;
+            onUpdateInvestment?.({
+              ...inv,
+              symbol: inv.symbol || quote.symbol,
+              currentPrice: quote.currentPrice,
+              currentValue: newCurVal,
+              returnsPercent: returnPct,
+              priceTimestamp: quote.lastUpdated,
+              priceSource: quote.source,
+            });
+          }
+        } else if (inv.type === 'Mutual Funds') {
+          const query = inv.schemeCode || inv.name;
+          const quote = await fetchMutualFundNav(query);
+          if (quote && quote.currentPrice > 0) {
+            const u = inv.units || (inv.amountInvested / (inv.purchaseNav || 100));
+            const newCurVal = roundCurrency(u * quote.currentPrice);
+            const returnPct = inv.amountInvested > 0
+              ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
+              : 0;
+            onUpdateInvestment?.({
+              ...inv,
+              currentNav: quote.currentPrice,
+              currentValue: newCurVal,
+              returnsPercent: returnPct,
+              navDate: quote.lastUpdated.slice(0, 10),
+            });
+          }
+        }
+      }
+      setLastQuoteRefreshTime(
+        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      );
+    } catch {
+      // Graceful fallback
+    } finally {
+      setIsRefreshingQuotes(false);
+    }
   };
 
   const handleSaveInvestment = (e: React.FormEvent) => {
     e.preventDefault();
-    const numInv = parseFloat(amountInvested);
-    const numVal = parseFloat(currentValue) || numInv;
 
-    if (isNaN(numInv) || numInv <= 0) return;
+    let numInv = parseFloat(amountInvested) || 0;
+    let numVal = parseFloat(currentValue) || numInv;
+    let calculatedUnits = parseFloat(units) || 0;
+    let calculatedShares = parseFloat(shares) || 0;
+    let pNav = parseFloat(purchaseNav) || 100;
+    let cNav = pNav;
+    let pPrice = parseFloat(purchasePrice) || 100;
+    let cPrice = pPrice;
 
-    const returnPct = parseFloat((((numVal - numInv) / numInv) * 100).toFixed(2));
+    if (type === 'Mutual Funds') {
+      pNav = parseFloat(purchaseNav) || 100;
+      cNav = parseFloat(currentValue) ? (parseFloat(currentValue) / (calculatedUnits || 1)) : pNav;
+      if (calculatedUnits <= 0 && numInv > 0 && pNav > 0) {
+        calculatedUnits = roundCurrency(numInv / pNav);
+      }
+      if (numVal <= 0 && calculatedUnits > 0) {
+        numVal = roundCurrency(calculatedUnits * cNav);
+      }
+    } else if (type === 'Stocks') {
+      pPrice = parseFloat(purchasePrice) || 100;
+      cPrice = parseFloat(currentValue) ? (parseFloat(currentValue) / (calculatedShares || 1)) : pPrice;
+      const fees = parseFloat(brokerageFees) || 0;
+      if (calculatedShares <= 0 && numInv > 0 && pPrice > 0) {
+        calculatedShares = Math.floor(numInv / pPrice);
+      }
+      if (numInv <= 0 && calculatedShares > 0) {
+        numInv = roundCurrency(calculatedShares * pPrice + fees);
+      }
+      if (numVal <= 0 && calculatedShares > 0) {
+        numVal = roundCurrency(calculatedShares * cPrice);
+      }
+    } else if (type === 'Fixed Deposit') {
+      const fdRate = parseFloat(fdInterestRate) || 7.0;
+      const fdTenure = parseInt(fdTenureMonths, 10) || 12;
+      const penalty = parseFloat(fdPrematurePenalty) || 1.0;
+      const fdResult = calculateFixedDeposit({
+        principal: numInv,
+        annualInterestRate: fdRate,
+        depositDate: new Date().toISOString().slice(0, 10),
+        tenureMonths: fdTenure,
+        compoundingFrequency: fdCompounding,
+        payoutFrequency: fdPayout,
+        prematurePenaltyPercent: penalty,
+      });
+      numVal = roundCurrency(numInv + fdResult.accruedInterestToDate);
+    }
+
+    if (numInv <= 0) return;
+
+    const returnPct = numInv > 0 ? parseFloat((((numVal - numInv) / numInv) * 100).toFixed(2)) : 0;
 
     if (editingInv && onUpdateInvestment) {
       onUpdateInvestment({
@@ -364,20 +578,53 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         currentValue: numVal,
         returnsPercent: returnPct,
         notes: notes.trim(),
+        dematAccount: type === 'Stocks' || type === 'Mutual Funds' ? dematAccount : undefined,
+        units: type === 'Mutual Funds' ? calculatedUnits : editingInv.units,
+        shares: type === 'Stocks' ? calculatedShares : editingInv.shares,
+        symbol: type === 'Stocks' ? stockSymbol.toUpperCase() : editingInv.symbol,
+        exchange: type === 'Stocks' ? stockExchange : editingInv.exchange,
+        purchasePrice: type === 'Stocks' ? pPrice : editingInv.purchasePrice,
+        currentPrice: type === 'Stocks' ? cPrice : editingInv.currentPrice,
       });
     } else {
       const newInv: InvestmentRecord = {
         id: 'inv_' + Date.now(),
-        name: name.trim() || 'New Investment',
+        name: name.trim() || (type === 'Stocks' ? stockSymbol : 'New Investment'),
         type,
         amountInvested: numInv,
         currentValue: numVal,
         returnsPercent: returnPct,
         date: new Date().toISOString().slice(0, 10),
+        status: 'active',
+        linkedAccountId: linkedAccountId || undefined,
+        dematAccount: type === 'Stocks' || type === 'Mutual Funds' ? dematAccount : undefined,
         monthlyContributions: [
           { month: new Date().toISOString().slice(0, 7), amount: numInv },
         ],
         notes: notes.trim(),
+        // MF fields
+        schemeCode: type === 'Mutual Funds' ? schemeCode : undefined,
+        investmentPlan: type === 'Mutual Funds' ? investmentPlan : undefined,
+        purchaseNav: type === 'Mutual Funds' ? pNav : undefined,
+        currentNav: type === 'Mutual Funds' ? cNav : undefined,
+        units: type === 'Mutual Funds' ? calculatedUnits : undefined,
+        exitLoadPercent: type === 'Mutual Funds' ? parseFloat(exitLoadPercent) || 0 : undefined,
+        // Stocks fields
+        symbol: type === 'Stocks' ? stockSymbol.toUpperCase() : undefined,
+        exchange: type === 'Stocks' ? stockExchange : undefined,
+        shares: type === 'Stocks' ? calculatedShares : undefined,
+        purchasePrice: type === 'Stocks' ? pPrice : undefined,
+        currentPrice: type === 'Stocks' ? cPrice : undefined,
+        brokerageFees: type === 'Stocks' ? parseFloat(brokerageFees) || 0 : undefined,
+        lots: type === 'Stocks' ? [{ id: 'lot_1', date: new Date().toISOString().slice(0, 10), shares: calculatedShares, purchasePrice: pPrice }] : undefined,
+        // FD fields
+        bankName: type === 'Fixed Deposit' ? fdBankName : undefined,
+        interestRate: type === 'Fixed Deposit' ? parseFloat(fdInterestRate) || 7.0 : undefined,
+        depositDate: type === 'Fixed Deposit' ? new Date().toISOString().slice(0, 10) : undefined,
+        tenureMonths: type === 'Fixed Deposit' ? parseInt(fdTenureMonths, 10) || 12 : undefined,
+        compoundingFrequency: type === 'Fixed Deposit' ? fdCompounding : undefined,
+        payoutFrequency: type === 'Fixed Deposit' ? fdPayout : undefined,
+        prematurePenaltyPercent: type === 'Fixed Deposit' ? parseFloat(fdPrematurePenalty) || 1.0 : undefined,
       };
       onAddInvestment(newInv);
     }
@@ -388,6 +635,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setAmountInvested('');
     setCurrentValue('');
     setNotes('');
+    setShares('');
+    setPurchasePrice('');
   };
 
   const handleDeleteInv = (id: string, name: string, type: string, amount: number, e: React.MouseEvent) => {
@@ -519,6 +768,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <h1 className="text-sm font-bold tracking-wider uppercase text-white truncate">
               INVESTMENTS & SIPs
             </h1>
+            <InfoButton
+              id="investments-page-info"
+              title="Investments & SIPs"
+              content="Monitor stock holdings, mutual funds, crypto assets, fixed deposits, and recurring SIP investment trajectories."
+              align="left"
+            />
           </div>
         )}
 
@@ -590,7 +845,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             </button>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-5 gap-2.5">
             <div>
               <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                 MONTH / YEAR
@@ -598,7 +853,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <select
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                className="w-full px-2.5 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
               >
                 <option value="All">All Months</option>
                 <option value="2026-08">Aug 2026</option>
@@ -615,7 +870,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <select
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
-                className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                className="w-full px-2.5 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
               >
                 <option value="All Categories">All Categories</option>
                 {availableCategories.map((c) => (
@@ -628,12 +883,34 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
             <div>
               <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                DEMAT / BROKER
+              </label>
+              <select
+                value={selectedDemat}
+                onChange={(e) => setSelectedDemat(e.target.value)}
+                className="w-full px-2.5 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+              >
+                <option value="All">All Demat Accounts</option>
+                <option value="Zerodha">Zerodha (Kite)</option>
+                <option value="Dhan">Dhan</option>
+                <option value="Groww">Groww</option>
+                <option value="Upstox">Upstox</option>
+                <option value="Angel One">Angel One</option>
+                <option value="ICICI Direct">ICICI Direct</option>
+                <option value="HDFC Sky">HDFC Sky</option>
+                <option value="Kotak Neo">Kotak Neo</option>
+                <option value="Other">Other / Physical</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                 ACCOUNT
               </label>
               <select
                 value={selectedAccount}
                 onChange={(e) => setSelectedAccount(e.target.value)}
-                className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                className="w-full px-2.5 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
               >
                 <option value="All Accounts">All Accounts</option>
                 {availableAccounts.map((a) => (
@@ -651,7 +928,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <select
                 value={selectedType}
                 onChange={(e) => setSelectedType(e.target.value)}
-                className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                className="w-full px-2.5 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
               >
                 <option value="All">All</option>
                 <option value="DEBIT">DEBIT</option>
@@ -670,9 +947,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   setSelectedCategory('All Categories');
                   setSelectedAccount('All Accounts');
                   setSelectedType('All');
+                  setSelectedDemat('All');
                   setSearchQuery('');
                 }}
-                className="text-[10px] font-mono uppercase text-red-400 hover:underline"
+                className="text-[10px] font-mono uppercase text-red-400 hover:underline cursor-pointer"
               >
                 RESET FILTERS
               </button>
@@ -694,21 +972,27 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
       {/* ==================== PORTFOLIO SUMMARY & ASSETS ==================== */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-[#888]">
+        <div className="flex items-center justify-between text-xs font-mono text-[#888]">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
-            <span className="uppercase font-bold tracking-wider text-slate-900 dark:text-white">PORTFOLIO SUMMARY & ASSETS</span>
+            <span className="uppercase font-bold tracking-wider text-white">PORTFOLIO SUMMARY & ASSETS</span>
+            <InfoButton
+              id="portfolio-summary-info"
+              title="Portfolio Summary & Assets"
+              content="Aggregated portfolio value, total capital deployed, and unrealized profit/loss metrics."
+              align="left"
+            />
           </div>
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-slate-100 hover:bg-slate-200 dark:bg-[#1a1a1a] dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] hover:border-red-500 rounded-lg text-slate-700 dark:text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
-              <ChevronDown className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
+              <ChevronDown className="w-3.5 h-3.5 text-red-400" />
             ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
+              <ChevronUp className="w-3.5 h-3.5 text-red-400" />
             )}
           </button>
         </div>
@@ -726,16 +1010,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 1. CURRENT VALUE */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-30 shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
-                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
+                ? 'z-30 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-emerald-500 dark:text-emerald-400 shrink-0" />
-                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Current Value</span>
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Current Value</span>
               </div>
               <button
                 type="button"
@@ -743,18 +1027,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowCurrentValue(!showCurrentValue);
                 }}
-                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showCurrentValue ? "Hide amount" : "Show amount"}
               >
-                {showCurrentValue ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
+                {showCurrentValue ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
                 {showCurrentValue ? `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5 font-bold">
+              <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
                 <TrendingUp className="w-3 h-3" />
                 <span>+{overallReturnPercent}% Returns</span>
               </div>
@@ -764,16 +1048,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 2. CAPITAL INVESTED */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-cyan-500 dark:border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-20 scale-[0.98] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
-                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
+                ? 'z-20 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <DollarSign className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
-                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Capital Invested</span>
+                <DollarSign className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Capital Invested</span>
               </div>
               <button
                 type="button"
@@ -781,18 +1065,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowInvestedCapital(!showInvestedCapital);
                 }}
-                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showInvestedCapital ? "Hide amount" : "Show amount"}
               >
-                {showInvestedCapital ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
+                {showInvestedCapital ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-slate-700 dark:text-[#aaa] tracking-tight">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-[#aaa] tracking-tight">
                 {showInvestedCapital ? `${currencySymbol}${totalInvestedCapital.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Net Principal
               </div>
             </div>
@@ -801,16 +1085,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {/* 3. TOTAL PROFIT/LOSS */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-white dark:bg-[#181820]/75 dark:backdrop-blur-md border border-slate-200 dark:border-white/20 border-t-2 border-t-purple-500 dark:border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-purple-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
-                ? 'z-10 scale-[0.96] shadow-[0_8px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-slate-200 dark:ring-white/10'
-                : 'hover:border-slate-300 dark:hover:border-white/30 shadow-sm dark:shadow-md'
+                ? 'z-10 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
             }`}
           >
-            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa] uppercase mb-0.5">
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
-                <PieIcon className="w-3.5 h-3.5 text-purple-600 dark:text-purple-400 shrink-0" />
-                <span className="font-bold text-slate-900 dark:text-white tracking-wider">Total Profit/Loss</span>
+                <PieIcon className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Total Profit/Loss</span>
               </div>
               <button
                 type="button"
@@ -818,20 +1102,20 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   e.stopPropagation();
                   setShowTotalProfit(!showTotalProfit);
                 }}
-                className="text-slate-400 hover:text-slate-700 dark:text-[#888] dark:hover:text-white p-0.5 cursor-pointer shrink-0"
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
                 title={showTotalProfit ? "Hide amount" : "Show amount"}
               >
-                {showTotalProfit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />}
+                {showTotalProfit ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
               </button>
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
-                totalProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-500'
+                totalProfit >= 0 ? 'text-emerald-400' : 'text-red-500'
               }`}>
                 {showTotalProfit ? `${totalProfit >= 0 ? '+' : ''}${currencySymbol}${totalProfit.toLocaleString('en-IN')}` : '••••••••'}
               </div>
-              <div className="text-[10px] sm:text-[11px] text-slate-500 dark:text-[#aaa]">
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Unrealized Gain
               </div>
             </div>
@@ -847,6 +1131,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <div className="flex items-center gap-2">
               <BarChart2 className="w-3.5 h-3.5 text-cyan-400" />
               <span>CUMULATIVE INVESTMENT OVER TIME</span>
+              <InfoButton
+                id="inv-trend-info"
+                title="Investment Trajectory"
+                content="Tracks historical capital accumulation and net asset expansion over time."
+                align="left"
+              />
             </div>
             <span className="text-white">
               {currencySymbol}{totalInvestmentAmount.toLocaleString('en-IN')}
@@ -890,6 +1180,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           <div className="text-[10px] font-mono font-bold text-[#777] uppercase tracking-widest flex items-center gap-2">
             <PieIcon className="w-3.5 h-3.5 text-blue-400" />
             <span>PORTFOLIO ALLOCATION</span>
+            <InfoButton
+              id="portfolio-alloc-info"
+              title="Portfolio Allocation"
+              content="Breakdown of your investments across asset classes, types, and sectors."
+              align="left"
+            />
           </div>
 
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 h-48 sm:h-56">
@@ -939,8 +1235,14 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       {/* ==================== TRANSACTIONS TABLE & CARD VIEW ==================== */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider">
-            INVESTMENT LEDGER TRANSACTIONS
+          <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider flex items-center gap-2">
+            <span>INVESTMENT LEDGER TRANSACTIONS</span>
+            <InfoButton
+              id="inv-ledger-info"
+              title="Investment Ledger"
+              content="Chronological ledger of buy, sell, dividend, and contribution transactions with table and detail view options."
+              align="left"
+            />
           </div>
 
           <div className="flex items-center bg-[#111111] p-0.5 border border-[#222] rounded-lg">
@@ -1098,12 +1400,70 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         )}
       </div>
 
-      {/* ==================== INDIVIDUAL HOLDINGS & ASSET CARDS ==================== */}
-      <div className="pt-4 border-t border-[#222] space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider">
-            PORTFOLIO ASSETS & INDIVIDUAL HOLDINGS ({investments.length})
-          </div>
+      {/* ==================== PORTFOLIO NAVIGATION TABS & MARKET REFRESH BAR ==================== */}
+      <div className="pt-2 border-t border-[#222] flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-[#121217] border border-[#222] rounded-2xl">
+          <button
+            type="button"
+            onClick={() => setActiveViewTab('HOLDINGS')}
+            className={`px-3 py-1.5 text-xs font-mono font-bold rounded-xl transition-all cursor-pointer ${
+              activeViewTab === 'HOLDINGS'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-[#888] hover:text-white'
+            }`}
+          >
+            Holdings ({investments.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveViewTab('REDEMPTIONS')}
+            className={`px-3 py-1.5 text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
+              activeViewTab === 'REDEMPTIONS'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-[#888] hover:text-white'
+            }`}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span>Redemptions ({allRedemptions.length})</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveViewTab('LEDGER')}
+            className={`px-3 py-1.5 text-xs font-mono font-bold rounded-xl transition-all cursor-pointer ${
+              activeViewTab === 'LEDGER'
+                ? 'bg-red-600 text-white shadow-sm'
+                : 'text-[#888] hover:text-white'
+            }`}
+          >
+            Cashflow Ledger
+          </button>
+        </div>
+
+        {/* Demat Accounts, Live Quotes Refresh & Add Asset Button */}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDematManager(true)}
+            className="px-3 py-1.5 bg-purple-950/40 hover:bg-purple-900/50 border border-purple-700/60 rounded-xl text-xs font-mono text-purple-300 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+            title="Manage Demat Accounts & Import from Zerodha/Dhan"
+          >
+            <Building2 className="w-3.5 h-3.5 text-purple-400" />
+            <span className="hidden sm:inline">Demat Accounts</span>
+            <span className="text-[10px] px-1.5 py-0.2 bg-purple-900/60 text-purple-200 rounded font-bold">Sync</span>
+          </button>
+
+          <button
+            type="button"
+            disabled={isRefreshingQuotes}
+            onClick={handleRefreshMarketQuotes}
+            className="px-3 py-1.5 bg-[#181820] hover:bg-[#22222c] border border-[#333] hover:border-red-500 rounded-xl text-xs font-mono text-[#aaa] hover:text-white transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title="Refresh current NAV & live stock quotes"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-red-400 ${isRefreshingQuotes ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Refresh Quotes</span>
+            <span className="text-[10px] text-[#666]">({lastQuoteRefreshTime})</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -1114,201 +1474,777 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               setNotes('');
               setShowAddModal(true);
             }}
-            className="text-[10px] text-red-400 hover:text-red-300 font-mono font-bold flex items-center gap-1 cursor-pointer"
+            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-md"
           >
-            <Plus className="w-3 h-3" /> ADD ASSET
+            <Plus className="w-3.5 h-3.5" />
+            <span>Add Asset</span>
           </button>
-        </div>
-
-        {/* Existing Asset Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {investments.length === 0 ? (
-            <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
-              No individual investment holdings logged. Tap "ADD ASSET" to log a mutual fund, stock, crypto, or FD.
-            </div>
-          ) : (
-            investments.map((inv) => (
-              <div
-                key={inv.id}
-                className="p-5 bg-carbon border border-nothing hover:border-[#333] rounded-3xl space-y-4 transition-all relative group"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2.5 py-0.5 bg-obsidian border border-nothing text-[9px] font-mono text-red-400 font-bold uppercase rounded">
-                        {inv.type}
-                      </span>
-                    </div>
-                    <h3 className="text-base font-bold font-mono text-white mt-2">{inv.name}</h3>
-                    {inv.notes && <p className="text-xs text-[#777] font-mono mt-1">{inv.notes}</p>}
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-lg font-bold font-mono text-white">
-                      {currencySymbol}{inv.currentValue.toLocaleString('en-IN')}
-                    </div>
-                    <div className={`text-xs font-mono font-bold ${
-                      inv.returnsPercent >= 0 ? 'text-green-400' : 'text-red-500'
-                    }`}>
-                      {inv.returnsPercent >= 0 ? '+' : ''}{inv.returnsPercent}%
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs text-[#888] font-mono pt-2 border-t border-nothing">
-                  <span>Invested: <strong className="text-white">{currencySymbol}{inv.amountInvested.toLocaleString('en-IN')}</strong></span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditModal(inv)}
-                      className="p-1 text-[#888] hover:text-white hover:bg-[#222] rounded-lg transition-colors cursor-pointer"
-                      title="Edit"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    {onDeleteInvestment && (
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteInv(inv.id, inv.name, inv.type, inv.amountInvested, e)}
-                        className="p-1 text-[#888] hover:text-red-400 hover:bg-[#222] rounded-lg transition-colors cursor-pointer"
-                        title="Delete"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Monthly Contributions Log */}
-                {inv.monthlyContributions && inv.monthlyContributions.length > 0 && (
-                  <div className="pt-2 border-t border-nothing">
-                    <div className="text-[10px] text-[#666] uppercase tracking-wider font-mono mb-2">
-                      Monthly Contributions Record
-                    </div>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                      {inv.monthlyContributions.map((mc, idx) => (
-                        <div key={idx} className="px-2.5 py-1 bg-obsidian border border-nothing rounded-lg text-center shrink-0">
-                          <div className="text-[9px] text-[#666] font-mono">{mc.month}</div>
-                          <div className="text-xs font-bold font-mono text-white">+{currencySymbol}{mc.amount.toLocaleString()}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))
-          )}
         </div>
       </div>
 
-      {/* Modal for adding/editing investment */}
+      {/* ==================== TAB CONTENT: HOLDINGS VIEW ==================== */}
+      {activeViewTab === 'HOLDINGS' && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {investments.length === 0 ? (
+              <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
+                No individual investment holdings logged. Tap "Add Asset" or "Demat Accounts" to log mutual funds, stocks, fixed deposits, or gold.
+              </div>
+            ) : filteredInvestments.length === 0 ? (
+              <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
+                No holdings match the selected Demat account or filter criteria.
+              </div>
+            ) : (
+              filteredInvestments.map((inv) => {
+                const isMF = inv.type === 'Mutual Funds';
+                const isStock = inv.type === 'Stocks';
+                const isFD = inv.type === 'Fixed Deposit';
+                const isRedeemed = inv.status === 'redeemed' || inv.currentValue === 0;
+
+                return (
+                  <div
+                    key={inv.id}
+                    className={`p-5 bg-[#121217] border rounded-3xl space-y-4 transition-all relative ${
+                      isRedeemed ? 'border-[#222] opacity-75' : 'border-[#282834] hover:border-[#3a3a4c]'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="px-2.5 py-0.5 bg-[#181822] border border-[#333] text-[9px] font-mono text-red-400 font-bold uppercase rounded-lg">
+                            {inv.type}
+                          </span>
+                          {inv.dematAccount && (
+                            <span className="px-2 py-0.5 bg-purple-950/70 border border-purple-700/60 text-[9px] font-mono text-purple-300 font-bold rounded-lg flex items-center gap-1">
+                              <Building2 className="w-2.5 h-2.5" />
+                              {inv.dematAccount}
+                            </span>
+                          )}
+                          {inv.status && (
+                            <span
+                              className={`px-2 py-0.5 text-[9px] font-mono font-bold uppercase rounded-lg border ${
+                                inv.status === 'redeemed'
+                                  ? 'bg-gray-800 text-gray-400 border-gray-700'
+                                  : inv.status === 'partially_redeemed'
+                                  ? 'bg-amber-950 text-amber-400 border-amber-800'
+                                  : 'bg-emerald-950 text-emerald-400 border-emerald-800'
+                              }`}
+                            >
+                              {inv.status === 'partially_redeemed' ? 'Partial Liquidation' : inv.status}
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="text-base font-bold font-mono text-white mt-2">{inv.name}</h3>
+                        {inv.notes && <p className="text-xs text-[#777] font-mono mt-0.5">{inv.notes}</p>}
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-lg font-bold font-mono text-white">
+                          {currencySymbol}{inv.currentValue.toLocaleString('en-IN')}
+                        </div>
+                        <div
+                          className={`text-xs font-mono font-bold ${
+                            inv.returnsPercent >= 0 ? 'text-emerald-400' : 'text-red-500'
+                          }`}
+                        >
+                          {inv.returnsPercent >= 0 ? '+' : ''}
+                          {inv.returnsPercent}% Returns
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Asset-Specific Financial Telemetry */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 bg-[#16161e] border border-[#22222c] rounded-2xl text-[11px] font-mono">
+                      <div>
+                        <span className="text-[#666] block text-[9px] uppercase">Cost Basis</span>
+                        <span className="text-white font-bold">
+                          {currencySymbol}{inv.amountInvested.toLocaleString('en-IN')}
+                        </span>
+                      </div>
+                      {isMF && (
+                        <>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Units Held</span>
+                            <span className="text-white font-bold">{inv.units || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Current NAV</span>
+                            <span className="text-cyan-400 font-bold">
+                              {inv.currentNav ? `${currencySymbol}${inv.currentNav}` : '—'}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {isStock && (
+                        <>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Shares Held</span>
+                            <span className="text-white font-bold">{inv.shares || '—'}</span>
+                          </div>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Market Price</span>
+                            <span className="text-cyan-400 font-bold">
+                              {inv.currentPrice ? `${currencySymbol}${inv.currentPrice}` : '—'}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                      {isFD && (
+                        <>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Interest Rate</span>
+                            <span className="text-amber-400 font-bold">{inv.interestRate}% p.a.</span>
+                          </div>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Maturity Date</span>
+                            <span className="text-white font-bold">{inv.maturityDate || '—'}</span>
+                          </div>
+                        </>
+                      )}
+                      {!isMF && !isStock && !isFD && (
+                        <div>
+                          <span className="text-[#666] block text-[9px] uppercase">Valuation Date</span>
+                          <span className="text-white">{inv.date}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card Action Ribbon */}
+                    <div className="flex items-center justify-between text-xs font-mono pt-2 border-t border-[#222]">
+                      <div className="flex items-center gap-2">
+                        {!isRedeemed && (
+                          <button
+                            type="button"
+                            onClick={() => setRedeemingInv(inv)}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white font-mono font-bold text-[11px] uppercase rounded-xl transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                          >
+                            <ArrowDownRight className="w-3.5 h-3.5" />
+                            <span>{isFD ? 'Withdraw FD' : 'Redeem'}</span>
+                          </button>
+                        )}
+                        {inv.redemptions && inv.redemptions.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setActiveViewTab('REDEMPTIONS')}
+                            className="px-2 py-1 bg-[#181822] text-[#888] hover:text-white text-[10px] rounded-lg transition-colors cursor-pointer"
+                          >
+                            Redeemed ({inv.redemptions.length})
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(inv)}
+                          className="p-1.5 text-[#888] hover:text-white hover:bg-[#222] rounded-lg transition-colors cursor-pointer"
+                          title="Edit"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        {onDeleteInvestment && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteInv(inv.id, inv.name, inv.type, inv.amountInvested, e)}
+                            className="p-1.5 text-[#888] hover:text-red-400 hover:bg-red-950/40 rounded-lg transition-colors cursor-pointer"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ==================== TAB CONTENT: REDEMPTION HISTORY ==================== */}
+      {activeViewTab === 'REDEMPTIONS' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider flex items-center gap-2">
+              <History className="w-4 h-4 text-red-500" />
+              <span>Investment Liquidation & Redemption Ledger</span>
+            </div>
+            <div className="text-xs font-mono text-emerald-400 font-bold">
+              Total Realized Gain: {currencySymbol}{totalRealizedGain.toLocaleString('en-IN')}
+            </div>
+          </div>
+
+          <div className="bg-[#111116] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+            <div className="min-w-[860px]">
+              <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0e]">
+                <div className="col-span-2">DATE</div>
+                <div className="col-span-3">ASSET / NOTE</div>
+                <div className="col-span-2 text-right">GROSS PROCEEDS</div>
+                <div className="col-span-1 text-right">FEES / TAX</div>
+                <div className="col-span-2 text-right">NET CREDITED</div>
+                <div className="col-span-2 text-right">REALIZED P&L</div>
+              </div>
+
+              {allRedemptions.length === 0 ? (
+                <div className="p-8 text-center text-xs text-[#666]">
+                  No investments redeemed yet. Use the "Redeem" action on any active holding to perform a full or partial liquidation.
+                </div>
+              ) : (
+                allRedemptions.map((red) => (
+                  <div
+                    key={red.id}
+                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a20] items-center text-xs text-white hover:bg-[#16161e] transition-all"
+                  >
+                    <div className="col-span-2 text-[#aaa] font-mono">
+                      {formatDateDisplay(red.date)}
+                    </div>
+                    <div className="col-span-3 min-w-0 pr-2">
+                      <div className="font-bold text-white truncate">{red.notes || 'Redemption'}</div>
+                      <div className="text-[10px] text-[#777] truncate">
+                        {red.isFullRedemption ? '100% Full Liquidation' : 'Partial Liquidation'} · to {red.creditedAccountName || 'Account'}
+                      </div>
+                    </div>
+                    <div className="col-span-2 text-right font-mono text-white">
+                      {currencySymbol}{red.grossProceeds.toLocaleString('en-IN')}
+                    </div>
+                    <div className="col-span-1 text-right font-mono text-red-400 text-[11px]">
+                      -{currencySymbol}{(red.charges + red.taxes).toLocaleString('en-IN')}
+                    </div>
+                    <div className="col-span-2 text-right font-mono font-bold text-emerald-400">
+                      +{currencySymbol}{red.netCredited.toLocaleString('en-IN')}
+                    </div>
+                    <div
+                      className={`col-span-2 text-right font-mono font-bold ${
+                        red.realizedGainLoss >= 0 ? 'text-emerald-400' : 'text-red-400'
+                      }`}
+                    >
+                      {red.realizedGainLoss >= 0 ? '+' : ''}
+                      {currencySymbol}{red.realizedGainLoss.toLocaleString('en-IN')}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== TAB CONTENT: CASHFLOW TRANSACTIONS LEDGER ==================== */}
+      {activeViewTab === 'LEDGER' && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider flex items-center gap-2">
+              <span>Investment Ledger Transactions</span>
+            </div>
+            <div className="flex items-center bg-[#111111] p-0.5 border border-[#222] rounded-lg">
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                  viewMode === 'table' ? 'bg-[#222] text-white font-bold' : 'text-[#777] hover:text-white'
+                }`}
+              >
+                <TableIcon className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Table</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('detail')}
+                className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all cursor-pointer ${
+                  viewMode === 'detail' ? 'bg-[#222] text-white font-bold' : 'text-[#777] hover:text-white'
+                }`}
+              >
+                <LayoutList className="w-3.5 h-3.5" />
+                <span className="text-[10px]">Detail</span>
+              </button>
+            </div>
+          </div>
+
+          {viewMode === 'table' ? (
+            <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+              <div className="min-w-[860px]">
+                <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
+                  <div className="col-span-2">DATE</div>
+                  <div className="col-span-3">CATEGORY / ASSET</div>
+                  <div className="col-span-2">ACCOUNT</div>
+                  <div className="col-span-1">TYPE</div>
+                  <div className="col-span-2 text-right">AMOUNT</div>
+                  <div className="col-span-2 text-right">ACTIONS</div>
+                </div>
+
+                {filteredTxns.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-[#666]">
+                    No investment transactions recorded yet.
+                  </div>
+                ) : (
+                  filteredTxns.map((tx) => (
+                    <div
+                      key={tx.id}
+                      className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all"
+                    >
+                      <div className="col-span-2 text-[#aaa] truncate">
+                        {formatDateDisplay(tx.date)}
+                      </div>
+                      <div className="col-span-3 font-bold text-white truncate pr-2">
+                        {tx.category}
+                      </div>
+                      <div className="col-span-2 text-[#aaa] truncate">
+                        {tx.account}
+                      </div>
+                      <div className="col-span-1 font-bold text-cyan-400">
+                        {tx.type}
+                      </div>
+                      <div className="col-span-2 text-right font-bold text-cyan-400">
+                        {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                      </div>
+                      <div className="col-span-2 flex items-center justify-end gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleEditTxn(tx);
+                          }}
+                          className="px-2 py-1 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer"
+                        >
+                          EDIT
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteTxn(tx);
+                          }}
+                          className="px-2 py-1 bg-[#181818] hover:bg-red-950/60 border border-red-900/60 hover:border-red-500 text-red-400 hover:text-red-300 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer"
+                        >
+                          DEL
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {filteredTxns.length === 0 ? (
+                <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-2xl">
+                  No investment transactions recorded yet.
+                </div>
+              ) : (
+                filteredTxns.map((tx) => (
+                  <div
+                    key={tx.id}
+                    className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-[#161616] rounded-2xl flex items-center justify-between gap-3 font-mono transition-all"
+                  >
+                    <div className="space-y-1 min-w-0 flex-1">
+                      <div className="text-xs font-bold text-white truncate">{tx.category}</div>
+                      <div className="text-[10px] text-[#777] flex items-center gap-2">
+                        <span>{formatDateDisplay(tx.date)}</span>
+                        <span>•</span>
+                        <span>{tx.account}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <div className="flex items-center gap-2">
+                        <div className="text-xs font-bold text-cyan-400">
+                          {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                        </div>
+                        <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
+                          {tx.type}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Redemption Interactive Modal */}
+      {redeemingInv && (
+        <InvestmentRedemptionModal
+          investment={redeemingInv}
+          accounts={accounts}
+          currencySymbol={currencySymbol}
+          onClose={() => setRedeemingInv(null)}
+          onConfirmRedemption={(invId, redemption, updatedInv, accountId, netProceeds) => {
+            onConfirmRedemption?.(invId, redemption, updatedInv, accountId, netProceeds);
+            setRedeemingInv(null);
+          }}
+        />
+      )}
+
+      {/* Modal for adding/editing investment with comprehensive asset forms */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-carbon border border-nothing p-6 rounded-3xl max-w-md w-full shadow-2xl relative">
-            <div className="flex justify-between items-center mb-5 pb-3 border-b border-nothing">
-              <h3 className="text-sm font-bold font-mono text-white uppercase">
-                {editingInv ? 'Edit Investment Record' : 'Log Investment Record'}
-              </h3>
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[#121217] border border-[#2a2a34] p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
+            <div className="flex justify-between items-center pb-3 border-b border-[#222]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-700/60 flex items-center justify-center text-red-400">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold uppercase">
+                    {editingInv ? 'Edit Investment Record' : 'Log Investment Holding'}
+                  </h3>
+                  <p className="text-[10px] text-[#888]">
+                    Mutual Funds, Equities, Fixed Deposits, Gold & Assets
+                  </p>
+                </div>
+              </div>
               <button
                 onClick={() => {
                   setShowAddModal(false);
                   setEditingInv(null);
                 }}
-                className="text-[#666] hover:text-white"
+                className="text-[#666] hover:text-white p-1 rounded-lg bg-[#181820]"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveInvestment} className="space-y-4">
+            <form onSubmit={handleSaveInvestment} className="space-y-3.5">
+              {/* Asset Type Selector */}
               <div>
-                <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-                  Investment / Asset Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Parag Parikh Flexi Cap Fund"
-                  className="w-full px-4 py-2.5 bg-obsidian border border-nothing focus:border-red-600 rounded-xl text-xs font-mono text-white placeholder-[#555] outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-                  Asset Type
+                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                  Asset Category
                 </label>
                 <select
                   value={type}
                   onChange={(e) => setType(e.target.value as InvestmentType)}
-                  className="w-full px-4 py-2.5 bg-obsidian border border-nothing focus:border-red-600 rounded-xl text-xs font-mono text-white outline-none"
+                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                 >
-                  <option value="Mutual Funds">Mutual Funds (SIP / Lumpsum)</option>
-                  <option value="Stocks">Direct Stocks & ETFs</option>
-                  <option value="Crypto">Crypto Assets</option>
+                  <option value="Mutual Funds">Mutual Funds (SIP / Lump sum)</option>
+                  <option value="Stocks">Direct Stocks & Equity ETFs</option>
                   <option value="Fixed Deposit">Fixed Deposit / Term Deposit</option>
-                  <option value="Gold">Digital Gold / Sovereign Gold Bonds</option>
+                  <option value="Gold">Sovereign Gold Bond / Gold</option>
+                  <option value="Crypto">Crypto Assets</option>
                   <option value="Real Estate">Real Estate / REITs</option>
                 </select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              {/* Asset / Fund Name (for non-stock types) */}
+              {type !== 'Stocks' && (
                 <div>
-                  <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-                    Amount Invested ({currencySymbol})
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    {type === 'Mutual Funds'
+                      ? 'Scheme Name'
+                      : type === 'Fixed Deposit'
+                      ? 'Bank / Institution Name'
+                      : 'Investment Name'}
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={
+                      type === 'Mutual Funds'
+                        ? 'e.g. UTI Nifty 50 Index Fund Direct Growth'
+                        : type === 'Fixed Deposit'
+                        ? 'e.g. HDFC Bank Fixed Deposit'
+                        : 'e.g. Sovereign Gold Bond 2026'
+                    }
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
+                  />
+                </div>
+              )}
+
+              {/* MUTUAL FUNDS SPECIFIC FIELDS */}
+              {type === 'Mutual Funds' && (
+                <div className="space-y-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Plan Type</label>
+                      <select
+                        value={investmentPlan}
+                        onChange={(e) => setInvestmentPlan(e.target.value as 'lump_sum' | 'sip')}
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      >
+                        <option value="lump_sum">Lump sum</option>
+                        <option value="sip">Monthly SIP</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Purchase NAV ({currencySymbol})</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={purchaseNav}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => setPurchaseNav(e.target.value)}
+                        placeholder="150.0"
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Units (Auto-calc)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={units}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => setUnits(e.target.value)}
+                        placeholder="e.g. 500"
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STOCKS SPECIFIC FIELDS - WITH SEARCHABLE STOCK SELECTOR */}
+              {type === 'Stocks' && (
+                <div className="space-y-2.5">
+                  <StockSelector
+                    selectedSymbol={stockSymbol}
+                    currencySymbol={currencySymbol}
+                    onSelect={(stock: StockItem) => {
+                      setStockSymbol(stock.symbol);
+                      setName(stock.name);
+                      setStockExchange(stock.exchange === 'NSE' || stock.exchange === 'BSE' ? stock.exchange : 'US');
+                      setPurchasePrice(stock.basePrice.toString());
+                      if (shares && parseFloat(shares) > 0) {
+                        const s = parseFloat(shares);
+                        setAmountInvested((s * stock.basePrice).toFixed(2));
+                        setCurrentValue((s * stock.basePrice).toFixed(2));
+                      } else if (amountInvested && parseFloat(amountInvested) > 0) {
+                        const amt = parseFloat(amountInvested);
+                        setShares(Math.floor(amt / stock.basePrice).toString());
+                        setCurrentValue(amt.toFixed(2));
+                      } else {
+                        setShares('10');
+                        setAmountInvested((10 * stock.basePrice).toFixed(2));
+                        setCurrentValue((10 * stock.basePrice).toFixed(2));
+                      }
+                    }}
+                    onCustomSymbolChange={(sym) => {
+                      setStockSymbol(sym);
+                      setName(sym);
+                    }}
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Exchange</label>
+                      <select
+                        value={stockExchange}
+                        onChange={(e) => setStockExchange(e.target.value as any)}
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      >
+                        <option value="NSE">NSE (India)</option>
+                        <option value="BSE">BSE (India)</option>
+                        <option value="US">US (NASDAQ / NYSE)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Shares Count</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={shares}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setShares(val);
+                          const num = parseFloat(val);
+                          const p = parseFloat(purchasePrice);
+                          if (num > 0 && p > 0) {
+                            setAmountInvested((num * p).toFixed(2));
+                            setCurrentValue((num * p).toFixed(2));
+                          }
+                        }}
+                        placeholder="e.g. 25"
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Buy Price/Share ({currencySymbol})</label>
+                      <input
+                        type="number"
+                        step="any"
+                        value={purchasePrice}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setPurchasePrice(val);
+                          const p = parseFloat(val);
+                          const s = parseFloat(shares);
+                          if (p > 0 && s > 0) {
+                            setAmountInvested((s * p).toFixed(2));
+                            setCurrentValue((s * p).toFixed(2));
+                          }
+                        }}
+                        placeholder="e.g. 318.4"
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* FIXED DEPOSIT SPECIFIC FIELDS */}
+              {type === 'Fixed Deposit' && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[9px] text-[#aaa] uppercase mb-1">Interest Rate (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={fdInterestRate}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onChange={(e) => setFdInterestRate(e.target.value)}
+                      placeholder="7.25"
+                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-[#aaa] uppercase mb-1">Tenure (Months)</label>
+                    <input
+                      type="number"
+                      value={fdTenureMonths}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onChange={(e) => setFdTenureMonths(e.target.value)}
+                      placeholder="24"
+                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] text-[#aaa] uppercase mb-1">Compounding</label>
+                    <select
+                      value={fdCompounding}
+                      onChange={(e) => setFdCompounding(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                    >
+                      <option value="quarterly">Quarterly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="yearly">Yearly</option>
+                      <option value="simple">Simple</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Financial Capital Amounts */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    Total Amount Invested ({currencySymbol})
                   </label>
                   <input
                     type="number"
                     step="any"
                     required
                     value={amountInvested}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
                     onChange={(e) => setAmountInvested(e.target.value)}
-                    placeholder="e.g. 5000"
-                    className="w-full px-4 py-2.5 bg-obsidian border border-nothing focus:border-red-600 rounded-xl text-xs font-mono text-white placeholder-[#555] outline-none"
+                    placeholder="e.g. 50000"
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-                    Current Market Value ({currencySymbol})
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    Current Valuation ({currencySymbol})
                   </label>
                   <input
                     type="number"
                     step="any"
                     value={currentValue}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
                     onChange={(e) => setCurrentValue(e.target.value)}
-                    placeholder="e.g. 5420"
-                    className="w-full px-4 py-2.5 bg-obsidian border border-nothing focus:border-red-600 rounded-xl text-xs font-mono text-white placeholder-[#555] outline-none"
+                    placeholder="e.g. 58200"
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                   />
                 </div>
               </div>
 
+              {/* Demat Broker / Account (for Stocks and Mutual Funds) */}
+              {(type === 'Stocks' || type === 'Mutual Funds') && (
+                <div>
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1 flex items-center justify-between">
+                    <span>Demat Broker / Demat Account</span>
+                    <span className="text-[9px] text-purple-400">Zerodha, Dhan, Groww etc.</span>
+                  </label>
+                  <select
+                    value={dematAccount}
+                    onChange={(e) => setDematAccount(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
+                  >
+                    <option value="Zerodha">Zerodha (Kite / Console)</option>
+                    <option value="Dhan">Dhan (DhanHQ)</option>
+                    <option value="Groww">Groww</option>
+                    <option value="Upstox">Upstox Pro</option>
+                    <option value="Angel One">Angel One</option>
+                    <option value="ICICI Direct">ICICI Direct</option>
+                    <option value="HDFC Sky">HDFC Sky</option>
+                    <option value="Kotak Neo">Kotak Neo</option>
+                    <option value="Other">Other / Physical</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Linked Bank Account */}
               <div>
-                <label className="block text-[10px] text-[#666] uppercase tracking-wider font-mono mb-1">
-                  Notes / Folio Number (Optional)
+                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                  Source / Linked Bank Account
+                </label>
+                <select
+                  value={linkedAccountId}
+                  onChange={(e) => setLinkedAccountId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 cursor-pointer"
+                >
+                  <option value="">-- Manual Selection --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bankName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                  Notes / Folio / Demat Details
                 </label>
                 <textarea
                   rows={2}
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. Folio: 1234567/89, via Zerodha Coin"
-                  className="w-full px-4 py-2 bg-obsidian border border-nothing focus:border-red-600 rounded-xl text-xs font-mono text-white placeholder-[#555] outline-none resize-none"
+                  placeholder="e.g. Zerodha Demat account or SBI Branch Folio"
+                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 resize-none"
                 />
               </div>
 
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
+                  className="w-full py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-lg"
                 >
-                  {editingInv ? 'Save Changes' : 'Save Investment'}
+                  {editingInv ? 'Save Changes' : 'Log Investment Position'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
+
+      {/* Demat Manager & Multi-Broker Sync Modal */}
+      {showDematManager && (
+        <DematManagerModal
+          investments={investments}
+          currencySymbol={currencySymbol}
+          onClose={() => setShowDematManager(false)}
+          onImportHoldings={(newHoldings) => {
+            newHoldings.forEach((h) => onAddInvestment(h));
+            setShowDematManager(false);
+          }}
+        />
+      )}
+
       {/* Delete Ledger Transaction Modal Dialog */}
       <AnimatePresence>
         {txnToDelete && (

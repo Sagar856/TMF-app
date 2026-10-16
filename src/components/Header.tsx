@@ -7,7 +7,9 @@ interface HeaderProps {
   userName?: string;
   userPhoto?: string;
   pendingNotificationsCount: number;
+  pendingEmiCount?: number;
   onOpenNotifications: () => void;
+  onOpenEmiConfirmations?: () => void;
   onOpenAddTransaction?: () => void;
   onOpenSimulator: () => void;
   onOpenProfile?: () => void;
@@ -21,7 +23,9 @@ export const Header: React.FC<HeaderProps> = ({
   userName = 'New User',
   userPhoto = '',
   pendingNotificationsCount,
+  pendingEmiCount = 0,
   onOpenNotifications,
+  onOpenEmiConfirmations,
   onOpenSimulator,
   onOpenProfile,
   onOpenAuth,
@@ -51,11 +55,11 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
         <div className="flex flex-col">
-          <span className="text-base sm:text-xl font-black font-mono tracking-wider tmf-logo-text uppercase select-none leading-none">
-            TMF
+          <span className="text-base sm:text-lg font-black font-mono tracking-wider tmf-logo-text uppercase select-none leading-none">
+            MTracker
           </span>
           <span className="text-[8px] sm:text-[9px] font-mono tracking-[0.2em] text-[#777] hidden sm:inline-block leading-tight">
-            TRACK MONEY FLOW
+            SMART EXPENSE TRACKER
           </span>
         </div>
       </div>
@@ -98,6 +102,18 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Smartphone className="w-4 h-4 text-red-400" />
         </button>
+
+        {/* Due EMI Confirmations Prompt Button */}
+        {pendingEmiCount > 0 && onOpenEmiConfirmations && (
+          <button
+            onClick={onOpenEmiConfirmations}
+            className="px-2.5 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-700/80 rounded-xl text-red-300 hover:text-white text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(220,38,38,0.3)] animate-pulse cursor-pointer"
+            title={`${pendingEmiCount} pending loan EMI payment(s) awaiting confirmation`}
+          >
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+            <span>EMI ({pendingEmiCount})</span>
+          </button>
+        )}
 
         {/* Download Android App (hidden inside the native app itself) */}
         <DownloadAppCard compact />

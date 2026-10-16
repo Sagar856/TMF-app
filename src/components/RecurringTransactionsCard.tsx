@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useRef } from 'react';
-import { Transaction, Category } from '../types/finance';
 import { 
   Repeat, 
   Calendar, 
@@ -31,6 +30,9 @@ import {
 } from 'lucide-react';
 import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
 import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
+import { InfoButton } from './InfoButton';
+
+import { Transaction, Category, LoanRecord } from '../types/finance';
 
 export interface CustomRecurringBill {
   id: string;
@@ -64,6 +66,7 @@ export interface DetectedRecurringItem {
 interface RecurringTransactionsCardProps {
   transactions: Transaction[];
   categories: Category[];
+  loans?: LoanRecord[];
   currencySymbol: string;
   onQuickLogTransaction?: (tx: Transaction) => void;
   onNavigateToTransactions?: () => void;
@@ -76,6 +79,7 @@ interface RecurringTransactionsCardProps {
 export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps> = ({
   transactions,
   categories,
+  loans = [],
   currencySymbol,
   onQuickLogTransaction,
   onNavigateToTransactions,
@@ -325,6 +329,88 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
         isCustom: true,
       });
     });
+
+    // 3. Process Automated Loan EMI Repayment Schedules
+    if (loans && loans.length > 0) {
+      loans.forEach((loan) => {
+        if (loan.status === 'repaid' || loan.remainingAmount <= 0) return;
+
+        // Find installments for the selectedMonth
+        const scheduleInMonth = (loan.schedule || []).filter((s) => s.dueDate.startsWith(selectedMonth));
+
+        if (scheduleInMonth.length > 0) {
+          scheduleInMonth.forEach((inst) => {
+            const dueDateObj = new Date(inst.dueDate);
+            const diffTime = dueDateObj.getTime() - referenceDateObj.getTime();
+            const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            let status: DetectedRecurringItem['status'] = 'SCHEDULED';
+            if (inst.status === 'paid' || markedPaidIds.has(`loan_emi_${loan.id}_${inst.installmentNumber}`)) {
+              status = 'PAID';
+            } else if (daysRemaining < 0) {
+              status = 'OVERDUE';
+            } else if (daysRemaining === 0) {
+              status = 'DUE_TODAY';
+            } else if (daysRemaining <= 7) {
+              status = 'DUE_SOON';
+            }
+
+            items.push({
+              id: `loan_emi_${loan.id}_${inst.installmentNumber}`,
+              title: `EMI: ${loan.name || loan.personOrBank} (Inst #${inst.installmentNumber})`,
+              amount: inst.emiAmount,
+              category: 'Loans & Lends',
+              payeeOrPayer: loan.personOrBank,
+              frequency: 'Monthly',
+              expectedDayOfMonth: dueDateObj.getDate() || 5,
+              lastPaidDate: inst.paidDate || 'N/A',
+              nextDueDate: inst.dueDate,
+              daysRemaining,
+              status,
+              type: 'debit',
+              autoDebit: Boolean(loan.paymentAccountId || inst.paymentAccountId),
+              isCustom: false,
+            });
+          });
+        } else if (loan.monthlyEmi && loan.monthlyEmi > 0) {
+          const maxDaysInTargetMonth = new Date(selYear, targetMonthIdx + 1, 0).getDate();
+          const dueDay = loan.dueDate ? parseInt(loan.dueDate.split('-')[2] || '5', 10) : 5;
+          const validDay = Math.min(dueDay, maxDaysInTargetMonth);
+          const nextDueDateObj = new Date(selYear, targetMonthIdx, validDay);
+          const nextDueDateStr = nextDueDateObj.toISOString().substring(0, 10);
+          const diffTime = nextDueDateObj.getTime() - referenceDateObj.getTime();
+          const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+          let status: DetectedRecurringItem['status'] = 'SCHEDULED';
+          if (markedPaidIds.has(`loan_emi_${loan.id}`)) {
+            status = 'PAID';
+          } else if (daysRemaining < 0) {
+            status = 'OVERDUE';
+          } else if (daysRemaining === 0) {
+            status = 'DUE_TODAY';
+          } else if (daysRemaining <= 7) {
+            status = 'DUE_SOON';
+          }
+
+          items.push({
+            id: `loan_emi_${loan.id}`,
+            title: `EMI: ${loan.name || loan.personOrBank}`,
+            amount: loan.monthlyEmi,
+            category: 'Loans & Lends',
+            payeeOrPayer: loan.personOrBank,
+            frequency: 'Monthly',
+            expectedDayOfMonth: validDay,
+            lastPaidDate: 'N/A',
+            nextDueDate: nextDueDateStr,
+            daysRemaining,
+            status,
+            type: 'debit',
+            autoDebit: Boolean(loan.paymentAccountId),
+            isCustom: false,
+          });
+        }
+      });
+    }
 
     // Fallback: If no bills detected, populate preset demo recurring items
     if (items.length === 0) {
@@ -590,6 +676,12 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               <h4 className="text-xs font-bold uppercase tracking-wider text-white">
                 Recurring Bills & Subscriptions
               </h4>
+              <InfoButton
+                id="recurring-bills-info"
+                title="Recurring Bills"
+                content="Tracks repeated monthly commitments, active subscriptions, automated utility debits, and scheduled inflows with calendar forecasts."
+                align="left"
+              />
               {dueSoonCount > 0 && (
                 <span className="px-2 py-0.5 rounded-full bg-red-950 border border-red-600/80 text-red-400 text-[9px] font-bold uppercase flex items-center gap-1 animate-pulse">
                   <AlertCircle className="w-3 h-3" />

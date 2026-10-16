@@ -182,7 +182,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 {mode === 'register'
                   ? 'Create New Account'
                   : mode === 'login'
-                  ? 'Sign In To TMF'
+                  ? 'Sign In To MTracker'
                   : mode === 'set_new_password'
                   ? 'Set New Password'
                   : 'Reset Password'}
@@ -212,7 +212,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {!supabaseConfigured && (
           <div className="p-3 bg-yellow-950/50 border border-yellow-800/60 rounded-xl text-yellow-400 text-[11px]">
-            This app requires a TMF account to continue — your data stays private to you via secure, per-user database rules.
+            This app requires an MTracker account to continue — your data stays private to you via secure, per-user database rules.
           </div>
         )}
 

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
 import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
+import { InfoButton } from './InfoButton';
 
 interface BudgetThresholdMonitorProps {
   transactions: Transaction[];
@@ -230,6 +231,16 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
               <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-white">
                 Monitor Budget
               </span>
+              <InfoButton
+                id="budget-monitor-info"
+                title="Budget Monitor"
+                content={
+                  hasAlerts
+                    ? `${alertCategories.map((c) => c.category.name).join(', ')} exceeded 80% of defined monthly allocation.`
+                    : 'Monitored monthly expenses are currently within safe operational boundaries (< 80%).'
+                }
+                align="left"
+              />
 
               {hasAlerts ? (
                 <span className="px-2 py-0.5 bg-red-950 border border-red-600 text-red-400 text-[9px] sm:text-[10px] font-bold rounded-full flex items-center gap-1">
@@ -243,12 +254,6 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                 </span>
               )}
             </div>
-
-            <p className="text-xs text-[#888] mt-0.5 truncate">
-              {hasAlerts
-                ? `${alertCategories.map(c => c.category.name).join(', ')} exceeded 80% of defined monthly allocation`
-                : `Monitored monthly expenses are currently within safe operational boundaries`}
-            </p>
           </div>
         </div>
 

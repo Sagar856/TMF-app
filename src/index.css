@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   * {
     font-family: 'Space Mono', 'JetBrains Mono', 'Share Tech Mono', monospace;
@@ -14,37 +16,47 @@
   code, kbd, samp, pre, .font-mono, input, select, textarea, button {
     font-family: 'Space Mono', 'JetBrains Mono', 'Share Tech Mono', monospace;
   }
+
+  /* Disable spin buttons and accidental wheel scrolling on number inputs */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
 }
 
 :root {
-  --bg-app: #080808;
-  --bg-sidebar: #0d0d0d;
-  --bg-card: #121212;
-  --bg-elevated: #1a1a1a;
-  --bg-input: #0e0e0e;
-  --border-nothing: #222222;
-  --border-light: #2c2c2c;
-  --text-main: #f0f0f0;
-  --text-dim: #a0a0a0;
-  --text-muted: #666666;
+  --bg-app: #09090c;
+  --bg-sidebar: #0f0f14;
+  --bg-card: #13131a;
+  --bg-elevated: #181822;
+  --bg-input: #101016;
+  --border-nothing: #272734;
+  --border-light: #343446;
+  --text-main: #f8fafc;
+  --text-dim: #cbd5e1;
+  --text-muted: #94a3b8;
   --dot-color: rgba(255, 255, 255, 0.08);
-  --scrollbar-bg: #050505;
-  --scrollbar-thumb: #222222;
+  --scrollbar-bg: #09090c;
+  --scrollbar-thumb: #2a2a38;
 }
 
 .light {
-  --bg-app: #f4f4f6;
+  --bg-app: #f4f5f8;
   --bg-sidebar: #ffffff;
   --bg-card: #ffffff;
-  --bg-elevated: #f8f9fa;
+  --bg-elevated: #f8fafc;
   --bg-input: #ffffff;
   --border-nothing: #e2e8f0;
   --border-light: #cbd5e1;
-  --text-main: #09090b;
-  --text-dim: #475569;
-  --text-muted: #94a3b8;
+  --text-main: #090d16;
+  --text-dim: #334155;
+  --text-muted: #475569;
   --dot-color: rgba(0, 0, 0, 0.06);
-  --scrollbar-bg: #f4f4f6;
+  --scrollbar-bg: #f4f5f8;
   --scrollbar-thumb: #cbd5e1;
 }
 
@@ -215,19 +227,53 @@ body {
   color: #0f172a !important;
 }
 
-/* 5. Subtitles & Dimmed Text in Light Mode */
+/* 5. Subtitles & Dimmed Text in Light Mode (High Contrast & Legibility) */
 .light .text-\[\#aaa\],
 .light .text-\[\#ccc\],
 .light .text-\[\#888\],
 .light .text-\[\#777\] {
-  color: #475569 !important;
+  color: #334155 !important;
 }
 
 .light .text-\[\#666\],
 .light .text-\[\#555\],
 .light .text-\[\#444\],
 .light .text-\[\#333\] {
-  color: #64748b !important;
+  color: #475569 !important;
+}
+
+.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+.light .text-slate-500 {
+  color: #334155 !important;
+}
+
+/* 5.1. Dark Mode Dimmed Text and Contrast Refinements (Prevents unreadable muddy text) */
+.dark .text-\[\#333\],
+.dark .text-\[\#444\],
+.dark .text-\[\#555\],
+.dark .text-\[\#666\] {
+  color: #94a3b8 !important;
+}
+
+.dark .text-\[\#777\],
+.dark .text-\[\#888\] {
+  color: #cbd5e1 !important;
+}
+
+.dark .text-\[\#aaa\],
+.dark .text-\[\#bbb\],
+.dark .text-\[\#ccc\] {
+  color: #e2e8f0 !important;
+}
+
+.dark .border-\[\#111\],
+.dark .border-\[\#1a1a1a\],
+.dark .border-\[\#222\],
+.dark .border-\[\#242424\] {
+  border-color: #272736 !important;
 }
 
 /* 6. Form Inputs, Selects, Textareas in Light Mode */

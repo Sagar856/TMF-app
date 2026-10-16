@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.trackmoneyflow.app',
-  appName: 'Track Money Flow',
+  appName: 'MTracker',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

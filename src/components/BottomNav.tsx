@@ -48,7 +48,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <nav
       id="mobile-bottom-navigation"
       aria-label="Mobile Navigation"
-      className="lg:hidden sticky bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#0c0c10]/95 backdrop-blur-xl border-t border-slate-200/90 dark:border-[#202028] px-1.5 sm:px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.7)] transition-colors select-none"
+      className="lg:hidden sticky bottom-0 left-0 right-0 z-40 bg-[#0c0c10]/95 backdrop-blur-xl border-t border-[#202028] px-1.5 sm:px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 shadow-[0_-8px_32px_rgba(0,0,0,0.7)] transition-colors select-none"
     >
       <div className="flex items-center justify-around gap-0.5 sm:gap-1 max-w-lg mx-auto">
         {navItems.map((item) => {
@@ -64,15 +64,15 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               aria-current={isActive ? 'page' : undefined}
               className={`relative flex-1 flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 rounded-2xl transition-all duration-200 cursor-pointer min-w-0 group ${
                 isActive
-                  ? 'text-red-600 dark:text-red-500 font-bold'
-                  : 'text-slate-500 hover:text-slate-900 dark:text-[#888] dark:hover:text-white hover:bg-slate-100/80 dark:hover:bg-white/5 active:scale-95'
+                  ? 'text-red-500 font-bold'
+                  : 'text-[#888] hover:text-white hover:bg-white/5 active:scale-95'
               }`}
             >
               {/* Active Tab Background Pill */}
               {isActive && (
                 <motion.div
                   layoutId="activeBottomTabPill"
-                  className="absolute inset-0 bg-red-50/90 dark:bg-red-950/40 border border-red-200/80 dark:border-red-800/40 rounded-2xl shadow-xs dark:shadow-[0_0_12px_rgba(220,38,38,0.2)]"
+                  className="absolute inset-0 bg-red-950/40 border border-red-800/40 rounded-2xl shadow-[0_0_12px_rgba(220,38,38,0.2)]"
                   transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                 />
               )}
@@ -81,7 +81,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               {isActive && (
                 <motion.div
                   layoutId="activeBottomTabIndicator"
-                  className="absolute -top-1.5 w-4 h-0.75 bg-red-600 dark:bg-red-500 rounded-full shadow-[0_0_6px_rgba(220,38,38,0.6)]"
+                  className="absolute -top-1.5 w-4 h-0.75 bg-red-500 rounded-full shadow-[0_0_6px_rgba(220,38,38,0.6)]"
                   transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                 />
               )}
@@ -96,7 +96,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 
                 {/* Notification / Alert Badge */}
                 {item.badgeCount && item.badgeCount > 0 ? (
-                  <span className="absolute -top-1.5 -right-2 flex items-center justify-center min-w-[15px] h-[15px] px-1 bg-red-600 text-white text-[9px] font-mono font-bold rounded-full shadow-xs ring-2 ring-white dark:ring-[#0c0c10] animate-pulse">
+                  <span className="absolute -top-1.5 -right-2 flex items-center justify-center min-w-[15px] h-[15px] px-1 bg-red-600 text-white text-[9px] font-mono font-bold rounded-full shadow-xs ring-2 ring-[#0c0c10] animate-pulse">
                     {item.badgeCount > 9 ? '9+' : item.badgeCount}
                   </span>
                 ) : null}
@@ -106,8 +106,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               <span
                 className={`relative z-10 text-[9px] sm:text-[10px] font-mono tracking-tight truncate max-w-full mt-0.5 transition-colors ${
                   isActive
-                    ? 'font-bold text-red-600 dark:text-red-400'
-                    : 'font-medium text-slate-500 dark:text-[#777] group-hover:text-slate-800 dark:group-hover:text-[#ccc]'
+                    ? 'font-bold text-red-400'
+                    : 'font-semibold text-zinc-300 group-hover:text-white'
                 }`}
               >
                 {item.shortLabel || item.label}

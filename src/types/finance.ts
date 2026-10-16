@@ -59,6 +59,33 @@ export interface MonthlyContribution {
 
 export type InvestmentType = 'Stocks' | 'Mutual Funds' | 'Crypto' | 'Fixed Deposit' | 'Gold' | 'Real Estate';
 
+
+export interface StockLot {
+  id: string;
+  date: string;
+  shares: number;
+  purchasePrice: number;
+  brokerageFees?: number;
+}
+
+export interface InvestmentRedemption {
+  id: string;
+  date: string;
+  unitsOrSharesRedeemed: number;
+  redemptionPrice: number;
+  grossProceeds: number;
+  charges: number; // Exit load / Brokerage / Penalties
+  taxes: number; // STCG / LTCG / TDS
+  netCredited: number;
+  costBasis: number;
+  realizedGainLoss: number;
+  creditedAccountId: string;
+  creditedAccountName?: string;
+  transactionId?: string;
+  isFullRedemption: boolean;
+  notes?: string;
+}
+
 export interface InvestmentRecord {
   id: string;
   name: string;
@@ -69,15 +96,84 @@ export interface InvestmentRecord {
   date: string;
   monthlyContributions: MonthlyContribution[];
   notes?: string;
+
+  // Status & Holdings
+  status?: 'active' | 'partially_redeemed' | 'redeemed';
+  linkedAccountId?: string;
+  dematAccount?: string; // e.g. 'Zerodha' | 'Dhan' | 'Groww' | 'Upstox' | 'Angel One' | 'ICICI Direct'
+  brokerClientId?: string;
+  realizedProfitLoss?: number;
+  redemptions?: InvestmentRedemption[];
+
+  // Mutual Funds specific
+  schemeCode?: string;
+  investmentPlan?: 'lump_sum' | 'sip';
+  purchaseNav?: number;
+  currentNav?: number;
+  units?: number;
+  navDate?: string;
+  exitLoadPercent?: number;
+  expenseRatio?: number;
+
+  // Stocks specific
+  symbol?: string;
+  exchange?: 'NSE' | 'BSE' | 'US' | 'OTHER';
+  shares?: number;
+  purchasePrice?: number;
+  currentPrice?: number;
+  priceTimestamp?: string;
+  priceSource?: string;
+  brokerageFees?: number;
+  lots?: StockLot[];
+
+  // Fixed Deposits specific
+  bankName?: string;
+  interestRate?: number;
+  depositDate?: string;
+  maturityDate?: string;
+  tenureMonths?: number;
+  compoundingFrequency?: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly' | 'simple';
+  payoutFrequency?: 'monthly' | 'quarterly' | 'at_maturity';
+  maturityAmount?: number;
+  accruedInterest?: number;
+  prematurePenaltyPercent?: number;
+  isPrematureWithdrawalAllowed?: boolean;
 }
 
 export type LoanType = 'loan' | 'lend'; // 'loan' = borrowed from someone, 'lend' = given money to someone
+
+export type LoanStructure = 
+  | 'standard_emi' 
+  | 'no_cost_emi' 
+  | 'down_payment_emi' 
+  | 'interest_only' 
+  | 'peer_loan' 
+  | 'peer_lend';
 
 export interface Repayment {
   id: string;
   amount: number;
   date: string;
   note?: string;
+  installmentNumber?: number;
+  principalComponent?: number;
+  interestComponent?: number;
+  transactionId?: string;
+}
+
+export interface LoanInstallment {
+  installmentNumber: number;
+  dueDate: string;
+  emiAmount: number;
+  principalComponent: number;
+  interestComponent: number;
+  outstandingBalance: number;
+  status: 'scheduled' | 'pending_confirmation' | 'paid' | 'overdue' | 'skipped' | 'cancelled';
+  paidDate?: string;
+  transactionId?: string;
+  confirmedAt?: string;
+  skippedAt?: string;
+  notes?: string;
 }
 
 export interface LoanRecord {
@@ -92,7 +188,44 @@ export interface LoanRecord {
   status: 'active' | 'repaid' | 'overdue';
   repayments: Repayment[];
   notes?: string;
+
+  // Advanced Loan Structure fields
+  loanStructure?: LoanStructure;
+  totalPurchasePrice?: number;
+  downPayment?: number;
+  financedPrincipal?: number;
+  tenureMonths?: number;
+  repaymentFrequency?: 'Monthly' | 'Quarterly' | 'Yearly';
+  monthlyEmi?: number;
+  expectedEmi?: number;
+  isEmiOverridden?: boolean;
+  emiOverrideDifference?: number;
+  processingFees?: number;
+  discounts?: number;
+  startDate?: string;
+  firstInstallmentDate?: string;
+  linkedAccountId?: string;
+  interestCalculationMethod?: 'reducing_balance' | 'flat' | 'no_cost' | 'interest_only';
+  schedule?: LoanInstallment[];
 }
+
+export interface EmiConfirmationRequest {
+  id: string;
+  loanId: string;
+  installmentNumber: number;
+  loanTitle: string;
+  lenderOrBank: string;
+  amount: number;
+  dueDate: string;
+  linkedAccountId?: string;
+  accountName?: string;
+  status: 'pending' | 'confirmed' | 'skipped' | 'reminded_later';
+  createdAt: string;
+  confirmedAt?: string;
+  skippedAt?: string;
+  remindedAt?: string;
+}
+
 
 export interface ParsedNotification {
   id: string;
@@ -116,6 +249,21 @@ export interface ParsedNotification {
 }
 
 
+export interface ConnectedDematAccount {
+  id: string;
+  brokerName: string;
+  brokerCode: 'Zerodha' | 'Dhan' | 'Groww' | 'Upstox' | 'Angel One' | string;
+  clientId: string;
+  isConnected: boolean;
+  connectedAt?: string;
+  lastSyncedAt?: string;
+  apiKeyMasked?: string;
+  mockPortfolioValue?: number;
+  mockReturnsPercent?: number;
+  totalHoldingsCount?: number;
+  color?: string;
+}
+
 export interface UserSettings {
   userName: string;
   userEmail: string;
@@ -138,4 +286,5 @@ export interface UserSettings {
   skipDeleteConfirmation?: boolean;
   skipInvestmentDeleteConfirmation?: boolean;
   skipLoanDeleteConfirmation?: boolean;
+  connectedDematAccounts?: ConnectedDematAccount[];
 }

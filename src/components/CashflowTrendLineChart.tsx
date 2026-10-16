@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Transaction } from '../types/finance';
 import { TrendingUp, ArrowUpRight, ArrowDownLeft, Activity } from 'lucide-react';
+import { InfoButton } from './InfoButton';
 
 interface CashflowTrendLineChartProps {
   transactions: Transaction[];
@@ -128,6 +129,12 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         <h3 className="text-xs sm:text-sm font-mono font-bold uppercase tracking-widest text-white">
           Cash Flow Trend Trajectory
         </h3>
+        <InfoButton
+          id="cashflow-trajectory-info"
+          title="Cash Flow Trajectory"
+          content="Plots cumulative inflow vs outflow curves over weekly or monthly horizons to illustrate income-to-expense dynamics."
+          align="left"
+        />
       </div>
 
       {/* Same Row Controls: WEEK/MONTH option on left, Legend on right (one below one) */}
