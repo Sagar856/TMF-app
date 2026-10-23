@@ -18,6 +18,8 @@ import {
 } from 'lucide-react';
 import { findStockBySymbol } from '../services/stocksDatabase';
 import { roundCurrency } from '../services/financialCalculations';
+import { newId } from '../utils/ids';
+import { todayLocalISO, currentMonthLocal } from '../utils/dates';
 
 interface DematManagerModalProps {
   investments: InvestmentRecord[];
@@ -138,7 +140,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
         const returnsPct = invested > 0 ? roundCurrency(((currentVal - invested) / invested) * 100) : 0;
 
         items.push({
-          id: `inv_import_${Date.now()}_${i}`,
+          id: newId('inv_import'),
           name: name,
           type: 'Stocks',
           symbol: match?.symbol || symbol,
@@ -149,11 +151,11 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
           amountInvested: invested,
           currentValue: currentVal,
           returnsPercent: returnsPct,
-          date: new Date().toISOString().slice(0, 10),
+          date: todayLocalISO(),
           dematAccount: selectedBroker,
           status: 'active',
           priceSource: 'Imported CSV',
-          monthlyContributions: [{ month: new Date().toISOString().slice(0, 7), amount: invested }],
+          monthlyContributions: [{ month: currentMonthLocal(), amount: invested }],
           notes: `Imported from ${selectedBroker} holdings file`,
         });
       }

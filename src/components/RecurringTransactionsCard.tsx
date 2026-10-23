@@ -33,6 +33,8 @@ import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 import { InfoButton } from './InfoButton';
 
 import { Transaction, Category, LoanRecord } from '../types/finance';
+import { newId } from '../utils/ids';
+import { todayLocalISO, toLocalISODate, nowLocalTimeHHMM } from '../utils/dates';
 
 export interface CustomRecurringBill {
   id: string;
@@ -160,17 +162,18 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
   // Helper to calculate Reference Today Date (latest tx date or real today)
   const referenceDateObj = useMemo(() => {
-    let latestDateStr = new Date().toISOString().substring(0, 10);
+    let latestDateStr = todayLocalISO();
     if (transactions.length > 0) {
       const sorted = [...transactions].sort((a, b) => b.date.localeCompare(a.date));
       if (sorted[0].date > latestDateStr) {
         latestDateStr = sorted[0].date;
       }
     }
-    return new Date(latestDateStr);
+    const [y, m, d] = latestDateStr.split('-').map(Number);
+    return new Date(y, m - 1, d || 1);
   }, [transactions]);
 
-  const currentMonthStr = useMemo(() => referenceDateObj.toISOString().substring(0, 7), [referenceDateObj]); // e.g. '2026-08'
+  const currentMonthStr = useMemo(() => toLocalISODate(referenceDateObj).substring(0, 7), [referenceDateObj]); // e.g. '2026-08'
 
   // Selected Month State for Calendar / Projection - Defaults to active month
   const [selectedMonth, setSelectedMonth] = useState<string>(currentMonthStr);
@@ -179,7 +182,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   const handlePrevMonth = () => {
     const [y, m] = selectedMonth.split('-').map(Number);
     const prevDate = new Date(y, m - 2, 1);
-    const prevStr = prevDate.toISOString().substring(0, 7);
+    const prevStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
     setSelectedMonth(prevStr);
     setSelectedCalendarDay(null);
   };
@@ -187,7 +190,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   const handleNextMonth = () => {
     const [y, m] = selectedMonth.split('-').map(Number);
     const nextDate = new Date(y, m, 1);
-    const nextStr = nextDate.toISOString().substring(0, 7);
+    const nextStr = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
     setSelectedMonth(nextStr);
     setSelectedCalendarDay(null);
   };
@@ -244,7 +247,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
         const maxDaysInTargetMonth = new Date(selYear, targetMonthIdx + 1, 0).getDate();
         const validDay = Math.min(dayOfLastPaid, maxDaysInTargetMonth);
         const nextDueDateObj = new Date(selYear, targetMonthIdx, validDay);
-        const nextDueDateStr = nextDueDateObj.toISOString().substring(0, 10);
+        const nextDueDateStr = toLocalISODate(nextDueDateObj);
 
         const diffTime = nextDueDateObj.getTime() - referenceDateObj.getTime();
         const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -296,7 +299,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       const maxDaysInTargetMonth = new Date(selYear, targetMonthIdx + 1, 0).getDate();
       const validDay = Math.min(bill.expectedDayOfMonth, maxDaysInTargetMonth);
       const nextDueDateObj = new Date(selYear, targetMonthIdx, validDay);
-      const nextDueDateStr = nextDueDateObj.toISOString().substring(0, 10);
+      const nextDueDateStr = toLocalISODate(nextDueDateObj);
 
       const diffTime = nextDueDateObj.getTime() - referenceDateObj.getTime();
       const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -377,7 +380,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
           const dueDay = loan.dueDate ? parseInt(loan.dueDate.split('-')[2] || '5', 10) : 5;
           const validDay = Math.min(dueDay, maxDaysInTargetMonth);
           const nextDueDateObj = new Date(selYear, targetMonthIdx, validDay);
-          const nextDueDateStr = nextDueDateObj.toISOString().substring(0, 10);
+          const nextDueDateStr = toLocalISODate(nextDueDateObj);
           const diffTime = nextDueDateObj.getTime() - referenceDateObj.getTime();
           const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -568,11 +571,11 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
   // Handle Quick Log Payment
   const handleQuickLog = (item: DetectedRecurringItem) => {
-    const todayStr = referenceDateObj.toISOString().substring(0, 10);
-    const timeStr = new Date().toTimeString().substring(0, 5);
+    const todayStr = toLocalISODate(referenceDateObj);
+    const timeStr = nowLocalTimeHHMM();
 
     const newTx: Transaction = {
-      id: `recurring_log_${Date.now()}`,
+      id: newId('recurring_log'),
       title: `${item.title} (${item.type === 'debit' ? 'Bill Payment' : 'Received'})`,
       amount: item.amount,
       type: item.type,
@@ -599,7 +602,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     if (!newTitle || !newAmount) return;
 
     const newBill: CustomRecurringBill = {
-      id: `custom_bill_${Date.now()}`,
+      id: newId('custom_bill'),
       title: newTitle.trim(),
       amount: parseFloat(newAmount) || 0,
       category: newCategory,

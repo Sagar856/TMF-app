@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
+import { currentMonthLocal } from '../utils/dates';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
@@ -152,7 +153,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const savingsRate = totalCredit > 0 ? Math.max(0, Math.round(((totalCredit - totalDebit) / totalCredit) * 100)) : 0;
 
   // Active month calculation for executive header threshold status
-  const activeMonthStr = transactions.length > 0 && transactions[0].date ? transactions[0].date.substring(0, 7) : new Date().toISOString().substring(0, 7);
+  const activeMonthStr = currentMonthLocal();
   const categoriesExceeding80 = categories.filter((cat) => {
     if (cat.type !== 'expense' || !cat.budgetLimit || cat.budgetLimit <= 0) return false;
     const spent = transactions

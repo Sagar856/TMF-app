@@ -5,6 +5,14 @@
 [build.environment]
   NODE_VERSION = "20"
 
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/api/stock-quote"
+  to = "/.netlify/functions/stock-quote"
+  status = 200
+
 # SPA fallback: all client-side routes serve index.html
 [[redirects]]
   from = "/*"

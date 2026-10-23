@@ -6,6 +6,8 @@ import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
 import { LoanScheduleModal } from './LoanScheduleModal';
 import { generateAmortizationSchedule, roundCurrency } from '../services/financialCalculations';
+import { newId } from '../utils/ids';
+import { todayLocalISO, addMonthsClamped } from '../utils/dates';
 
 interface LoansViewProps {
   loans: LoanRecord[];
@@ -76,11 +78,9 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [newDiscounts, setNewDiscounts] = useState<string>('0');
   const [newManualEmi, setNewManualEmi] = useState<string>('');
   const [newLinkedAccountId, setNewLinkedAccountId] = useState<string>(accounts[0]?.id || '');
-  const [newDueDate, setNewDueDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [newDueDate, setNewDueDate] = useState<string>(todayLocalISO());
   const [newFirstInstallmentDate, setNewFirstInstallmentDate] = useState<string>(() => {
-    const d = new Date();
-    d.setMonth(d.getMonth() + 1);
-    return d.toISOString().slice(0, 10);
+    return addMonthsClamped(todayLocalISO(), 1);
   });
   const [newNotes, setNewNotes] = useState<string>('');
   const [newType, setNewType] = useState<'loan' | 'lend'>('loan');
@@ -88,7 +88,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   // Repayment form
   const [repayAmount, setRepayAmount] = useState<string>('');
   const [repayNote, setRepayNote] = useState<string>('');
-  const [repayDate, setRepayDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [repayDate, setRepayDate] = useState<string>(todayLocalISO());
 
   // Edit loan form
   const [editPerson, setEditPerson] = useState<string>('');
@@ -256,7 +256,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
     setRepayModalLoan(loan);
     setRepayAmount('');
     setRepayNote('');
-    setRepayDate(new Date().toISOString().slice(0, 10));
+    setRepayDate(todayLocalISO());
   };
 
   const handleSaveRepayment = (e: React.FormEvent) => {
@@ -267,9 +267,9 @@ export const LoansView: React.FC<LoansViewProps> = ({
     if (isNaN(amt) || amt <= 0) return;
 
     const repayment: Repayment = {
-      id: 'rep_' + Date.now(),
+      id: newId('rep'),
       amount: amt,
-      date: repayDate || new Date().toISOString().slice(0, 10),
+      date: repayDate || todayLocalISO(),
       note: repayNote.trim() || 'Partial repayment',
     };
 
@@ -397,7 +397,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
     }
 
     const newLoan: LoanRecord = {
-      id: 'loan_' + Date.now(),
+      id: newId('loan'),
       title: effectiveTitle,
       personOrBank: newPerson.trim(),
       type: effectiveType,
@@ -445,7 +445,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
     setNewManualEmi('');
     setNewProcessingFees('0');
     setNewDiscounts('0');
-    setNewDueDate(new Date().toISOString().slice(0, 10));
+    setNewDueDate(todayLocalISO());
     setNewNotes('');
     setLoanStructure('standard_emi');
   };
@@ -566,7 +566,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   onClick={() => {
                     setNewPerson('');
                     setNewTotalAmount('');
-                    setNewDueDate(new Date().toISOString().slice(0, 10));
+                    setNewDueDate(todayLocalISO());
                     setNewNotes('');
                     setNewType('lend');
                     setIsAddModalOpen(true);

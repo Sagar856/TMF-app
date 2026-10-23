@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { InvestmentRecord, FinancialAccount, InvestmentRedemption } from '../types/finance';
 import { calculateRedemption, roundCurrency } from '../services/financialCalculations';
+import { newId } from '../utils/ids';
+import { todayLocalISO } from '../utils/dates';
 import { X, ArrowDownRight, CheckCircle2, AlertCircle, Building2, DollarSign, Percent, ShieldCheck } from 'lucide-react';
 
 interface InvestmentRedemptionModalProps {
@@ -62,7 +64,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
     const defaultBank = accounts.find((a) => a.type === 'Bank');
     return defaultBank?.id || accounts[0]?.id || '';
   });
-  const [redemptionDate, setRedemptionDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [redemptionDate, setRedemptionDate] = useState<string>(todayLocalISO());
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -116,7 +118,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
 
     setIsSubmitting(true);
 
-    const redemptionId = `red_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const redemptionId = newId('red');
     const creditedAccount = accounts.find((a) => a.id === selectedAccountId);
 
     const redemptionRecord: InvestmentRedemption = {

@@ -247,9 +247,13 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+
   try {
     const rows = transactions.map((t) => ({
       id: t.id,
+      user_id: user.id,
       title: t.title,
       amount: t.amount,
       type: t.type,
@@ -263,9 +267,10 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
       payee_or_payer: t.payeeOrPayer || null,
       payment_method: t.paymentMethod || null,
       note: t.note || null,
+      ref_number: t.refNumber || null,
     }));
 
-    const { error } = await client.from('transactions').upsert(rows, { onConflict: 'id' });
+    const { error } = await client.from('transactions').upsert(rows, { onConflict: 'user_id,id' });
     if (error) return syncError('transactions', error);
     return { success: true };
   } catch (err) {
@@ -329,6 +334,7 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
       payeeOrPayer: row.payee_or_payer,
       paymentMethod: row.payment_method,
       note: row.note,
+      refNumber: row.ref_number || undefined,
     }));
   } catch (err) {
     if (isNetworkOrFetchError(err)) {
@@ -345,9 +351,13 @@ export async function syncCategoriesToSupabase(categories: Category[]): Promise<
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+
   try {
     const rows = categories.map((c) => ({
       id: c.id,
+      user_id: user.id,
       name: c.name,
       type: c.type,
       icon_name: c.iconName,
@@ -355,7 +365,7 @@ export async function syncCategoriesToSupabase(categories: Category[]): Promise<
       budget_limit: c.budgetLimit || 0,
     }));
 
-    const { error } = await client.from('categories').upsert(rows, { onConflict: 'id' });
+    const { error } = await client.from('categories').upsert(rows, { onConflict: 'user_id,id' });
     if (error) return syncError('categories', error);
     return { success: true };
   } catch (err) {
@@ -415,9 +425,13 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+
   try {
     const rows = accounts.map((a) => ({
       id: a.id,
+      user_id: user.id,
       name: a.name,
       bank_name: a.bankName,
       type: a.type,
@@ -432,7 +446,7 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
       is_default: Boolean(a.isDefault),
     }));
 
-    const { error } = await client.from('financial_accounts').upsert(rows, { onConflict: 'id' });
+    const { error } = await client.from('financial_accounts').upsert(rows, { onConflict: 'user_id,id' });
     if (error) return syncError('financial_accounts', error);
     return { success: true };
   } catch (err) {
@@ -511,9 +525,13 @@ export async function syncInvestmentsToSupabase(investments: InvestmentRecord[])
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+
   try {
     const rows = investments.map((inv) => ({
       id: inv.id,
+      user_id: user.id,
       name: inv.name,
       type: inv.type,
       amount_invested: inv.amountInvested,
@@ -522,9 +540,10 @@ export async function syncInvestmentsToSupabase(investments: InvestmentRecord[])
       date: inv.date,
       monthly_contributions: inv.monthlyContributions || [],
       notes: inv.notes || null,
+      details: inv,
     }));
 
-    const { error } = await client.from('investments').upsert(rows, { onConflict: 'id' });
+    const { error } = await client.from('investments').upsert(rows, { onConflict: 'user_id,id' });
     if (error) return syncError('investments', error);
     return { success: true };
   } catch (err) {
@@ -574,6 +593,7 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
     if (!data) return null;
 
     return data.map((row) => ({
+      ...(row.details ?? {}),
       id: row.id,
       name: row.name,
       type: row.type,
@@ -599,9 +619,13 @@ export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<SyncResu
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+
   try {
     const rows = loans.map((l) => ({
       id: l.id,
+      user_id: user.id,
       title: l.title,
       person_or_bank: l.personOrBank,
       type: l.type,
@@ -612,9 +636,10 @@ export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<SyncResu
       status: l.status,
       repayments: l.repayments || [],
       notes: l.notes || null,
+      details: l,
     }));
 
-    const { error } = await client.from('loans').upsert(rows, { onConflict: 'id' });
+    const { error } = await client.from('loans').upsert(rows, { onConflict: 'user_id,id' });
     if (error) return syncError('loans', error);
     return { success: true };
   } catch (err) {
@@ -652,13 +677,20 @@ export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
-    // Under RLS, deleting with neq('id', '') or gte('created_at', ...) wipes the authenticated user's records
-    await Promise.all([
+    // Under RLS, deleting with neq('id', '') wipes the authenticated user's records
+    const results = await Promise.all([
       client.from('transactions').delete().neq('id', ''),
+      client.from('categories').delete().neq('id', ''),
       client.from('financial_accounts').delete().neq('id', ''),
       client.from('investments').delete().neq('id', ''),
       client.from('loans').delete().neq('id', ''),
     ]);
+
+    for (const res of results) {
+      if (res.error) {
+        return syncError('delete-all-data', res.error);
+      }
+    }
     return { success: true };
   } catch (err) {
     return syncError('delete-all-data', err);
@@ -682,6 +714,7 @@ export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
     if (!data) return null;
 
     return data.map((row) => ({
+      ...(row.details ?? {}),
       id: row.id,
       title: row.title,
       personOrBank: row.person_or_bank,

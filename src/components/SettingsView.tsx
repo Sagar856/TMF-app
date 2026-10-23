@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 import { InfoButton } from './InfoButton';
+import { newId } from '../utils/ids';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -374,7 +375,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setFeedbackMessage(`Updated connection details for ${modalBrokerName}.`);
     } else {
       const newAcc: ConnectedDematAccount = {
-        id: 'broker_' + Date.now(),
+        id: newId('broker'),
         brokerName: modalBrokerName,
         brokerCode: modalBrokerCode,
         clientId: modalClientId.trim(),

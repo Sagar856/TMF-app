@@ -41,6 +41,7 @@ export interface Transaction {
   payeeOrPayer?: string;
   paymentMethod?: string;
   note?: string;
+  refNumber?: string;
 }
 
 export interface Category {

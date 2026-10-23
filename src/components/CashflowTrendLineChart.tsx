@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Transaction } from '../types/finance';
+import { toLocalISODate } from '../utils/dates';
 import { TrendingUp, ArrowUpRight, ArrowDownLeft, Activity } from 'lucide-react';
 import { InfoButton } from './InfoButton';
 
@@ -28,7 +29,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
       for (let i = 6; i >= 0; i--) {
         const d = new Date();
         d.setDate(now.getDate() - i);
-        const dateStr = d.toISOString().slice(0, 10);
+        const dateStr = toLocalISODate(d);
         const label = d.toLocaleDateString('en-US', { weekday: 'short' });
 
         const debit = transactions
@@ -50,7 +51,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
       for (let i = intervalCount - 1; i >= 0; i--) {
         const d = new Date();
         d.setDate(now.getDate() - (i * intervalDays));
-        dates.push(d.toISOString().slice(0, 10));
+        dates.push(toLocalISODate(d));
       }
       
       dates.forEach((dateStr) => {

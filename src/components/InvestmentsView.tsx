@@ -47,6 +47,8 @@ import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } fr
 import { StockSelector } from './StockSelector';
 import { DematManagerModal } from './DematManagerModal';
 import { StockItem } from '../services/stocksDatabase';
+import { newId } from '../utils/ids';
+import { todayLocalISO, currentMonthLocal, addMonthsClamped } from '../utils/dates';
 
 interface InvestmentsViewProps {
   investments: InvestmentRecord[];
@@ -80,6 +82,16 @@ interface InvestmentTxn {
 
 const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6'];
 
+function isQuoteLive(inv: InvestmentRecord): boolean {
+  const isLiveSource = inv.priceSource === 'NSE/BSE (Live)' || inv.priceSource === 'AMFI';
+  const tsStr = inv.priceTimestamp || inv.navDate;
+  if (!isLiveSource || !tsStr) return false;
+  const ts = new Date(tsStr).getTime();
+  if (isNaN(ts)) return false;
+  const diffMs = Math.abs(Date.now() - ts);
+  return diffMs < 24 * 60 * 60 * 1000;
+}
+
 export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   investments,
   transactions = [],
@@ -99,6 +111,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
   const [activeViewTab, setActiveViewTab] = useState<'HOLDINGS' | 'REDEMPTIONS' | 'LEDGER'>('HOLDINGS');
   const [isRefreshingQuotes, setIsRefreshingQuotes] = useState<boolean>(false);
+  const [quoteNotice, setQuoteNotice] = useState<string | null>(null);
   const [lastQuoteRefreshTime, setLastQuoteRefreshTime] = useState<string>(() => {
     return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   });
@@ -184,28 +197,100 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [amountInvested, setAmountInvested] = useState<string>('');
   const [currentValue, setCurrentValue] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
-  const [dematAccount, setDematAccount] = useState<string>('Zerodha');
+  const [dematAccount, setDematAccount] = useState<string>('');
+  const [purchaseDate, setPurchaseDate] = useState<string>(todayLocalISO());
   
   // Asset specific inputs
-  const [schemeCode, setSchemeCode] = useState<string>('120716');
+  const [schemeCode, setSchemeCode] = useState<string>('');
   const [investmentPlan, setInvestmentPlan] = useState<'lump_sum' | 'sip'>('lump_sum');
-  const [purchaseNav, setPurchaseNav] = useState<string>('150.0');
+  const [purchaseNav, setPurchaseNav] = useState<string>('');
   const [units, setUnits] = useState<string>('');
   const [exitLoadPercent, setExitLoadPercent] = useState<string>('0');
   
-  const [stockSymbol, setStockSymbol] = useState<string>('NATIONALUM');
+  const [stockSymbol, setStockSymbol] = useState<string>('');
   const [stockExchange, setStockExchange] = useState<'NSE' | 'BSE' | 'US'>('NSE');
   const [shares, setShares] = useState<string>('');
   const [purchasePrice, setPurchasePrice] = useState<string>('');
-  const [brokerageFees, setBrokerageFees] = useState<string>('50');
+  const [brokerageFees, setBrokerageFees] = useState<string>('0');
 
-  const [fdBankName, setFdBankName] = useState<string>('HDFC Bank');
+  const [fdBankName, setFdBankName] = useState<string>('');
   const [fdInterestRate, setFdInterestRate] = useState<string>('7.25');
   const [fdTenureMonths, setFdTenureMonths] = useState<string>('12');
   const [fdCompounding, setFdCompounding] = useState<'quarterly' | 'monthly' | 'yearly' | 'simple'>('quarterly');
   const [fdPayout, setFdPayout] = useState<'at_maturity' | 'monthly' | 'quarterly'>('at_maturity');
   const [fdPrematurePenalty, setFdPrematurePenalty] = useState<string>('1.0');
   const [linkedAccountId, setLinkedAccountId] = useState<string>(accounts[0]?.id || '');
+  const [formError, setFormError] = useState<string | null>(null);
+  const [isSearchingMf, setIsSearchingMf] = useState<boolean>(false);
+  const [mfSearchResults, setMfSearchResults] = useState<Array<{ schemeCode: number; schemeName: string }>>([]);
+  const [showMfSearchResults, setShowMfSearchResults] = useState<boolean>(false);
+
+  const resetForm = () => {
+    setEditingInv(null);
+    setName('');
+    setType('Mutual Funds');
+    setAmountInvested('');
+    setCurrentValue('');
+    setNotes('');
+    setDematAccount('');
+    setPurchaseDate(todayLocalISO());
+    setStockSymbol('');
+    setStockExchange('NSE');
+    setShares('');
+    setPurchasePrice('');
+    setBrokerageFees('0');
+    setSchemeCode('');
+    setInvestmentPlan('lump_sum');
+    setPurchaseNav('');
+    setUnits('');
+    setExitLoadPercent('0');
+    setFdBankName('');
+    setFdInterestRate('7.25');
+    setFdTenureMonths('12');
+    setFdCompounding('quarterly');
+    setFdPayout('at_maturity');
+    setFdPrematurePenalty('1.0');
+    setLinkedAccountId(accounts[0]?.id || '');
+    setFormError(null);
+    setShowMfSearchResults(false);
+    setMfSearchResults([]);
+  };
+
+  const handleSearchMfCode = async () => {
+    const q = (name || schemeCode).trim();
+    if (!q) {
+      setFormError('Type a mutual fund name first to search for AMFI scheme code');
+      return;
+    }
+    setFormError(null);
+    setIsSearchingMf(true);
+    setShowMfSearchResults(false);
+    try {
+      const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setMfSearchResults(data.slice(0, 10));
+          setShowMfSearchResults(true);
+        } else {
+          setFormError(`No schemes found matching "${q}". Enter code manually or try another keyword.`);
+        }
+      } else {
+        setFormError('Failed to fetch scheme search results from AMFI.');
+      }
+    } catch {
+      setFormError('Network error while searching AMFI scheme codes.');
+    } finally {
+      setIsSearchingMf(false);
+    }
+  };
+
+  const handleSelectMfScheme = (item: { schemeCode: number; schemeName: string }) => {
+    setSchemeCode(item.schemeCode.toString());
+    setName(item.schemeName);
+    setShowMfSearchResults(false);
+    setFormError(null);
+  };
 
   // Count active filters
   const activeFilterCount = useMemo(() => {
@@ -260,7 +345,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     investments.forEach((inv) => {
       fromInv.push({
         id: `tx_${inv.id}_initial`,
-        date: inv.date || new Date().toISOString().slice(0, 10),
+        date: inv.date || todayLocalISO(),
         category: inv.name,
         account: inv.type,
         type: 'DEBIT',
@@ -408,19 +493,42 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   };
 
   const handleOpenEditModal = (inv: InvestmentRecord) => {
+    resetForm();
     setEditingInv(inv);
-    setName(inv.name);
+    setName(inv.name || '');
     setType(inv.type);
-    setAmountInvested(inv.amountInvested.toString());
-    setCurrentValue(inv.currentValue.toString());
+    setAmountInvested(inv.amountInvested !== undefined ? inv.amountInvested.toString() : '');
+    setCurrentValue(inv.currentValue !== undefined ? inv.currentValue.toString() : '');
     setNotes(inv.notes || '');
-    setDematAccount(inv.dematAccount || 'Zerodha');
+    setDematAccount(inv.dematAccount || '');
+    setPurchaseDate(inv.date || inv.depositDate || todayLocalISO());
+
+    // Stocks
     if (inv.symbol) setStockSymbol(inv.symbol);
     if (inv.exchange && (inv.exchange === 'NSE' || inv.exchange === 'BSE' || inv.exchange === 'US')) {
       setStockExchange(inv.exchange);
     }
-    if (inv.shares) setShares(inv.shares.toString());
-    if (inv.purchasePrice) setPurchasePrice(inv.purchasePrice.toString());
+    if (inv.shares !== undefined) setShares(inv.shares.toString());
+    if (inv.purchasePrice !== undefined) setPurchasePrice(inv.purchasePrice.toString());
+    if (inv.brokerageFees !== undefined) setBrokerageFees(inv.brokerageFees.toString());
+
+    // Mutual Funds
+    if (inv.schemeCode) setSchemeCode(inv.schemeCode);
+    if (inv.investmentPlan) setInvestmentPlan(inv.investmentPlan);
+    if (inv.purchaseNav !== undefined) setPurchaseNav(inv.purchaseNav.toString());
+    if (inv.units !== undefined) setUnits(inv.units.toString());
+    if (inv.exitLoadPercent !== undefined) setExitLoadPercent(inv.exitLoadPercent.toString());
+
+    // Fixed Deposit
+    if (inv.bankName) setFdBankName(inv.bankName);
+    if (inv.interestRate !== undefined) setFdInterestRate(inv.interestRate.toString());
+    if (inv.tenureMonths !== undefined) setFdTenureMonths(inv.tenureMonths.toString());
+    if (inv.compoundingFrequency) setFdCompounding(inv.compoundingFrequency);
+    if (inv.payoutFrequency) setFdPayout(inv.payoutFrequency);
+    if (inv.prematurePenaltyPercent !== undefined) setFdPrematurePenalty(inv.prematurePenaltyPercent.toString());
+
+    if (inv.linkedAccountId) setLinkedAccountId(inv.linkedAccountId);
+
     setShowAddModal(true);
   };
 
@@ -465,12 +573,17 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
   const handleRefreshMarketQuotes = async () => {
     setIsRefreshingQuotes(true);
+    let skippedCount = 0;
     try {
       for (const inv of investments) {
-        if (inv.type === 'Stocks' && (inv.symbol || inv.name)) {
+        if (inv.type === 'Stocks') {
           const sym = inv.symbol || inv.name;
+          if (!sym) {
+            skippedCount++;
+            continue;
+          }
           const quote = await fetchStockPrice(sym);
-          if (quote && quote.currentPrice > 0) {
+          if (quote && quote.status === 'live' && quote.currentPrice > 0) {
             const sh = inv.shares || (inv.amountInvested / (inv.purchasePrice || quote.currentPrice || 100));
             const newCurVal = roundCurrency(sh * quote.currentPrice);
             const returnPct = inv.amountInvested > 0
@@ -485,31 +598,48 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               priceTimestamp: quote.lastUpdated,
               priceSource: quote.source,
             });
+          } else {
+            skippedCount++;
           }
         } else if (inv.type === 'Mutual Funds') {
-          const query = inv.schemeCode || inv.name;
-          const quote = await fetchMutualFundNav(query);
-          if (quote && quote.currentPrice > 0) {
-            const u = inv.units || (inv.amountInvested / (inv.purchaseNav || 100));
-            const newCurVal = roundCurrency(u * quote.currentPrice);
-            const returnPct = inv.amountInvested > 0
-              ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
-              : 0;
-            onUpdateInvestment?.({
-              ...inv,
-              currentNav: quote.currentPrice,
-              currentValue: newCurVal,
-              returnsPercent: returnPct,
-              navDate: quote.lastUpdated.slice(0, 10),
-            });
+          const code = (inv.schemeCode || '').trim();
+          if (/^\d{5,6}$/.test(code)) {
+            const quote = await fetchMutualFundNav(code);
+            if (quote && quote.status === 'live' && quote.currentPrice > 0) {
+              const u = inv.units || (inv.amountInvested / (inv.purchaseNav || 100));
+              const newCurVal = roundCurrency(u * quote.currentPrice);
+              const returnPct = inv.amountInvested > 0
+                ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
+                : 0;
+              onUpdateInvestment?.({
+                ...inv,
+                currentNav: quote.currentPrice,
+                currentValue: newCurVal,
+                returnsPercent: returnPct,
+                navDate: quote.lastUpdated.slice(0, 10),
+                priceSource: 'AMFI',
+                priceTimestamp: quote.lastUpdated,
+              });
+            } else {
+              skippedCount++;
+            }
+          } else {
+            skippedCount++;
           }
         }
       }
+
+      if (skippedCount > 0) {
+        setQuoteNotice('Live quotes unavailable — showing your last saved values');
+      } else {
+        setQuoteNotice(null);
+      }
+
       setLastQuoteRefreshTime(
         new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       );
     } catch {
-      // Graceful fallback
+      setQuoteNotice('Live quotes unavailable — showing your last saved values');
     } finally {
       setIsRefreshingQuotes(false);
     }
@@ -517,37 +647,111 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
   const handleSaveInvestment = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
 
     let numInv = parseFloat(amountInvested) || 0;
-    let numVal = parseFloat(currentValue) || numInv;
-    let calculatedUnits = parseFloat(units) || 0;
-    let calculatedShares = parseFloat(shares) || 0;
-    let pNav = parseFloat(purchaseNav) || 100;
+    let numVal = parseFloat(currentValue) || 0;
+
+    let calculatedUnits = units.trim() ? parseFloat(units) : 0;
+    let calculatedShares = shares.trim() ? parseFloat(shares) : 0;
+    let pNav = purchaseNav.trim() ? parseFloat(purchaseNav) : 0;
     let cNav = pNav;
-    let pPrice = parseFloat(purchasePrice) || 100;
+    let pPrice = purchasePrice.trim() ? parseFloat(purchasePrice) : 0;
     let cPrice = pPrice;
 
     if (type === 'Mutual Funds') {
-      pNav = parseFloat(purchaseNav) || 100;
-      cNav = parseFloat(currentValue) ? (parseFloat(currentValue) / (calculatedUnits || 1)) : pNav;
-      if (calculatedUnits <= 0 && numInv > 0 && pNav > 0) {
-        calculatedUnits = roundCurrency(numInv / pNav);
-      }
-      if (numVal <= 0 && calculatedUnits > 0) {
-        numVal = roundCurrency(calculatedUnits * cNav);
+      const isEditing = Boolean(editingInv);
+      const isAmountChanged = isEditing && numInv !== editingInv!.amountInvested;
+      const isNavChanged = isEditing && purchaseNav.trim() !== '' && pNav !== (editingInv!.purchaseNav ?? 0);
+      const isUnitsChanged = isEditing && units.trim() !== '' && calculatedUnits !== (editingInv!.units ?? 0);
+      const isMfHoldingsChanged = !isEditing || isAmountChanged || isNavChanged || isUnitsChanged;
+
+      if (!isMfHoldingsChanged && editingInv) {
+        // Keep existing holdings values completely intact
+        calculatedUnits = editingInv.units ?? calculatedUnits;
+        pNav = editingInv.purchaseNav ?? pNav;
+        cNav = editingInv.currentNav ?? pNav;
+        if (numVal <= 0) {
+          numVal = editingInv.currentValue ?? roundCurrency(calculatedUnits * cNav);
+        }
+      } else {
+        if (pNav <= 0 && editingInv?.purchaseNav) {
+          pNav = editingInv.purchaseNav;
+        }
+
+        if (calculatedUnits <= 0 && numInv > 0) {
+          if (pNav <= 0) {
+            setFormError('Please enter a valid Purchase NAV');
+            return;
+          }
+          calculatedUnits = roundCurrency(numInv / pNav);
+        } else if (numInv <= 0 && calculatedUnits > 0) {
+          if (pNav <= 0) {
+            setFormError('Please enter a valid Purchase NAV');
+            return;
+          }
+          numInv = roundCurrency(calculatedUnits * pNav);
+        }
+
+        if (numInv <= 0 && calculatedUnits <= 0) {
+          setFormError('Please enter an investment amount or units held');
+          return;
+        }
+
+        if (numVal <= 0 && calculatedUnits > 0) {
+          cNav = editingInv?.currentNav && !isNavChanged ? editingInv.currentNav : pNav;
+          numVal = roundCurrency(calculatedUnits * cNav);
+        } else if (numVal > 0 && calculatedUnits > 0) {
+          cNav = roundCurrency(numVal / calculatedUnits);
+        }
       }
     } else if (type === 'Stocks') {
-      pPrice = parseFloat(purchasePrice) || 100;
-      cPrice = parseFloat(currentValue) ? (parseFloat(currentValue) / (calculatedShares || 1)) : pPrice;
+      const isEditing = Boolean(editingInv);
+      const isAmountChanged = isEditing && numInv !== editingInv!.amountInvested;
+      const isPriceChanged = isEditing && purchasePrice.trim() !== '' && pPrice !== (editingInv!.purchasePrice ?? 0);
+      const isSharesChanged = isEditing && shares.trim() !== '' && calculatedShares !== (editingInv!.shares ?? 0);
+      const isStockHoldingsChanged = !isEditing || isAmountChanged || isPriceChanged || isSharesChanged;
+
       const fees = parseFloat(brokerageFees) || 0;
-      if (calculatedShares <= 0 && numInv > 0 && pPrice > 0) {
-        calculatedShares = Math.floor(numInv / pPrice);
-      }
-      if (numInv <= 0 && calculatedShares > 0) {
-        numInv = roundCurrency(calculatedShares * pPrice + fees);
-      }
-      if (numVal <= 0 && calculatedShares > 0) {
-        numVal = roundCurrency(calculatedShares * cPrice);
+
+      if (!isStockHoldingsChanged && editingInv) {
+        // Keep existing stock holdings values intact
+        calculatedShares = editingInv.shares ?? calculatedShares;
+        pPrice = editingInv.purchasePrice ?? pPrice;
+        cPrice = editingInv.currentPrice ?? pPrice;
+        if (numVal <= 0) {
+          numVal = editingInv.currentValue ?? roundCurrency(calculatedShares * cPrice);
+        }
+      } else {
+        if (pPrice <= 0 && editingInv?.purchasePrice) {
+          pPrice = editingInv.purchasePrice;
+        }
+
+        if (calculatedShares <= 0 && numInv > 0) {
+          if (pPrice <= 0) {
+            setFormError('Please enter a valid Buy Price per share');
+            return;
+          }
+          calculatedShares = Math.floor(numInv / pPrice);
+        } else if (numInv <= 0 && calculatedShares > 0) {
+          if (pPrice <= 0) {
+            setFormError('Please enter a valid Buy Price per share');
+            return;
+          }
+          numInv = roundCurrency(calculatedShares * pPrice + fees);
+        }
+
+        if (numInv <= 0 && calculatedShares <= 0) {
+          setFormError('Please enter an investment amount or number of shares');
+          return;
+        }
+
+        if (numVal <= 0 && calculatedShares > 0) {
+          cPrice = editingInv?.currentPrice && !isPriceChanged ? editingInv.currentPrice : pPrice;
+          numVal = roundCurrency(calculatedShares * cPrice);
+        } else if (numVal > 0 && calculatedShares > 0) {
+          cPrice = roundCurrency(numVal / calculatedShares);
+        }
       }
     } else if (type === 'Fixed Deposit') {
       const fdRate = parseFloat(fdInterestRate) || 7.0;
@@ -556,16 +760,25 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       const fdResult = calculateFixedDeposit({
         principal: numInv,
         annualInterestRate: fdRate,
-        depositDate: new Date().toISOString().slice(0, 10),
+        depositDate: purchaseDate,
         tenureMonths: fdTenure,
         compoundingFrequency: fdCompounding,
         payoutFrequency: fdPayout,
         prematurePenaltyPercent: penalty,
       });
-      numVal = roundCurrency(numInv + fdResult.accruedInterestToDate);
+      if (numVal <= 0 || !editingInv || numInv !== editingInv.amountInvested) {
+        numVal = roundCurrency(numInv + fdResult.accruedInterestToDate);
+      }
     }
 
-    if (numInv <= 0) return;
+    if (numInv <= 0) {
+      setFormError('Please enter a valid investment amount');
+      return;
+    }
+
+    if (numVal <= 0) {
+      numVal = numInv;
+    }
 
     const returnPct = numInv > 0 ? parseFloat((((numVal - numInv) / numInv) * 100).toFixed(2)) : 0;
 
@@ -577,66 +790,95 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         amountInvested: numInv,
         currentValue: numVal,
         returnsPercent: returnPct,
+        date: purchaseDate,
         notes: notes.trim(),
-        dematAccount: type === 'Stocks' || type === 'Mutual Funds' ? dematAccount : undefined,
+        dematAccount: (type === 'Stocks' || type === 'Mutual Funds') && dematAccount ? dematAccount : undefined,
+        linkedAccountId: linkedAccountId || undefined,
+        // MF fields
+        schemeCode: type === 'Mutual Funds' ? (schemeCode.trim() || undefined) : editingInv.schemeCode,
+        investmentPlan: type === 'Mutual Funds' ? investmentPlan : editingInv.investmentPlan,
+        purchaseNav: type === 'Mutual Funds' ? pNav : editingInv.purchaseNav,
+        currentNav: type === 'Mutual Funds' ? cNav : editingInv.currentNav,
         units: type === 'Mutual Funds' ? calculatedUnits : editingInv.units,
-        shares: type === 'Stocks' ? calculatedShares : editingInv.shares,
-        symbol: type === 'Stocks' ? stockSymbol.toUpperCase() : editingInv.symbol,
+        exitLoadPercent: type === 'Mutual Funds' ? (parseFloat(exitLoadPercent) || 0) : editingInv.exitLoadPercent,
+        // Stocks fields
+        symbol: type === 'Stocks' ? (stockSymbol.trim().toUpperCase() || undefined) : editingInv.symbol,
         exchange: type === 'Stocks' ? stockExchange : editingInv.exchange,
+        shares: type === 'Stocks' ? calculatedShares : editingInv.shares,
         purchasePrice: type === 'Stocks' ? pPrice : editingInv.purchasePrice,
         currentPrice: type === 'Stocks' ? cPrice : editingInv.currentPrice,
+        brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : editingInv.brokerageFees,
+        // FD fields
+        bankName: type === 'Fixed Deposit' ? fdBankName : editingInv.bankName,
+        interestRate: type === 'Fixed Deposit' ? (parseFloat(fdInterestRate) || 7.0) : editingInv.interestRate,
+        depositDate: type === 'Fixed Deposit' ? purchaseDate : editingInv.depositDate,
+        maturityDate: type === 'Fixed Deposit' ? addMonthsClamped(purchaseDate, parseInt(fdTenureMonths, 10) || 12) : editingInv.maturityDate,
+        tenureMonths: type === 'Fixed Deposit' ? (parseInt(fdTenureMonths, 10) || 12) : editingInv.tenureMonths,
+        compoundingFrequency: type === 'Fixed Deposit' ? fdCompounding : editingInv.compoundingFrequency,
+        payoutFrequency: type === 'Fixed Deposit' ? fdPayout : editingInv.payoutFrequency,
+        prematurePenaltyPercent: type === 'Fixed Deposit' ? (parseFloat(fdPrematurePenalty) || 1.0) : editingInv.prematurePenaltyPercent,
       });
     } else {
+      const fdRate = parseFloat(fdInterestRate) || 7.0;
+      const fdTenure = parseInt(fdTenureMonths, 10) || 12;
+      const penalty = parseFloat(fdPrematurePenalty) || 1.0;
+      const fdResult = calculateFixedDeposit({
+        principal: numInv,
+        annualInterestRate: fdRate,
+        depositDate: purchaseDate,
+        tenureMonths: fdTenure,
+        compoundingFrequency: fdCompounding,
+        payoutFrequency: fdPayout,
+        prematurePenaltyPercent: penalty,
+      });
+
       const newInv: InvestmentRecord = {
-        id: 'inv_' + Date.now(),
+        id: newId('inv'),
         name: name.trim() || (type === 'Stocks' ? stockSymbol : 'New Investment'),
         type,
         amountInvested: numInv,
         currentValue: numVal,
         returnsPercent: returnPct,
-        date: new Date().toISOString().slice(0, 10),
+        date: purchaseDate,
         status: 'active',
         linkedAccountId: linkedAccountId || undefined,
-        dematAccount: type === 'Stocks' || type === 'Mutual Funds' ? dematAccount : undefined,
+        dematAccount: (type === 'Stocks' || type === 'Mutual Funds') && dematAccount ? dematAccount : undefined,
         monthlyContributions: [
-          { month: new Date().toISOString().slice(0, 7), amount: numInv },
+          { month: (purchaseDate || todayLocalISO()).slice(0, 7), amount: numInv },
         ],
         notes: notes.trim(),
         // MF fields
-        schemeCode: type === 'Mutual Funds' ? schemeCode : undefined,
+        schemeCode: type === 'Mutual Funds' ? (schemeCode.trim() || undefined) : undefined,
         investmentPlan: type === 'Mutual Funds' ? investmentPlan : undefined,
         purchaseNav: type === 'Mutual Funds' ? pNav : undefined,
         currentNav: type === 'Mutual Funds' ? cNav : undefined,
         units: type === 'Mutual Funds' ? calculatedUnits : undefined,
-        exitLoadPercent: type === 'Mutual Funds' ? parseFloat(exitLoadPercent) || 0 : undefined,
+        exitLoadPercent: type === 'Mutual Funds' ? (parseFloat(exitLoadPercent) || 0) : undefined,
         // Stocks fields
-        symbol: type === 'Stocks' ? stockSymbol.toUpperCase() : undefined,
+        symbol: type === 'Stocks' ? stockSymbol.trim().toUpperCase() : undefined,
         exchange: type === 'Stocks' ? stockExchange : undefined,
         shares: type === 'Stocks' ? calculatedShares : undefined,
         purchasePrice: type === 'Stocks' ? pPrice : undefined,
         currentPrice: type === 'Stocks' ? cPrice : undefined,
-        brokerageFees: type === 'Stocks' ? parseFloat(brokerageFees) || 0 : undefined,
-        lots: type === 'Stocks' ? [{ id: 'lot_1', date: new Date().toISOString().slice(0, 10), shares: calculatedShares, purchasePrice: pPrice }] : undefined,
+        brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : undefined,
+        lots: type === 'Stocks' ? [{ id: 'lot_1', date: purchaseDate, shares: calculatedShares, purchasePrice: pPrice }] : undefined,
         // FD fields
         bankName: type === 'Fixed Deposit' ? fdBankName : undefined,
-        interestRate: type === 'Fixed Deposit' ? parseFloat(fdInterestRate) || 7.0 : undefined,
-        depositDate: type === 'Fixed Deposit' ? new Date().toISOString().slice(0, 10) : undefined,
-        tenureMonths: type === 'Fixed Deposit' ? parseInt(fdTenureMonths, 10) || 12 : undefined,
+        interestRate: type === 'Fixed Deposit' ? (parseFloat(fdInterestRate) || 7.0) : undefined,
+        depositDate: type === 'Fixed Deposit' ? purchaseDate : undefined,
+        maturityDate: type === 'Fixed Deposit' ? addMonthsClamped(purchaseDate, fdTenure) : undefined,
+        maturityAmount: type === 'Fixed Deposit' ? fdResult.totalMaturityAmount : undefined,
+        accruedInterest: type === 'Fixed Deposit' ? fdResult.accruedInterestToDate : undefined,
+        tenureMonths: type === 'Fixed Deposit' ? fdTenure : undefined,
         compoundingFrequency: type === 'Fixed Deposit' ? fdCompounding : undefined,
         payoutFrequency: type === 'Fixed Deposit' ? fdPayout : undefined,
-        prematurePenaltyPercent: type === 'Fixed Deposit' ? parseFloat(fdPrematurePenalty) || 1.0 : undefined,
+        prematurePenaltyPercent: type === 'Fixed Deposit' ? penalty : undefined,
       };
       onAddInvestment(newInv);
     }
 
+    resetForm();
     setShowAddModal(false);
-    setEditingInv(null);
-    setName('');
-    setAmountInvested('');
-    setCurrentValue('');
-    setNotes('');
-    setShares('');
-    setPurchasePrice('');
   };
 
   const handleDeleteInv = (id: string, name: string, type: string, amount: number, e: React.MouseEvent) => {
@@ -1467,11 +1709,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           <button
             type="button"
             onClick={() => {
-              setEditingInv(null);
-              setName('');
-              setAmountInvested('');
-              setCurrentValue('');
-              setNotes('');
+              resetForm();
               setShowAddModal(true);
             }}
             className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-md"
@@ -1485,6 +1723,22 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       {/* ==================== TAB CONTENT: HOLDINGS VIEW ==================== */}
       {activeViewTab === 'HOLDINGS' && (
         <div className="space-y-4">
+          {quoteNotice && (
+            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs font-mono text-amber-200">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>{quoteNotice}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuoteNotice(null)}
+                className="p-1 text-amber-400 hover:text-white rounded transition-colors cursor-pointer"
+                title="Dismiss notice"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {investments.length === 0 ? (
               <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
@@ -1568,7 +1822,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             <span className="text-white font-bold">{inv.units || '—'}</span>
                           </div>
                           <div>
-                            <span className="text-[#666] block text-[9px] uppercase">Current NAV</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#666] block text-[9px] uppercase">Current NAV</span>
+                              {inv.currentNav ? (
+                                isQuoteLive(inv) ? (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LIVE</span>
+                                ) : (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
+                                )
+                              ) : null}
+                            </div>
                             <span className="text-cyan-400 font-bold">
                               {inv.currentNav ? `${currencySymbol}${inv.currentNav}` : '—'}
                             </span>
@@ -1582,7 +1845,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             <span className="text-white font-bold">{inv.shares || '—'}</span>
                           </div>
                           <div>
-                            <span className="text-[#666] block text-[9px] uppercase">Market Price</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#666] block text-[9px] uppercase">Market Price</span>
+                              {inv.currentPrice ? (
+                                isQuoteLive(inv) ? (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LIVE</span>
+                                ) : (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
+                                )
+                              ) : null}
+                            </div>
                             <span className="text-cyan-400 font-bold">
                               {inv.currentPrice ? `${currencySymbol}${inv.currentPrice}` : '—'}
                             </span>
@@ -1898,7 +2170,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <button
                 onClick={() => {
                   setShowAddModal(false);
-                  setEditingInv(null);
+                  resetForm();
                 }}
                 className="text-[#666] hover:text-white p-1 rounded-lg bg-[#181820]"
               >
@@ -1907,23 +2179,41 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveInvestment} className="space-y-3.5">
-              {/* Asset Type Selector */}
-              <div>
-                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  Asset Category
-                </label>
-                <select
-                  value={type}
-                  onChange={(e) => setType(e.target.value as InvestmentType)}
-                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                >
-                  <option value="Mutual Funds">Mutual Funds (SIP / Lump sum)</option>
-                  <option value="Stocks">Direct Stocks & Equity ETFs</option>
-                  <option value="Fixed Deposit">Fixed Deposit / Term Deposit</option>
-                  <option value="Gold">Sovereign Gold Bond / Gold</option>
-                  <option value="Crypto">Crypto Assets</option>
-                  <option value="Real Estate">Real Estate / REITs</option>
-                </select>
+              {/* Asset Type & Purchase Date Row */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    Asset Category
+                  </label>
+                  <select
+                    value={type}
+                    onChange={(e) => {
+                      setType(e.target.value as InvestmentType);
+                      setFormError(null);
+                    }}
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
+                  >
+                    <option value="Mutual Funds">Mutual Funds (SIP / Lump sum)</option>
+                    <option value="Stocks">Direct Stocks & Equity ETFs</option>
+                    <option value="Fixed Deposit">Fixed Deposit / Term Deposit</option>
+                    <option value="Gold">Sovereign Gold Bond / Gold</option>
+                    <option value="Crypto">Crypto Assets</option>
+                    <option value="Real Estate">Real Estate / REITs</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    Purchase / Deposit Date
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={purchaseDate}
+                    onChange={(e) => setPurchaseDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 appearance-none font-mono"
+                  />
+                </div>
               </div>
 
               {/* Asset / Fund Name (for non-stock types) */}
@@ -1956,6 +2246,61 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               {/* MUTUAL FUNDS SPECIFIC FIELDS */}
               {type === 'Mutual Funds' && (
                 <div className="space-y-2.5">
+                  {/* AMFI Scheme Code with Find Code search */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[9px] text-[#aaa] uppercase">
+                        AMFI Scheme Code
+                      </label>
+                      <button
+                        type="button"
+                        disabled={isSearchingMf}
+                        onClick={handleSearchMfCode}
+                        className="text-[9px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        title="Search AMFI scheme code by name"
+                      >
+                        <Search className="w-2.5 h-2.5" />
+                        <span>{isSearchingMf ? 'Searching...' : 'Find code'}</span>
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={schemeCode}
+                      onChange={(e) => {
+                        setSchemeCode(e.target.value);
+                        if (formError) setFormError(null);
+                      }}
+                      placeholder="e.g. 122639 (Parag Parikh Flexi Cap)"
+                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
+                    />
+
+                    {showMfSearchResults && mfSearchResults.length > 0 && (
+                      <div className="mt-1.5 max-h-48 overflow-y-auto bg-[#14141c] border border-[#333] rounded-xl p-1 shadow-2xl divide-y divide-[#222]">
+                        <div className="flex items-center justify-between px-2 py-1 text-[9px] text-[#777]">
+                          <span>Select AMFI Scheme:</span>
+                          <button
+                            type="button"
+                            onClick={() => setShowMfSearchResults(false)}
+                            className="text-[#888] hover:text-white p-0.5"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {mfSearchResults.map((item) => (
+                          <button
+                            key={item.schemeCode}
+                            type="button"
+                            onClick={() => handleSelectMfScheme(item)}
+                            className="w-full text-left px-2 py-1.5 hover:bg-[#20202e] rounded-lg transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                          >
+                            <span className="text-[11px] text-white truncate flex-1">{item.schemeName}</span>
+                            <span className="text-[10px] font-mono text-cyan-400 shrink-0 font-bold">{item.schemeCode}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
                       <label className="block text-[9px] text-[#aaa] uppercase mb-1">Plan Type</label>
@@ -1975,7 +2320,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                         step="any"
                         value={purchaseNav}
                         onWheel={(e) => (e.target as HTMLElement).blur()}
-                        onChange={(e) => setPurchaseNav(e.target.value)}
+                        onChange={(e) => {
+                          setPurchaseNav(e.target.value);
+                          if (formError) setFormError(null);
+                        }}
                         placeholder="150.0"
                         className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
                       />
@@ -1987,11 +2335,27 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                         step="any"
                         value={units}
                         onWheel={(e) => (e.target as HTMLElement).blur()}
-                        onChange={(e) => setUnits(e.target.value)}
+                        onChange={(e) => {
+                          setUnits(e.target.value);
+                          if (formError) setFormError(null);
+                        }}
                         placeholder="e.g. 500"
                         className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[9px] text-[#aaa] uppercase mb-1">Exit Load (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={exitLoadPercent}
+                      onWheel={(e) => (e.target as HTMLElement).blur()}
+                      onChange={(e) => setExitLoadPercent(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                    />
                   </div>
                 </div>
               )}
@@ -2174,6 +2538,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     onChange={(e) => setDematAccount(e.target.value)}
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 cursor-pointer"
                   >
+                    <option value="">— none —</option>
                     <option value="Zerodha">Zerodha (Kite / Console)</option>
                     <option value="Dhan">Dhan (DhanHQ)</option>
                     <option value="Groww">Groww</option>
@@ -2218,6 +2583,13 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 resize-none"
                 />
               </div>
+
+              {formError && (
+                <div className="flex items-center gap-2 px-3.5 py-2.5 bg-red-950/60 border border-red-700/80 rounded-xl text-xs font-mono text-red-200">
+                  <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
 
               <div className="pt-2">
                 <button

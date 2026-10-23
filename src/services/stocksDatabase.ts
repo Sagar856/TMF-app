@@ -8,6 +8,7 @@ export interface StockItem {
   basePrice: number;
   previousClose: number;
   isin?: string;
+  asOfDate: string;
 }
 
 export const POPULAR_STOCKS_CATALOG: StockItem[] = [
@@ -21,6 +22,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 318.40,
     previousClose: 323.15,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TATASTEEL',
@@ -31,6 +33,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 156.80,
     previousClose: 158.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'HINDALCO',
@@ -41,6 +44,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 718.50,
     previousClose: 724.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'JSWSTEEL',
@@ -51,6 +55,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 985.00,
     previousClose: 992.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'VEDL',
@@ -61,6 +66,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 492.30,
     previousClose: 488.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'SAIL',
@@ -71,6 +77,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 138.20,
     previousClose: 140.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'COALINDIA',
@@ -81,6 +88,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 488.75,
     previousClose: 493.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'NMDC',
@@ -91,6 +99,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 228.40,
     previousClose: 231.00,
+    asOfDate: '2026-10-20',
   },
 
   // Banking & Financial Services
@@ -103,6 +112,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1680.50,
     previousClose: 1672.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ICICIBANK',
@@ -113,6 +123,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1245.30,
     previousClose: 1238.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'SBIN',
@@ -123,6 +134,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 792.40,
     previousClose: 798.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'KOTAKBANK',
@@ -133,6 +145,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1780.00,
     previousClose: 1792.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'AXISBANK',
@@ -143,6 +156,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1195.00,
     previousClose: 1188.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BAJFINANCE',
@@ -153,6 +167,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 7120.00,
     previousClose: 7080.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BAJAJFINSV',
@@ -163,6 +178,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1845.00,
     previousClose: 1832.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'INDUSINDBK',
@@ -173,6 +189,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1420.00,
     previousClose: 1435.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BANKBARODA',
@@ -183,6 +200,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 248.60,
     previousClose: 251.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'PNB',
@@ -193,6 +211,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 106.50,
     previousClose: 108.00,
+    asOfDate: '2026-10-20',
   },
 
   // Information Technology
@@ -205,6 +224,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 4210.15,
     previousClose: 4185.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'INFY',
@@ -215,6 +235,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1895.80,
     previousClose: 1880.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'HCLTECH',
@@ -225,6 +246,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1820.00,
     previousClose: 1835.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'WIPRO',
@@ -235,6 +257,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 535.00,
     previousClose: 531.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TECHM',
@@ -245,6 +268,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1680.00,
     previousClose: 1665.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'LTIM',
@@ -255,6 +279,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 5980.00,
     previousClose: 6020.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'PERSISTENT',
@@ -265,6 +290,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 5460.00,
     previousClose: 5410.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'COFORGE',
@@ -275,6 +301,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 7650.00,
     previousClose: 7590.00,
+    asOfDate: '2026-10-20',
   },
 
   // Energy, Oil & Power
@@ -287,6 +314,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 2985.40,
     previousClose: 2962.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'NTPC',
@@ -297,6 +325,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 412.30,
     previousClose: 418.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'POWERGRID',
@@ -307,6 +336,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 334.60,
     previousClose: 338.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ONGC',
@@ -317,6 +347,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 295.40,
     previousClose: 298.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BPCL',
@@ -327,6 +358,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 345.20,
     previousClose: 348.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'IOC',
@@ -337,6 +369,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 172.50,
     previousClose: 174.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ADANIGREEN',
@@ -347,6 +380,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1980.00,
     previousClose: 1950.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TATAPOWER',
@@ -357,6 +391,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 442.00,
     previousClose: 446.50,
+    asOfDate: '2026-10-20',
   },
 
   // Automobile & EV
@@ -369,6 +404,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 995.60,
     previousClose: 988.40,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'MARUTI',
@@ -379,6 +415,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 12450.00,
     previousClose: 12520.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'M&M',
@@ -389,6 +426,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 3050.00,
     previousClose: 3020.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BAJAJ-AUTO',
@@ -399,6 +437,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 11800.00,
     previousClose: 11650.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'EICHERMOT',
@@ -409,6 +448,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 4850.00,
     previousClose: 4890.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'HEROMOTOCO',
@@ -419,6 +459,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 5320.00,
     previousClose: 5280.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TVSMOTOR',
@@ -429,6 +470,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 2480.00,
     previousClose: 2460.00,
+    asOfDate: '2026-10-20',
   },
 
   // Defense, Infrastructure & Engineering
@@ -441,6 +483,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 298.50,
     previousClose: 303.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'HAL',
@@ -451,6 +494,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 4520.00,
     previousClose: 4580.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BHEL',
@@ -461,6 +505,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 268.40,
     previousClose: 272.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'LT',
@@ -471,6 +516,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 3580.00,
     previousClose: 3550.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'MAZDOCK',
@@ -481,6 +527,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 4350.00,
     previousClose: 4420.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'COCHINSHIP',
@@ -491,6 +538,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Mid Cap',
     basePrice: 1780.00,
     previousClose: 1810.00,
+    asOfDate: '2026-10-20',
   },
 
   // FMCG, Retail & Consumer
@@ -503,6 +551,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 502.80,
     previousClose: 498.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'HINDUNILVR',
@@ -513,6 +562,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 2750.00,
     previousClose: 2735.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'NESTLEIND',
@@ -523,6 +573,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 2380.00,
     previousClose: 2360.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BRITANNIA',
@@ -533,6 +584,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 5890.00,
     previousClose: 5850.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TITAN',
@@ -543,6 +595,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 3480.00,
     previousClose: 3450.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TRENT',
@@ -553,6 +606,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 7850.00,
     previousClose: 7720.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'DMART',
@@ -563,6 +617,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 4320.00,
     previousClose: 4290.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ZOMATO',
@@ -573,6 +628,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 268.90,
     previousClose: 264.50,
+    asOfDate: '2026-10-20',
   },
 
   // Healthcare & Pharma
@@ -585,6 +641,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1890.00,
     previousClose: 1875.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'CIPLA',
@@ -595,6 +652,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1620.00,
     previousClose: 1608.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'DRREDDY',
@@ -605,6 +663,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 6580.00,
     previousClose: 6620.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'DIVISLAB',
@@ -615,6 +674,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 5740.00,
     previousClose: 5690.00,
+    asOfDate: '2026-10-20',
   },
 
   // Telecom & Adani Conglomerate
@@ -627,6 +687,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1642.50,
     previousClose: 1630.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ADANIENT',
@@ -637,6 +698,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 3120.00,
     previousClose: 3160.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ADANIPORTS',
@@ -647,6 +709,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Large Cap',
     basePrice: 1390.00,
     previousClose: 1410.00,
+    asOfDate: '2026-10-20',
   },
 
   // Popular Indian ETFs
@@ -659,6 +722,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'ETF',
     basePrice: 272.50,
     previousClose: 271.80,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'BANKBEES',
@@ -669,6 +733,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'ETF',
     basePrice: 524.00,
     previousClose: 521.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'GOLDBEES',
@@ -679,6 +744,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'ETF',
     basePrice: 68.20,
     previousClose: 67.90,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'SILVERBEES',
@@ -689,6 +755,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'ETF',
     basePrice: 92.50,
     previousClose: 91.80,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'ITBEES',
@@ -699,6 +766,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'ETF',
     basePrice: 44.80,
     previousClose: 44.50,
+    asOfDate: '2026-10-20',
   },
 
   // US Global Equities
@@ -711,6 +779,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 232.50,
     previousClose: 230.10,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'NVDA',
@@ -721,6 +790,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 128.20,
     previousClose: 126.50,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'MSFT',
@@ -731,6 +801,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 448.90,
     previousClose: 445.00,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'GOOGL',
@@ -741,6 +812,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 178.50,
     previousClose: 176.80,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'AMZN',
@@ -751,6 +823,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 188.40,
     previousClose: 186.20,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'TSLA',
@@ -761,6 +834,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 218.80,
     previousClose: 215.40,
+    asOfDate: '2026-10-20',
   },
   {
     symbol: 'SPY',
@@ -771,6 +845,7 @@ export const POPULAR_STOCKS_CATALOG: StockItem[] = [
     category: 'Global',
     basePrice: 565.40,
     previousClose: 563.10,
+    asOfDate: '2026-10-20',
   },
 ];
 

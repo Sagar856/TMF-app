@@ -10,6 +10,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction } from '../types/finance';
+import { toLocalISODate } from '../utils/dates';
 import {
   TrendingDown,
   TrendingUp,
@@ -123,7 +124,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
     for (let i = 6; i >= 0; i--) {
       const d = new Date(referenceEndDate);
       d.setDate(referenceEndDate.getDate() - i);
-      const dateStr = d.toISOString().slice(0, 10);
+      const dateStr = toLocalISODate(d);
       
       const dayTxs = debitTxs.filter((t) => t.date === dateStr);
       const amount = dayTxs.reduce((sum, t) => sum + t.amount, 0);

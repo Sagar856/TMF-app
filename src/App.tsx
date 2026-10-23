@@ -83,6 +83,9 @@ import {
 import { parseSmsNotification } from './services/smsParser';
 import { parseNotification } from './services/notification/ParserManager';
 import { startNotificationListener } from './services/notificationListener';
+import { newId } from './utils/ids';
+import { todayLocalISO } from './utils/dates';
+import { resolveAccountId } from './utils/accountResolver';
 import { notifyTransactionDetected } from './services/localNotifications';
 import { 
   LayoutDashboard, 
@@ -277,7 +280,7 @@ export default function App() {
     duration = 3200
   ) => {
     setTopBarToast({
-      id: `toast_${Date.now()}_${Math.random()}`,
+      id: newId('toast'),
       text,
       type,
       duration,
@@ -299,6 +302,8 @@ export default function App() {
   const [passcodeLockRemaining, setPasscodeLockRemaining] = useState<number>(0);
   // Guards against duplicate concurrent cloud-data fetches (initial mount + auth success can both fire)
   const cloudLoadInFlightRef = useRef<boolean>(false);
+  const [cloudHydrated, setCloudHydrated] = useState<boolean>(false);
+  const lastPushedRef = useRef<Record<string, string>>({});
   // Surfaces the most recent backend sync outcome (success or a real error
   // message) so failures are visible instead of vanishing into the console.
   const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; timestamp: number } | null>(null);
@@ -363,53 +368,88 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('tmf_categories', JSON.stringify(categories));
-    if (cloudReady) {
+    if (!cloudReady || !cloudHydrated) return;
+    const snapshot = JSON.stringify(categories);
+    if (lastPushedRef.current['categories'] === snapshot) return;
+
+    const timer = setTimeout(() => {
+      lastPushedRef.current['categories'] = snapshot;
       syncCategoriesToSupabase(categories).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'categories', ...result, timestamp: Date.now() });
         else setSyncStatus({ collection: 'categories', success: true, timestamp: Date.now() });
       });
-    }
-  }, [categories, cloudReady]);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [categories, cloudReady, cloudHydrated]);
 
   useEffect(() => {
     localStorage.setItem('tmf_accounts', JSON.stringify(accounts));
-    if (cloudReady) {
+    if (!cloudReady || !cloudHydrated) return;
+    const snapshot = JSON.stringify(accounts);
+    if (lastPushedRef.current['accounts'] === snapshot) return;
+
+    const timer = setTimeout(() => {
+      lastPushedRef.current['accounts'] = snapshot;
       syncAccountsToSupabase(accounts).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'accounts', ...result, timestamp: Date.now() });
         else setSyncStatus({ collection: 'accounts', success: true, timestamp: Date.now() });
       });
-    }
-  }, [accounts, cloudReady]);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [accounts, cloudReady, cloudHydrated]);
 
   useEffect(() => {
     localStorage.setItem('tmf_transactions', JSON.stringify(transactions));
-    if (cloudReady) {
+    if (!cloudReady || !cloudHydrated) return;
+    const snapshot = JSON.stringify(transactions);
+    if (lastPushedRef.current['transactions'] === snapshot) return;
+
+    const timer = setTimeout(() => {
+      lastPushedRef.current['transactions'] = snapshot;
       syncTransactionsToSupabase(transactions).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'transactions', ...result, timestamp: Date.now() });
         else setSyncStatus({ collection: 'transactions', success: true, timestamp: Date.now() });
       });
-    }
-  }, [transactions, cloudReady]);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [transactions, cloudReady, cloudHydrated]);
 
   useEffect(() => {
     localStorage.setItem('tmf_investments', JSON.stringify(investments));
-    if (cloudReady) {
+    if (!cloudReady || !cloudHydrated) return;
+    const snapshot = JSON.stringify(investments);
+    if (lastPushedRef.current['investments'] === snapshot) return;
+
+    const timer = setTimeout(() => {
+      lastPushedRef.current['investments'] = snapshot;
       syncInvestmentsToSupabase(investments).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'investments', ...result, timestamp: Date.now() });
         else setSyncStatus({ collection: 'investments', success: true, timestamp: Date.now() });
       });
-    }
-  }, [investments, cloudReady]);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [investments, cloudReady, cloudHydrated]);
 
   useEffect(() => {
     localStorage.setItem('tmf_loans', JSON.stringify(loans));
-    if (cloudReady) {
+    if (!cloudReady || !cloudHydrated) return;
+    const snapshot = JSON.stringify(loans);
+    if (lastPushedRef.current['loans'] === snapshot) return;
+
+    const timer = setTimeout(() => {
+      lastPushedRef.current['loans'] = snapshot;
       syncLoansToSupabase(loans).then((result) => {
         if (!result.success) setSyncStatus({ collection: 'loans', ...result, timestamp: Date.now() });
         else setSyncStatus({ collection: 'loans', success: true, timestamp: Date.now() });
       });
-    }
-  }, [loans, cloudReady]);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [loans, cloudReady, cloudHydrated]);
 
   // Manually re-runs every sync call immediately and reports aggregated result
   // — lets the user verify right now whether the backend connection actually
@@ -436,6 +476,7 @@ export default function App() {
   const loadCloudData = async () => {
     if (cloudLoadInFlightRef.current) return;
     cloudLoadInFlightRef.current = true;
+    let fetchThrewError = false;
     try {
       const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
         fetchTransactionsFromSupabase(),
@@ -445,8 +486,28 @@ export default function App() {
         fetchLoansFromSupabase(),
       ]);
 
+      if (cloudTx === null || cloudAcc === null || cloudCat === null || cloudInv === null || cloudLoans === null) {
+        throw new Error('Could not load cloud data — local changes are not being pushed');
+      }
+
+      const isCloudEmpty =
+        cloudTx.length === 0 &&
+        cloudAcc.length === 0 &&
+        cloudInv.length === 0 &&
+        cloudLoans.length === 0;
+
+      if (isCloudEmpty) {
+        setSettings((prev) => {
+          const updated = { ...prev, sampleDataLoaded: false };
+          localStorage.setItem('tmf_settings', JSON.stringify(updated));
+          return updated;
+        });
+      }
+
       const savedSettings = localStorage.getItem('tmf_settings');
-      const isSampleLoaded = savedSettings ? JSON.parse(savedSettings).sampleDataLoaded !== false : true;
+      const isSampleLoaded = isCloudEmpty
+        ? false
+        : (savedSettings ? JSON.parse(savedSettings).sampleDataLoaded !== false : true);
 
       const deletedTxIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
       const deletedAccIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
@@ -456,28 +517,107 @@ export default function App() {
       if (cloudTx) {
         const filteredTx = (isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)))
           .filter((t) => !deletedTxIds.has(t.id));
+        lastPushedRef.current['transactions'] = JSON.stringify(filteredTx);
         setTransactions(filteredTx);
         localStorage.setItem('tmf_transactions', JSON.stringify(filteredTx));
       }
       if (cloudAcc) {
         const filteredAcc = (isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)))
           .filter((a) => !deletedAccIds.has(a.id));
+        lastPushedRef.current['accounts'] = JSON.stringify(filteredAcc);
         setAccounts(filteredAcc);
         localStorage.setItem('tmf_accounts', JSON.stringify(filteredAcc));
       }
       if (cloudCat && cloudCat.length > 0) {
+        lastPushedRef.current['categories'] = JSON.stringify(cloudCat);
         setCategories(cloudCat);
         localStorage.setItem('tmf_categories', JSON.stringify(cloudCat));
       }
       if (cloudInv) {
-        const filteredInv = (isSampleLoaded ? cloudInv : cloudInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)))
+        const localInvMap = new Map<string, InvestmentRecord>();
+        try {
+          const localSaved = localStorage.getItem('tmf_investments');
+          if (localSaved) {
+            const parsed: InvestmentRecord[] = JSON.parse(localSaved);
+            parsed.forEach((inv) => localInvMap.set(inv.id, inv));
+          }
+        } catch {
+          // ignore error
+        }
+
+        const mergedInv = cloudInv.map((cloudRecord) => {
+          const localRecord = localInvMap.get(cloudRecord.id);
+          const cloudHasDetails = Boolean(
+            cloudRecord.lots?.length ||
+            cloudRecord.units !== undefined ||
+            cloudRecord.shares !== undefined ||
+            cloudRecord.symbol ||
+            cloudRecord.bankName ||
+            cloudRecord.dematAccount ||
+            cloudRecord.purchaseNav !== undefined ||
+            cloudRecord.redemptions?.length
+          );
+          const localHasDetails = localRecord && Boolean(
+            localRecord.lots?.length ||
+            localRecord.units !== undefined ||
+            localRecord.shares !== undefined ||
+            localRecord.symbol ||
+            localRecord.bankName ||
+            localRecord.dematAccount ||
+            localRecord.purchaseNav !== undefined ||
+            localRecord.redemptions?.length
+          );
+          if (!cloudHasDetails && localRecord && localHasDetails) {
+            return { ...localRecord, ...cloudRecord };
+          }
+          return cloudRecord;
+        });
+
+        const filteredInv = (isSampleLoaded ? mergedInv : mergedInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)))
           .filter((i) => !deletedInvIds.has(i.id));
+        lastPushedRef.current['investments'] = JSON.stringify(filteredInv);
         setInvestments(filteredInv);
         localStorage.setItem('tmf_investments', JSON.stringify(filteredInv));
       }
       if (cloudLoans) {
-        const filteredLoans = (isSampleLoaded ? cloudLoans : cloudLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)))
+        const localLoansMap = new Map<string, LoanRecord>();
+        try {
+          const localSaved = localStorage.getItem('tmf_loans');
+          if (localSaved) {
+            const parsed: LoanRecord[] = JSON.parse(localSaved);
+            parsed.forEach((l) => localLoansMap.set(l.id, l));
+          }
+        } catch {
+          // ignore error
+        }
+
+        const mergedLoans = cloudLoans.map((cloudRecord) => {
+          const localRecord = localLoansMap.get(cloudRecord.id);
+          const cloudHasDetails = Boolean(
+            cloudRecord.schedule?.length ||
+            cloudRecord.loanStructure ||
+            cloudRecord.monthlyEmi !== undefined ||
+            cloudRecord.expectedEmi !== undefined ||
+            cloudRecord.financedPrincipal !== undefined ||
+            cloudRecord.totalPurchasePrice !== undefined
+          );
+          const localHasDetails = localRecord && Boolean(
+            localRecord.schedule?.length ||
+            localRecord.loanStructure ||
+            localRecord.monthlyEmi !== undefined ||
+            localRecord.expectedEmi !== undefined ||
+            localRecord.financedPrincipal !== undefined ||
+            localRecord.totalPurchasePrice !== undefined
+          );
+          if (!cloudHasDetails && localRecord && localHasDetails) {
+            return { ...localRecord, ...cloudRecord };
+          }
+          return cloudRecord;
+        });
+
+        const filteredLoans = (isSampleLoaded ? mergedLoans : mergedLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)))
           .filter((l) => !deletedLoanIds.has(l.id));
+        lastPushedRef.current['loans'] = JSON.stringify(filteredLoans);
         setLoans(filteredLoans);
         localStorage.setItem('tmf_loans', JSON.stringify(filteredLoans));
       }
@@ -496,9 +636,19 @@ export default function App() {
         deleteMultipleLoansFromSupabase(Array.from(deletedLoanIds));
       }
     } catch (err) {
+      fetchThrewError = true;
       console.warn('Cloud data fetch failed:', err);
+      setSyncStatus({
+        collection: 'cloud-load',
+        success: false,
+        error: 'Could not load cloud data — local changes are not being pushed',
+        timestamp: Date.now(),
+      });
     } finally {
       cloudLoadInFlightRef.current = false;
+      if (!fetchThrewError) {
+        setCloudHydrated(true);
+      }
     }
   };
 
@@ -513,6 +663,8 @@ export default function App() {
   // person to use this device/browser never sees the previous account's data
   // before their own cloud data has loaded.
   const clearLocalDataOnSignOut = () => {
+    setCloudHydrated(false);
+    lastPushedRef.current = {};
     setTransactions([]);
     setAccounts([]);
     setInvestments([]);
@@ -648,31 +800,53 @@ export default function App() {
     delta: number
   ): FinancialAccount[] => {
     if (!methodOrName || accountsList.length === 0) return accountsList;
-    const target = methodOrName.toLowerCase().trim();
-    let idx = accountsList.findIndex(
-      (a) =>
-        a.id === methodOrName ||
-        a.name.toLowerCase() === target ||
-        a.bankName.toLowerCase() === target ||
-        a.type.toLowerCase() === target
-    );
-    if (idx === -1) {
-      const defaultIdx = accountsList.findIndex((a) => a.isDefault);
-      idx = defaultIdx !== -1 ? defaultIdx : 0;
+    if (methodOrName === 'Cash' || methodOrName.toLowerCase() === 'cash') return accountsList;
+
+    const resolvedId = resolveAccountId(accountsList, methodOrName);
+    let idx = -1;
+
+    if (resolvedId) {
+      idx = accountsList.findIndex((a) => a.id === resolvedId);
     }
-    if (idx === -1) return accountsList;
+
+    // c. 'Cash' -> return list unchanged; 'UPI' / 'Other UPI' / unmatched -> use isDefault account if one exists, otherwise return list unchanged (never index 0)
+    if (idx === -1) {
+      idx = accountsList.findIndex((a) => a.isDefault);
+      if (idx === -1) return accountsList;
+    }
 
     const copy = [...accountsList];
     const acc = copy[idx];
-    const newBal = Math.round((acc.balance + delta) * 100) / 100;
+    // d. sign: spend raises credit card outstanding, payment/refund lowers it
+    const applied = acc.type === 'Credit Card' ? -delta : delta;
+    const newBal = Math.round((acc.balance + applied) * 100) / 100;
     copy[idx] = { ...acc, balance: newBal };
     return copy;
   };
 
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
   const handleConfirmAddNotification = (notif: ParsedNotification) => {
+    // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
+    let resolvedAccId: string | null = null;
+    if (notif.accountLast4) {
+      const byLast4 = accounts.find((a) => a.accountNumberLast4 === notif.accountLast4);
+      if (byLast4) resolvedAccId = byLast4.id;
+    }
+    if (!resolvedAccId && notif.appSource) {
+      resolvedAccId = resolveAccountId(accounts, notif.appSource);
+    }
+    if (!resolvedAccId && notif.paymentMethod) {
+      resolvedAccId = resolveAccountId(accounts, notif.paymentMethod);
+    }
+    if (!resolvedAccId) {
+      const defaultAcc = accounts.find((a) => a.isDefault);
+      if (defaultAcc) resolvedAccId = defaultAcc.id;
+    }
+
+    const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
+
     const newTx: Transaction = {
-      id: 'tx_notif_' + Date.now(),
+      id: newId('tx_notif'),
       title: notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
@@ -683,12 +857,13 @@ export default function App() {
       location: notif.location,
       source: 'UPI',
       payeeOrPayer: notif.payeeOrPayer,
-      paymentMethod: notif.appSource,
+      paymentMethod: finalPaymentMethod,
       rawText: notif.rawText,
+      refNumber: notif.refNumber,
     };
 
     const delta = notif.type === 'credit' ? notif.amount : -notif.amount;
-    setAccounts((prevAccs) => adjustAccountBalance(prevAccs, notif.appSource || notif.paymentMethod || 'UPI', delta));
+    setAccounts((prevAccs) => adjustAccountBalance(prevAccs, finalPaymentMethod, delta));
     setTransactions((prev) => [newTx, ...prev]);
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notif.id);
@@ -698,6 +873,25 @@ export default function App() {
   };
 
   const handleConfirmEditNotification = (notif: ParsedNotification) => {
+    // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
+    let resolvedAccId: string | null = null;
+    if (notif.accountLast4) {
+      const byLast4 = accounts.find((a) => a.accountNumberLast4 === notif.accountLast4);
+      if (byLast4) resolvedAccId = byLast4.id;
+    }
+    if (!resolvedAccId && notif.appSource) {
+      resolvedAccId = resolveAccountId(accounts, notif.appSource);
+    }
+    if (!resolvedAccId && notif.paymentMethod) {
+      resolvedAccId = resolveAccountId(accounts, notif.paymentMethod);
+    }
+    if (!resolvedAccId) {
+      const defaultAcc = accounts.find((a) => a.isDefault);
+      if (defaultAcc) resolvedAccId = defaultAcc.id;
+    }
+
+    const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
+
     // Open transaction editor with pre-filled details from notification
     setEditingTransaction({
       title: notif.payeeOrPayer,
@@ -710,8 +904,9 @@ export default function App() {
       location: notif.location,
       source: 'UPI',
       payeeOrPayer: notif.payeeOrPayer,
-      paymentMethod: notif.appSource,
+      paymentMethod: finalPaymentMethod,
       rawText: notif.rawText,
+      refNumber: notif.refNumber,
     });
 
     // Remove from pending queue
@@ -740,9 +935,11 @@ export default function App() {
         const oldTx = prev[idx];
         const revertDelta = oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount;
         const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
+        const oldTarget = resolveAccountId(accounts, oldTx.paymentMethod) || oldTx.paymentMethod;
+        const newTarget = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
         setAccounts((prevAccs) => {
-          let updated = adjustAccountBalance(prevAccs, oldTx.paymentMethod, revertDelta);
-          updated = adjustAccountBalance(updated, tx.paymentMethod, newDelta);
+          let updated = adjustAccountBalance(prevAccs, oldTarget, revertDelta);
+          updated = adjustAccountBalance(updated, newTarget, newDelta);
           return updated;
         });
 
@@ -753,7 +950,8 @@ export default function App() {
 
       // New Transaction
       const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
-      setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, newDelta));
+      const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
+      setAccounts((prevAccs) => adjustAccountBalance(prevAccs, target, newDelta));
       return [tx, ...prev];
     });
     setEditingTransaction(null);
@@ -769,7 +967,8 @@ export default function App() {
       const tx = prev.find((t) => t.id === id);
       if (tx) {
         const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
-        setAccounts((prevAccs) => adjustAccountBalance(prevAccs, tx.paymentMethod, revertDelta));
+        const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
+        setAccounts((prevAccs) => adjustAccountBalance(prevAccs, target, revertDelta));
       }
       const updated = prev.filter((t) => t.id !== id);
       localStorage.setItem('tmf_transactions', JSON.stringify(updated));
@@ -787,12 +986,21 @@ export default function App() {
 
   // Account Actions
   const handleAddAccount = (acc: FinancialAccount) => {
-    setAccounts((prev) => [acc, ...prev]);
+    setAccounts((prev) => {
+      const sanitized = acc.isDefault ? prev.map((a) => ({ ...a, isDefault: false })) : prev;
+      return [acc, ...sanitized];
+    });
     showToast(`Account "${acc.name}" added`, 'success');
   };
 
   const handleUpdateAccount = (updatedAcc: FinancialAccount) => {
-    setAccounts((prev) => prev.map((a) => (a.id === updatedAcc.id ? updatedAcc : a)));
+    setAccounts((prev) =>
+      prev.map((a) => {
+        if (a.id === updatedAcc.id) return updatedAcc;
+        if (updatedAcc.isDefault) return { ...a, isDefault: false };
+        return a;
+      })
+    );
     showToast(`Account "${updatedAcc.name}" updated`, 'info');
   };
 
@@ -963,7 +1171,7 @@ export default function App() {
       });
 
       const newRepayment: Repayment = {
-        id: `rep_${Date.now()}_${installmentNumber}`,
+        id: newId('rep'),
         amount,
         date: paidDate,
         note: notes || `EMI Installment #${installmentNumber}`,
@@ -1000,7 +1208,7 @@ export default function App() {
     // 3. Record transaction in actual financial ledger
     const targetAcc = accounts.find((a) => a.id === paymentAccountId);
     const emiTx: Transaction = {
-      id: `tx_emi_${loanId}_${installmentNumber}_${Date.now()}`,
+      id: newId('tx_emi'),
       title: `EMI Payment: ${targetLoan.name || targetLoan.personOrBank} (#${installmentNumber})`,
       amount,
       type: 'debit',
@@ -1208,7 +1416,7 @@ export default function App() {
     const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(backupData, null, 2))}`;
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', jsonString);
-    downloadAnchor.setAttribute('download', `MTracker_Backup_${new Date().toISOString().slice(0, 10)}.json`);
+    downloadAnchor.setAttribute('download', `MTracker_Backup_${todayLocalISO()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -1678,7 +1886,7 @@ export default function App() {
                 req.installmentNumber,
                 accountId,
                 req.amount,
-                new Date().toISOString().slice(0, 10),
+                todayLocalISO(),
                 notes
               );
             }

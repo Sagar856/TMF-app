@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Category, UserSettings } from '../types/finance';
+import { todayLocalISO } from '../utils/dates';
 import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
@@ -226,7 +227,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = ['ID', 'Title', 'Type', 'Amount', 'Category', 'Subcategory', 'Date', 'Time', 'Source', 'Payee', 'Location'];
+    const headers = ['ID', 'Title', 'Type', 'Amount', 'Category', 'Subcategory', 'Date', 'Time', 'Source', 'Payee', 'Location', 'Reference / UTR'];
     const rows = filteredTransactions.map((t) => [
       t.id,
       `"${t.title.replace(/"/g, '""')}"`,
@@ -239,6 +240,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       t.source,
       `"${t.payeeOrPayer || ''}"`,
       `"${t.location?.name || ''}"`,
+      `"${t.refNumber || ''}"`,
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
@@ -246,7 +248,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Transactions_Export_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Transactions_Export_${todayLocalISO()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { UserSettings, InvestmentRecord, ConnectedDematAccount } from '../types/finance';
+import { todayLocalISO } from '../utils/dates';
 import {
   Building2,
   RefreshCw,
@@ -271,7 +272,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
         isConnected: true,
         clientId: linkClientId.trim() || b.clientId,
         apiKeyMasked: `${brokerToLink.id}_token_••••${Math.random().toString(36).substring(2, 6)}`,
-        connectedAt: new Date().toISOString().slice(0, 10),
+        connectedAt: todayLocalISO(),
         lastSyncedAt: `Today, ${nowStr}`,
         mockPortfolioValue: val,
         mockReturnsPercent: 12.8,

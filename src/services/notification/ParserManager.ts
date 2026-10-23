@@ -8,6 +8,8 @@ import { parseWalletFormat } from './WalletParser';
 import { classifyMerchant } from './CategoryClassifier';
 import { isDuplicateNotification } from './DuplicateDetector';
 import { computeConfidenceScore } from './ConfidenceScorer';
+import { newId } from '../../utils/ids';
+import { todayLocalISO, nowLocalTimeHHMM } from '../../utils/dates';
 
 export function parseNotification(
   text: string,
@@ -16,9 +18,8 @@ export function parseNotification(
   pendingNotifications: ParsedNotification[] = []
 ): ParseResult {
   const rawText = text.trim();
-  const now = new Date();
-  const timeStr = now.toTimeString().slice(0, 5); // "14:15"
-  const dateStr = now.toISOString().slice(0, 10); // "2026-08-09"
+  const timeStr = nowLocalTimeHHMM(); // "14:15"
+  const dateStr = todayLocalISO(); // "2026-08-09"
 
   // Step 1: Regex Extraction (amount, currency, accountLast4, refNumber, availableBalance)
   const regexResult = extractWithRegex(rawText);
@@ -95,7 +96,7 @@ export function parseNotification(
   };
 
   const parsed: ParsedNotification = {
-    id: 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+    id: newId('notif'),
     rawText,
     amount: regexResult.amount,
     payeeOrPayer,

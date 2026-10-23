@@ -31,6 +31,7 @@ import {
 import { FinancialAccount, Transaction, AccountType } from '../types/finance';
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
+import { newId } from '../utils/ids';
 
 interface AccountsViewProps {
   accounts: FinancialAccount[];
@@ -136,6 +137,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [cardHolderName, setCardHolderName] = useState<string>('sgrnboff');
   const [cardNetwork, setCardNetwork] = useState<'Visa' | 'Mastercard' | 'RuPay' | 'Amex'>('Visa');
   const [cardTheme, setCardTheme] = useState<'silver' | 'dark' | 'emerald' | 'gold' | 'midnight'>('silver');
+  const [isDefault, setIsDefault] = useState<boolean>(false);
 
   // Filtered accounts
   const filteredAccounts = useMemo(() => {
@@ -194,6 +196,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setCardHolderName('sgrnboff');
     setCardNetwork('Visa');
     setCardTheme('silver');
+    setIsDefault(false);
     setShowModal(true);
   };
 
@@ -211,6 +214,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setCardHolderName(acc.cardHolderName || 'sgrnboff');
     setCardNetwork(acc.cardNetwork || 'Visa');
     setCardTheme(acc.cardColorTheme || 'silver');
+    setIsDefault(Boolean(acc.isDefault));
     setShowModal(true);
   };
 
@@ -221,7 +225,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     const billNum = parseFloat(approxMonthlyBill) || balNum;
 
     const updated: FinancialAccount = {
-      id: editingAcc ? editingAcc.id : 'acc_' + Date.now(),
+      id: editingAcc ? editingAcc.id : newId('acc'),
       name: accName.trim() || `${bankName} ${accType}`,
       bankName: bankName.trim(),
       type: accType,
@@ -233,6 +237,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       cardHolderName: cardHolderName.trim() || 'sgrnboff',
       cardNetwork,
       cardColorTheme: cardTheme,
+      isDefault,
     };
 
     if (editingAcc) {
@@ -478,6 +483,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <span className={`text-[10px] font-bold opacity-80 ${subTextColor}`}>
                         {card.name}
                       </span>
+                      {card.isDefault && (
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border ${
+                          isSilver ? 'border-slate-800 text-slate-950 bg-black/10' : 'border-red-500/50 text-red-400 bg-red-950/60'
+                        }`}>
+                          DEFAULT
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex items-center gap-1.5">
@@ -753,7 +765,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                         {acc.bankName.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <div className="text-xs font-bold text-white">{acc.name}</div>
+                        <div className="text-xs font-bold text-white flex items-center gap-2">
+                          <span>{acc.name}</span>
+                          {acc.isDefault && (
+                            <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider border border-red-500/50 text-red-400 bg-red-950/60">
+                              DEFAULT
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-[#666] font-mono">
                           {acc.type} • A/C **{acc.accountNumberLast4}
                         </div>
@@ -1018,6 +1037,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   </div>
                 </>
               )}
+
+              <label className="flex items-center gap-2.5 pt-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isDefault}
+                  onChange={(e) => setIsDefault(e.target.checked)}
+                  className="w-4 h-4 rounded bg-[#0a0a0a] border border-[#333] text-red-600 focus:ring-0 focus:outline-none accent-red-600 cursor-pointer"
+                />
+                <span className="text-xs text-[#aaa] font-mono">Set as default account</span>
+              </label>
 
               <div className="pt-3 flex items-center justify-end gap-2">
                 <button

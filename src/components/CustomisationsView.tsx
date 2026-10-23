@@ -1,6 +1,8 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
+import { newId } from '../utils/ids';
+import { currentMonthLocal } from '../utils/dates';
 import { 
   Sliders, 
   Plus, 
@@ -117,13 +119,13 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
         monthsSet.add(tx.date.substring(0, 7));
       }
     });
-    const nowMonth = new Date().toISOString().substring(0, 7);
+    const nowMonth = currentMonthLocal();
     monthsSet.add(nowMonth);
     return Array.from(monthsSet).sort().reverse();
   }, [transactions]);
 
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    return availableMonths.length > 0 ? availableMonths[0] : new Date().toISOString().substring(0, 7);
+    return availableMonths.length > 0 ? availableMonths[0] : currentMonthLocal();
   });
 
   const formatMonthLabel = (ym: string) => {
@@ -326,7 +328,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       });
     } else {
       const newCat: Category = {
-        id: 'cat_' + Date.now(),
+        id: newId('cat'),
         name: catName.trim(),
         type: catType,
         iconName: catIcon,
@@ -349,6 +351,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   const [accCreditLimit, setAccCreditLimit] = useState<string>('');
   const [accMonthlyBill, setAccMonthlyBill] = useState<string>('');
   const [accDueDate, setAccDueDate] = useState<string>('15th');
+  const [accIsDefault, setAccIsDefault] = useState<boolean>(false);
 
   const openAddAccountModal = () => {
     setAccName('');
@@ -359,6 +362,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     setAccCreditLimit('200000');
     setAccMonthlyBill('15000');
     setAccDueDate('15th');
+    setAccIsDefault(false);
     setShowAccountModal(true);
   };
 
@@ -367,7 +371,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     if (!accName.trim() || !onAddAccount) return;
 
     const newAcc: FinancialAccount = {
-      id: 'acc_' + Date.now(),
+      id: newId('acc'),
       name: accName.trim(),
       bankName: accBankName.trim() || 'Bank',
       type: accType,
@@ -376,6 +380,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       creditLimit: accType === 'Credit Card' && accCreditLimit ? parseFloat(accCreditLimit) : undefined,
       approxMonthlyBill: accType === 'Credit Card' && accMonthlyBill ? parseFloat(accMonthlyBill) : undefined,
       dueDate: accType === 'Credit Card' ? accDueDate : undefined,
+      isDefault: accIsDefault,
     };
 
     onAddAccount(newAcc);
@@ -407,7 +412,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     e.preventDefault();
     if (!newRuleKeyword.trim()) return;
     const rule = {
-      id: 'rule_' + Date.now(),
+      id: newId('rule'),
       keyword: newRuleKeyword.trim().toLowerCase(),
       category: newRuleCategory,
       subcategory: newRuleSubcat || 'General',
@@ -1445,6 +1450,11 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       <div>
                         <div className="font-bold text-sm text-slate-900 dark:text-white flex items-center gap-2">
                           <span>{acc.name}</span>
+                          {acc.isDefault && (
+                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wider bg-red-600/20 text-red-500 border border-red-500/30 uppercase">
+                              DEFAULT
+                            </span>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-[#777] mt-0.5">
                           {acc.bankName} • <span className="text-amber-600 dark:text-amber-400 font-bold">•••• {acc.accountNumberLast4}</span>
@@ -1952,6 +1962,16 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   </div>
                 </div>
               )}
+
+              <label className="flex items-center gap-2.5 pt-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={accIsDefault}
+                  onChange={(e) => setAccIsDefault(e.target.checked)}
+                  className="w-4 h-4 rounded bg-slate-50 dark:bg-[#0a0a0a] border border-slate-300 dark:border-[#333] text-red-600 focus:ring-0 focus:outline-none accent-red-600 cursor-pointer"
+                />
+                <span className="text-xs text-slate-700 dark:text-[#aaa] font-mono">Set as default account</span>
+              </label>
 
               {/* Modal Actions */}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-[#222]">

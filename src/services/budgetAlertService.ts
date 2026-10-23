@@ -1,5 +1,6 @@
 import { Category, Transaction } from '../types/finance';
 import { notifyBudgetThresholdReached } from './localNotifications';
+import { currentMonthLocal } from '../utils/dates';
 
 export interface BudgetAlertPayload {
   id: string;
@@ -60,11 +61,7 @@ export function checkBudgetThresholds(
   currencySymbol: string,
   targetMonth?: string
 ): BudgetAlertPayload[] {
-  const currentMonth = targetMonth || (
-    transactions.length > 0 && transactions[0].date
-      ? transactions[0].date.substring(0, 7)
-      : new Date().toISOString().substring(0, 7)
-  );
+  const currentMonth = targetMonth || currentMonthLocal();
 
   const monthTxs = transactions.filter(
     (t) => t.type === 'debit' && t.date && t.date.startsWith(currentMonth)
@@ -156,7 +153,7 @@ export function createSimulatedBudgetAlert(
   const limit = category.budgetLimit || 15000;
   const percent = level === '100' ? 104.5 : 84.0;
   const spent = Math.round((limit * percent) / 100);
-  const nowMonth = new Date().toISOString().substring(0, 7);
+  const nowMonth = currentMonthLocal();
 
   const payload: BudgetAlertPayload = {
     id: `sim-${level}-${category.id}-${Date.now()}`,

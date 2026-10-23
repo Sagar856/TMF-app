@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { LoanRecord, LoanInstallment, FinancialAccount } from '../types/finance';
+import { todayLocalISO } from '../utils/dates';
 import { X, Calendar, CheckCircle2, Clock, SkipForward, AlertCircle, Building2, Layers, DollarSign, ArrowUpRight } from 'lucide-react';
 
 interface LoanScheduleModalProps {
@@ -37,7 +38,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
     const defaultBank = accounts.find((a) => a.type === 'Bank');
     return defaultBank?.id || accounts[0]?.id || '';
   });
-  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [paymentDate, setPaymentDate] = useState<string>(todayLocalISO());
   const [paymentNote, setPaymentNote] = useState<string>('');
   const [actionError, setActionError] = useState<string>('');
 

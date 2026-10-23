@@ -13,8 +13,26 @@ import {
 import { X, Plus, Sparkles, MapPin, Loader2 } from 'lucide-react';
 import { suggestCategoryForTitle } from '../services/notification/CategoryClassifier';
 import { getCurrentDeviceLocation } from '../services/locationService';
+import { newId } from '../utils/ids';
+import { todayLocalISO, currentMonthLocal, addDays, nowLocalTimeHHMM } from '../utils/dates';
+import { resolveAccountId } from '../utils/accountResolver';
 
 export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend';
+
+function parseNoteAndTags(rawNote?: string): { cleanNote: string; extractedTags: string[] } {
+  if (!rawNote) return { cleanNote: '', extractedTags: [] };
+  const match = rawNote.match(/\s*\[Tags:\s*(#[^\]]+)\]\s*$/i);
+  if (!match) {
+    return { cleanNote: rawNote, extractedTags: [] };
+  }
+  const tagsStr = match[1];
+  const extractedTags = tagsStr
+    .split(',')
+    .map((t) => t.trim().replace(/^#/, ''))
+    .filter(Boolean);
+  const cleanNote = rawNote.slice(0, match.index).trim();
+  return { cleanNote, extractedTags };
+}
 
 interface EditTransactionModalProps {
   transaction?: Partial<Transaction> | null;
@@ -57,7 +75,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   // --- Transaction State (Expense / Income) ---
   const [txDate, setTxDate] = useState<string>(
-    transaction?.date || new Date().toISOString().slice(0, 10)
+    transaction?.date || todayLocalISO()
   );
   const [txAmount, setTxAmount] = useState<string>(
     transaction?.amount ? transaction.amount.toString() : ''
@@ -80,13 +98,47 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     return relevant.length > 0 ? relevant[0].name : '';
   });
 
+  const [selectedSubcategory, setSelectedSubcategory] = useState<string>(() => {
+    if (transaction?.subcategory) return transaction.subcategory;
+    const initType = (
+      initialCategoryType ||
+      (transaction?.type === 'credit' ? 'Income' : 'Expense')
+    ).toLowerCase();
+    const matchCat = categories.find(
+      (c) =>
+        c.name.toLowerCase() === (transaction?.category || '').toLowerCase() &&
+        (c.type || 'expense').toLowerCase() === initType
+    );
+    return matchCat?.subcategories?.[0] || 'General';
+  });
+
   const [txType, setTxType] = useState<TransactionType>(
     transaction?.type || (categoryType === 'Income' ? 'credit' : 'debit')
   );
-  const [account, setAccount] = useState<string>(transaction?.paymentMethod || 'UPI');
-  const [description, setDescription] = useState<string>(
-    transaction?.title || transaction?.note || ''
+  const [account, setAccount] = useState<string>(() => {
+    const raw = transaction?.paymentMethod;
+    if (!raw) {
+      const def = accounts.find((a) => a.isDefault);
+      return def ? def.id : (accounts[0]?.id || 'Cash');
+    }
+    if (raw === 'Cash' || raw === 'Other UPI') return raw;
+    if (accounts.some((a) => a.id === raw)) return raw;
+    const resolved = resolveAccountId(accounts, raw);
+    return resolved || raw;
+  });
+
+  const [payeeOrPayer, setPayeeOrPayer] = useState<string>(
+    transaction?.payeeOrPayer || ''
   );
+
+  const [description, setDescription] = useState<string>(
+    transaction?.title || ''
+  );
+
+  const parsedNote = useMemo(() => parseNoteAndTags(transaction?.note), [transaction?.note]);
+  const [notes, setNotes] = useState<string>(parsedNote.cleanNote);
+  const [tags, setTags] = useState<string[]>(parsedNote.extractedTags);
+  const [tagInput, setTagInput] = useState<string>('');
 
   // --- Geolocation & Place State ---
   const [place, setPlace] = useState<string>(transaction?.location?.name || '');
@@ -95,19 +147,21 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   );
   const [isLocating, setIsLocating] = useState<boolean>(false);
 
-  const [referenceNum, setReferenceNum] = useState<string>('NA');
-  const [tags, setTags] = useState<string[]>(['coffee', 'daily']);
-  const [tagInput, setTagInput] = useState<string>('');
+  const [refNumber, setReferenceNum] = useState<string>(
+    transaction?.refNumber || ''
+  );
 
   // --- Investment State ---
   const [invName, setInvName] = useState<string>('');
   const [invType, setInvType] = useState<InvestmentType>('Mutual Funds');
   const [invAmount, setInvAmount] = useState<string>('');
   const [invMarketValue, setInvMarketValue] = useState<string>('');
+  const [invDate, setInvDate] = useState<string>(todayLocalISO());
   const [invNotes, setInvNotes] = useState<string>('');
 
   // --- Loan / Lend State ---
-  const [loanDate, setLoanDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [loanDate, setLoanDate] = useState<string>(todayLocalISO());
+  const [loanDueDate, setLoanDueDate] = useState<string>(() => addDays(todayLocalISO(), 30));
   const [loanType, setLoanType] = useState<LoanType>('loan');
   const [loanPerson, setLoanPerson] = useState<string>('');
   const [loanAmount, setLoanAmount] = useState<string>('');
@@ -168,11 +222,39 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     );
     if (relevantCats.length > 0) {
       setSelectedCategory(relevantCats[0].name);
+      setSelectedSubcategory(relevantCats[0].subcategories?.[0] || 'General');
     } else {
       setSelectedCategory('');
+      setSelectedSubcategory('General');
     }
     setAutoMatchedCategory(null);
   };
+
+  const handleCategoryChange = (catName: string) => {
+    setSelectedCategory(catName);
+    setAutoMatchedCategory(null);
+    const cat = categories.find((c) => c.name.toLowerCase() === catName.toLowerCase());
+    const subs = cat?.subcategories || [];
+    if (subs.length > 0 && !subs.includes(selectedSubcategory)) {
+      setSelectedSubcategory(subs[0]);
+    } else if (subs.length === 0) {
+      setSelectedSubcategory('General');
+    }
+  };
+
+  const currentCategoryObj = useMemo(() => {
+    return categories.find((c) => c.name.toLowerCase() === selectedCategory.toLowerCase());
+  }, [categories, selectedCategory]);
+
+  const subcategoryOptions = useMemo(() => {
+    const list = currentCategoryObj?.subcategories?.length
+      ? [...currentCategoryObj.subcategories]
+      : ['General'];
+    if (selectedSubcategory && !list.includes(selectedSubcategory)) {
+      list.unshift(selectedSubcategory);
+    }
+    return list;
+  }, [currentCategoryObj, selectedSubcategory]);
 
   const handleDescriptionChange = (val: string) => {
     setDescription(val);
@@ -192,6 +274,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           }
           setSelectedCategory(match.category);
           setAutoMatchedCategory(match.category);
+          const matchedCatObj = categories.find(
+            (c) => c.name.toLowerCase() === match.category.toLowerCase()
+          );
+          if (matchedCatObj?.subcategories?.length) {
+            setSelectedSubcategory(matchedCatObj.subcategories[0]);
+          }
         }
       }
     }
@@ -215,6 +303,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           }
           setSelectedCategory(match.category);
           setAutoMatchedCategory(match.category);
+          const matchedCatObj = categories.find(
+            (c) => c.name.toLowerCase() === match.category.toLowerCase()
+          );
+          if (matchedCatObj?.subcategories?.length) {
+            setSelectedSubcategory(matchedCatObj.subcategories[0]);
+          }
         }
       }
     }
@@ -241,20 +335,33 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     const savedCategory =
       selectedCategory || (filteredCategories.length > 0 ? filteredCategories[0].name : 'General');
 
+    const cleanNotesTrimmed = notes.trim();
+    const tagsSuffix = tags.length > 0 ? `[Tags: #${tags.join(', #')}]` : '';
+    const finalNote = cleanNotesTrimmed
+      ? tagsSuffix
+        ? `${cleanNotesTrimmed} ${tagsSuffix}`
+        : cleanNotesTrimmed
+      : tagsSuffix || undefined;
+
+    const savedSource: PaymentSource =
+      transaction?.source ?? (account === 'Other UPI' || account === 'UPI' ? 'UPI' : 'Manual');
+
+    const finalPayee =
+      payeeOrPayer.trim() || description.trim() || place.trim() || 'Merchant';
+
     const savedTx: Transaction = {
-      id:
-        transaction?.id ||
-        'tx_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
-      title: description.trim() || place.trim() || 'Transaction',
+      id: transaction?.id || newId('tx'),
+      title: description.trim() || payeeOrPayer.trim() || place.trim() || 'Transaction',
       amount: numAmount,
       type: txType,
       category: savedCategory,
-      subcategory: 'General',
+      subcategory: selectedSubcategory || 'General',
       date: txDate,
-      time: transaction?.time || new Date().toTimeString().slice(0, 5),
-      source: (account === 'UPI' ? 'UPI' : 'Manual') as PaymentSource,
-      payeeOrPayer: place.trim() || description.trim() || 'Merchant',
+      time: transaction?.time ?? nowLocalTimeHHMM(),
+      source: savedSource,
+      payeeOrPayer: finalPayee,
       paymentMethod: account,
+      refNumber: refNumber.trim() || undefined,
       location: coordinates
         ? {
             lat: coordinates.lat,
@@ -269,7 +376,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           }
         : undefined,
       rawText: transaction?.rawText,
-      note: tags.length > 0 ? `${description} [Tags: #${tags.join(', #')}]` : description,
+      note: finalNote,
     };
 
     onSave(savedTx);
@@ -284,16 +391,18 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (isNaN(numInv) || numInv <= 0) return;
 
     const returnPct = parseFloat((((numVal - numInv) / numInv) * 100).toFixed(2));
+    const finalDate = invDate || todayLocalISO();
+    const invMonth = finalDate.substring(0, 7) || currentMonthLocal();
 
     const newInv: InvestmentRecord = {
-      id: 'inv_' + Date.now(),
+      id: newId('inv'),
       name: invName.trim() || 'New Investment',
       type: invType,
       amountInvested: numInv,
       currentValue: numVal,
       returnsPercent: returnPct,
-      date: new Date().toISOString().slice(0, 10),
-      monthlyContributions: [{ month: new Date().toISOString().slice(0, 7), amount: numInv }],
+      date: finalDate,
+      monthlyContributions: [{ month: invMonth, amount: numInv }],
       notes: invNotes.trim(),
     };
 
@@ -309,13 +418,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (isNaN(numAmount) || numAmount <= 0 || !loanPerson.trim()) return;
 
     const newLoan: LoanRecord = {
-      id: 'loan_' + Date.now(),
+      id: newId('loan'),
       title: `${loanType === 'loan' ? 'Borrowed from' : 'Lent to'} ${loanPerson.trim()}`,
       personOrBank: loanPerson.trim(),
       type: loanType,
       totalAmount: numAmount,
       remainingAmount: numAmount,
-      dueDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+      startDate: loanDate,
+      dueDate: loanDueDate || addDays(loanDate, 30),
       status: 'active',
       repayments: [],
       notes: `${loanNotes} (Account: ${loanAccount}${
@@ -397,45 +507,61 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </select>
               </div>
 
-              {/* Row 3: CATEGORY */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
-                    CATEGORY
-                  </label>
-                  {autoMatchedCategory && selectedCategory === autoMatchedCategory && (
-                    <span className="inline-flex items-center gap-1 text-[9px] font-mono text-emerald-400 bg-emerald-950/40 px-2 py-0.5 rounded-full border border-emerald-800/60">
-                      <Sparkles className="w-2.5 h-2.5" />
-                      Auto-matched: {autoMatchedCategory}
-                    </span>
+              {/* Row 3: CATEGORY & SUBCATEGORY */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
+                      CATEGORY
+                    </label>
+                    {autoMatchedCategory && selectedCategory === autoMatchedCategory && (
+                      <span className="inline-flex items-center gap-1 text-[8px] font-mono text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded-full border border-emerald-800/60">
+                        <Sparkles className="w-2.5 h-2.5" />
+                        Auto
+                      </span>
+                    )}
+                  </div>
+                  {filteredCategories.length === 0 ? (
+                    <select
+                      disabled
+                      value=""
+                      className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-[#666] focus:outline-none cursor-not-allowed opacity-75"
+                    >
+                      <option value="" disabled>
+                        No categories available
+                      </option>
+                    </select>
+                  ) : (
+                    <select
+                      value={selectedCategory}
+                      onChange={(e) => handleCategoryChange(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                    >
+                      {filteredCategories.map((cat) => (
+                        <option key={cat.id} value={cat.name}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
                   )}
                 </div>
-                {filteredCategories.length === 0 ? (
+
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    SUBCATEGORY
+                  </label>
                   <select
-                    disabled
-                    value=""
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-[#666] focus:outline-none cursor-not-allowed opacity-75"
-                  >
-                    <option value="" disabled>
-                      No categories available
-                    </option>
-                  </select>
-                ) : (
-                  <select
-                    value={selectedCategory}
-                    onChange={(e) => {
-                      setSelectedCategory(e.target.value);
-                      setAutoMatchedCategory(null);
-                    }}
+                    value={selectedSubcategory}
+                    onChange={(e) => setSelectedSubcategory(e.target.value)}
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                   >
-                    {filteredCategories.map((cat) => (
-                      <option key={cat.id} value={cat.name}>
-                        {cat.name}
+                    {subcategoryOptions.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
                       </option>
                     ))}
                   </select>
-                )}
+                </div>
               </div>
 
               {/* Row 4: TYPE & ACCOUNT */}
@@ -469,7 +595,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                           {accounts
                             .filter((a) => a.type === 'Bank')
                             .map((a) => (
-                              <option key={a.id} value={`${a.bankName} (**${a.accountNumberLast4})`}>
+                              <option key={a.id} value={a.id}>
                                 {a.bankName} (**{a.accountNumberLast4}) - {a.name}
                               </option>
                             ))}
@@ -478,7 +604,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                           {accounts
                             .filter((a) => a.type === 'Credit Card')
                             .map((a) => (
-                              <option key={a.id} value={`${a.bankName} CC (**${a.accountNumberLast4})`}>
+                              <option key={a.id} value={a.id}>
                                 {a.cardNetwork ? `${a.bankName} ${a.cardNetwork}` : a.bankName} (**{a.accountNumberLast4})
                               </option>
                             ))}
@@ -487,7 +613,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                           {accounts
                             .filter((a) => a.type === 'Wallet/UPI')
                             .map((a) => (
-                              <option key={a.id} value={a.name}>
+                              <option key={a.id} value={a.id}>
                                 {a.name}
                               </option>
                             ))}
@@ -499,23 +625,49 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                       </>
                     ) : (
                       <>
-                        <option value="Kotak Bank (**4666)">Kotak Bank (**4666)</option>
-                        <option value="HDFC Bank (**1204)">HDFC Bank (**1204)</option>
-                        <option value="ICICI Bank (**8921)">ICICI Bank (**8921)</option>
-                        <option value="ICICI Coral RuPay (**0001)">ICICI Coral RuPay (**0001)</option>
-                        <option value="HDFC Regalia Visa (**0683)">HDFC Regalia Visa (**0683)</option>
-                        <option value="Axis Atlas Mastercard (**9823)">Axis Atlas Mastercard (**9823)</option>
-                        <option value="PhonePe UPI">PhonePe UPI</option>
-                        <option value="Google Pay">Google Pay</option>
-                        <option value="Paytm Wallet">Paytm Wallet</option>
                         <option value="Cash">Cash</option>
+                        <option value="Other UPI">Other UPI</option>
                       </>
                     )}
                   </select>
+                  {accounts.length === 0 && (
+                    <p className="mt-1 text-[10px] text-[#888] font-mono">
+                      Add an account under Accounts to track balances
+                    </p>
+                  )}
                 </div>
               </div>
 
-              {/* Row 5: DESCRIPTION */}
+              {/* Row 5: PAYEE / MERCHANT & REFERENCE / UTR */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    PAYEE / MERCHANT
+                  </label>
+                  <input
+                    type="text"
+                    value={payeeOrPayer}
+                    onChange={(e) => setPayeeOrPayer(e.target.value)}
+                    placeholder="e.g. Starbucks, Amazon, Landlord"
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    REFERENCE / UTR
+                  </label>
+                  <input
+                    type="text"
+                    value={refNumber}
+                    onChange={(e) => setReferenceNum(e.target.value)}
+                    placeholder="e.g. UTR / Ref #"
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  />
+                </div>
+              </div>
+
+              {/* Row 6: DESCRIPTION */}
               <div>
                 <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   DESCRIPTION
@@ -529,55 +681,55 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 />
               </div>
 
-              {/* Row 6: PLACE & REFERENCE # */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
-                      PLACE
-                    </label>
-                    {isLocating && (
-                      <span className="inline-flex items-center gap-1 text-[9px] font-mono text-red-400">
-                        <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                        Detecting...
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative flex items-center">
-                    <input
-                      type="text"
-                      value={place}
-                      onChange={(e) => handlePlaceChange(e.target.value)}
-                      placeholder={isLocating ? 'Detecting location...' : 'Where?'}
-                      className="w-full pl-3 pr-8 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 truncate"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleFetchCurrentLocation}
-                      disabled={isLocating}
-                      title="Detect current location"
-                      className="absolute right-2 p-1 text-[#666] hover:text-red-400 disabled:opacity-40 transition-colors cursor-pointer"
-                    >
-                      {isLocating ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-red-500" />
-                      ) : (
-                        <MapPin className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    REFERENCE #
+              {/* Row 7: PLACE */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
+                    PLACE
                   </label>
+                  {isLocating && (
+                    <span className="inline-flex items-center gap-1 text-[9px] font-mono text-red-400">
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      Detecting...
+                    </span>
+                  )}
+                </div>
+                <div className="relative flex items-center">
                   <input
                     type="text"
-                    value={referenceNum}
-                    onChange={(e) => setReferenceNum(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                    value={place}
+                    onChange={(e) => handlePlaceChange(e.target.value)}
+                    placeholder={isLocating ? 'Detecting location...' : 'Where?'}
+                    className="w-full pl-3 pr-8 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 truncate"
                   />
+                  <button
+                    type="button"
+                    onClick={handleFetchCurrentLocation}
+                    disabled={isLocating}
+                    title="Detect current location"
+                    className="absolute right-2 p-1 text-[#666] hover:text-red-400 disabled:opacity-40 transition-colors cursor-pointer"
+                  >
+                    {isLocating ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-red-500" />
+                    ) : (
+                      <MapPin className="w-3.5 h-3.5" />
+                    )}
+                  </button>
                 </div>
+              </div>
+
+              {/* Row 8: NOTES */}
+              <div>
+                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  NOTES
+                </label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Additional notes..."
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                />
               </div>
 
               {/* Row 7: TAGS */}
@@ -691,24 +843,39 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 />
               </div>
 
-              {/* Row 3: ASSET CATEGORY */}
-              <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                  ASSET CATEGORY
-                </label>
-                <select
-                  value={invType}
-                  onChange={(e) => setInvType(e.target.value as InvestmentType)}
-                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                >
-                  <option value="Mutual Funds">Mutual Funds</option>
-                  <option value="Stocks">Stocks</option>
-                  <option value="Crypto">Crypto</option>
-                  <option value="Real Estate">Real Estate</option>
-                  <option value="Gold">Gold</option>
-                  <option value="FD/Bonds">FD/Bonds</option>
-                  <option value="Other">Other</option>
-                </select>
+              {/* Row 3: ASSET CATEGORY & PURCHASE DATE */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    ASSET CATEGORY
+                  </label>
+                  <select
+                    value={invType}
+                    onChange={(e) => setInvType(e.target.value as InvestmentType)}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  >
+                    <option value="Mutual Funds">Mutual Funds</option>
+                    <option value="Stocks">Stocks</option>
+                    <option value="Crypto">Crypto</option>
+                    <option value="Real Estate">Real Estate</option>
+                    <option value="Gold">Gold</option>
+                    <option value="FD/Bonds">FD/Bonds</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    PURCHASE DATE
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={invDate}
+                    onChange={(e) => setInvDate(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
+                  />
+                </div>
               </div>
 
               {/* Row 4: AMOUNT INVESTED & CURRENT MARKET VALUE */}
@@ -811,21 +978,40 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </select>
               </div>
 
-              {/* Row 2: DATE & TYPE */}
+              {/* Row 2: START DATE & DUE DATE */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    DATE
+                    START DATE
                   </label>
                   <input
                     type="date"
                     required
                     value={loanDate}
-                    onChange={(e) => setLoanDate(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                    onChange={(e) => {
+                      setLoanDate(e.target.value);
+                      setLoanDueDate(addDays(e.target.value, 30));
+                    }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
                   />
                 </div>
 
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    DUE DATE
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={loanDueDate}
+                    onChange={(e) => setLoanDueDate(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: TYPE & PERSON */}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                     TYPE
@@ -839,21 +1025,20 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     <option value="lend">Lend (I gave)</option>
                   </select>
                 </div>
-              </div>
 
-              {/* Row 3: PERSON */}
-              <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                  PERSON
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={loanPerson}
-                  onChange={(e) => setLoanPerson(e.target.value)}
-                  placeholder="Type name..."
-                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                />
+                <div>
+                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    PERSON
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={loanPerson}
+                    onChange={(e) => setLoanPerson(e.target.value)}
+                    placeholder="Type name..."
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  />
+                </div>
               </div>
 
               {/* Row 4: AMOUNT & ACCOUNT */}

@@ -4,6 +4,8 @@
  * fixed deposit compounding, and partial/full redemption cost-basis allocation.
  */
 
+import { todayLocalISO, addMonthsClamped } from '../utils/dates';
+
 export interface EmiCalculationParams {
   principal: number; // Financed amount
   annualInterestRate: number; // in percentage, e.g., 10.5 for 10.5%
@@ -76,7 +78,7 @@ export function generateAmortizationSchedule(params: EmiCalculationParams): Amor
     tenureMonths,
     loanStructure = 'standard_emi',
     emiOverride,
-    firstInstallmentDate = new Date().toISOString().slice(0, 10),
+    firstInstallmentDate = todayLocalISO(),
   } = params;
 
   if (principal <= 0 || tenureMonths <= 0) {
@@ -114,13 +116,9 @@ export function generateAmortizationSchedule(params: EmiCalculationParams): Amor
   let totalInterest = 0;
   const monthlyRate = annualInterestRate / (12 * 100);
 
-  const baseDate = new Date(firstInstallmentDate);
-
   for (let i = 1; i <= tenureMonths; i++) {
-    // Advance month safely
-    const dueDateObj = new Date(baseDate);
-    dueDateObj.setMonth(baseDate.getMonth() + (i - 1));
-    const dueDateStr = dueDateObj.toISOString().slice(0, 10);
+    // Advance month safely with day clamping (e.g. Jan 31 -> Feb 28 -> Mar 31)
+    const dueDateStr = addMonthsClamped(firstInstallmentDate, i - 1);
 
     let interestComponent = 0;
     let principalComponent = 0;
@@ -225,7 +223,7 @@ export function calculateFixedDeposit(params: FdCalculationParams): FdCalculatio
     tenureMonths = 12,
     compoundingFrequency = 'quarterly',
     prematurePenaltyPercent = 1.0,
-    currentDate = new Date().toISOString().slice(0, 10),
+    currentDate = todayLocalISO(),
   } = params;
 
   if (principal <= 0) {
@@ -242,16 +240,20 @@ export function calculateFixedDeposit(params: FdCalculationParams): FdCalculatio
     };
   }
 
-  const depDate = new Date(depositDate);
+  const [dy, dm, dd] = depositDate.split('-').map(Number);
+  const depDate = new Date(dy, dm - 1, dd || 1);
   let matDate: Date;
   if (maturityDate) {
-    matDate = new Date(maturityDate);
+    const [my, mm, md] = maturityDate.split('-').map(Number);
+    matDate = new Date(my, mm - 1, md || 1);
   } else {
-    matDate = new Date(depDate);
-    matDate.setMonth(depDate.getMonth() + tenureMonths);
+    const matDateStr = addMonthsClamped(depositDate, tenureMonths);
+    const [my, mm, md] = matDateStr.split('-').map(Number);
+    matDate = new Date(my, mm - 1, md || 1);
   }
 
-  const now = new Date(currentDate);
+  const [cy, cm, cd] = currentDate.split('-').map(Number);
+  const now = new Date(cy, cm - 1, cd || 1);
 
   const msPerDay = 1000 * 60 * 60 * 24;
   const tenureDays = Math.max(1, Math.round((matDate.getTime() - depDate.getTime()) / msPerDay));

@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
+import { currentMonthLocal } from '../utils/dates';
 import { 
   AlertTriangle, 
   ShieldAlert, 
@@ -100,7 +101,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
     });
     
     // Always include current calendar month
-    const nowMonth = new Date().toISOString().substring(0, 7);
+    const nowMonth = currentMonthLocal();
     monthsSet.add(nowMonth);
 
     // Sort descending (latest month first)
@@ -109,7 +110,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
 
   // Selected month state - default to latest month with transactions or current month
   const [selectedMonth, setSelectedMonth] = useState<string>(() => {
-    return availableMonths.length > 0 ? availableMonths[0] : new Date().toISOString().substring(0, 7);
+    return availableMonths.length > 0 ? availableMonths[0] : currentMonthLocal();
   });
 
   // Filter mode: 'alerts' (shows only >= 80%) or 'all' (shows all categories with budgets)
