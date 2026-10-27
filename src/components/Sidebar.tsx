@@ -18,6 +18,7 @@ interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   pendingNotificationsCount: number;
+  pendingEmiCount?: number;
   onOpenSimulator: () => void;
   supabaseConnected: boolean;
   currencySymbol: string;
@@ -27,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   pendingNotificationsCount,
+  pendingEmiCount = 0,
   onOpenSimulator,
   supabaseConnected,
 }) => {
@@ -101,6 +103,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`} />
               <Icon className={`w-4 h-4 ${isActive ? 'text-white dark:text-black' : 'text-slate-500 dark:text-[#888]'}`} />
               <span className="flex-1 text-left">{item.label}</span>
+              {item.id === 'loans' && pendingEmiCount > 0 && (
+                <span className="px-1.5 py-0.5 bg-red-600 text-white font-mono text-[9px] font-bold rounded-full">
+                  {pendingEmiCount}
+                </span>
+              )}
             </button>
           );
         })}

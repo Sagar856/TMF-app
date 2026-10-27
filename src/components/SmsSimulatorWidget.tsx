@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { PRESET_SMS_TEMPLATES } from '../data/initialData';
 import { parseNotification } from '../services/notification/ParserManager';
+import { getCurrentDeviceLocation } from '../services/locationService';
 import { ParsedNotification, LocationTag, Transaction } from '../types/finance';
 import { Smartphone, Send, MapPin, Zap, X, ShieldAlert, AlertTriangle } from 'lucide-react';
 
@@ -10,6 +11,7 @@ interface SmsSimulatorWidgetProps {
   onInterceptNotification: (notif: ParsedNotification) => void;
   onClose: () => void;
   currencySymbol: string;
+  locationTracking?: boolean;
 }
 
 export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
@@ -18,25 +20,47 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
   onInterceptNotification,
   onClose,
   currencySymbol,
+  locationTracking = false,
 }) => {
   const [customSms, setCustomSms] = useState<string>('');
-  const [useCurrentLocation, setUseCurrentLocation] = useState<boolean>(true);
-  const [customLocationName, setCustomLocationName] = useState<string>('BKC Business District');
+  const [useCurrentLocation, setUseCurrentLocation] = useState<boolean>(Boolean(locationTracking));
+  const [customLocationName, setCustomLocationName] = useState<string>('');
   const [duplicateWarning, setDuplicateWarning] = useState<string | null>(null);
 
-  const handleSimulate = (text: string, force = false) => {
+  const handleSimulate = async (text: string, force = false) => {
     if (!text.trim()) return;
 
-    // Simulate location capture
-    const location: LocationTag = {
-      lat: 19.0760 + (Math.random() - 0.5) * 0.05,
-      lng: 72.8777 + (Math.random() - 0.5) * 0.05,
-      name: customLocationName || 'Captured Mobile Coordinates',
-    };
+    let location: LocationTag | null = null;
+    if (useCurrentLocation) {
+      try {
+        const devLoc = await getCurrentDeviceLocation();
+        if (devLoc) {
+          location = {
+            lat: devLoc.lat,
+            lng: devLoc.lng,
+            name: customLocationName.trim() || devLoc.formattedLocation,
+          };
+        } else if (customLocationName.trim()) {
+          location = {
+            lat: 0,
+            lng: 0,
+            name: customLocationName.trim(),
+          };
+        }
+      } catch {
+        location = null;
+      }
+    } else if (customLocationName.trim()) {
+      location = {
+        lat: 0,
+        lng: 0,
+        name: customLocationName.trim(),
+      };
+    }
 
     const { parsed, isDuplicate } = parseNotification(
       text,
-      useCurrentLocation ? location : null,
+      location,
       transactions,
       pendingNotifications
     );
@@ -145,15 +169,23 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
 
         {/* Location Simulator Settings */}
         <div className="mb-6 p-3 bg-obsidian border border-nothing rounded-xl flex items-center justify-between text-xs font-mono">
-          <div className="flex items-center gap-2">
-            <MapPin className="w-4 h-4 text-red-500" />
-            <span className="text-[#aaa]">Attach Mobile GPS Tag</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setUseCurrentLocation(!useCurrentLocation)}
+            className="flex items-center gap-2 text-left cursor-pointer"
+            title="Toggle device GPS location capture"
+          >
+            <MapPin className={`w-4 h-4 ${useCurrentLocation ? 'text-red-500' : 'text-[#666]'}`} />
+            <span className={useCurrentLocation ? 'text-white' : 'text-[#777]'}>
+              Attach Mobile GPS Tag
+            </span>
+          </button>
           <input
             type="text"
             value={customLocationName}
+            placeholder={useCurrentLocation ? 'Real device location' : 'No location (disabled)'}
             onChange={(e) => setCustomLocationName(e.target.value)}
-            className="bg-carbon border border-nothing px-2.5 py-1 rounded text-[11px] text-white focus:outline-none focus:border-red-500 font-mono w-48 text-right"
+            className="bg-carbon border border-nothing px-2.5 py-1 rounded text-[11px] text-white focus:outline-none focus:border-red-500 font-mono w-48 text-right placeholder-[#555]"
           />
         </div>
 

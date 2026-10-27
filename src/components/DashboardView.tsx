@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification } from '../types/finance';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification, FinancialAccount } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
-import { currentMonthLocal } from '../utils/dates';
+import { currentMonthLocal, todayLocalISO } from '../utils/dates';
+import { getEffectiveLoanStatus } from '../utils/loanStatus';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
@@ -36,12 +37,14 @@ interface DashboardViewProps {
   categories: Category[];
   investments: InvestmentRecord[];
   loans: LoanRecord[];
+  accounts?: FinancialAccount[];
   pendingNotifications: ParsedNotification[];
   onOpenNotifications: () => void;
   onOpenAddTransaction: () => void;
   onQuickLogTransaction?: (tx: Transaction) => void;
   onNavigateToTransactions?: () => void;
   onNavigateToInvestments?: () => void;
+  onNavigateToLoans?: () => void;
   onNavigateToCustomisations?: () => void;
   onTriggerBudgetAlert?: (alert: BudgetAlertPayload) => void;
   currencySymbol: string;
@@ -56,12 +59,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   categories,
   investments,
   loans,
+  accounts = [],
   pendingNotifications,
   onOpenNotifications,
   onOpenAddTransaction,
   onQuickLogTransaction,
   onNavigateToTransactions,
   onNavigateToInvestments,
+  onNavigateToLoans,
   onNavigateToCustomisations,
   onTriggerBudgetAlert,
   currencySymbol,
@@ -137,23 +142,101 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     bottomHoldRatio: 0.30,
   });
 
-  // Calculate key totals
-  const totalCredit = transactions
-    .filter((t) => t.type === 'credit')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const totalDebit = transactions
-    .filter((t) => t.type === 'debit')
-    .reduce((sum, t) => sum + t.amount, 0);
-
-  const netBalance = totalCredit - totalDebit;
-  const totalInvested = investments.reduce((sum, inv) => sum + inv.currentValue, 0);
-  const totalNetWorth = netBalance + totalInvested;
-
-  const savingsRate = totalCredit > 0 ? Math.max(0, Math.round(((totalCredit - totalDebit) / totalCredit) * 100)) : 0;
+  const [kpiTimeframe, setKpiTimeframe] = useState<'month' | 'all'>('month');
 
   // Active month calculation for executive header threshold status
   const activeMonthStr = currentMonthLocal();
+  const todayIso = todayLocalISO();
+
+  // All-time income & expense
+  const totalCredit = useMemo(() => {
+    return transactions
+      .filter((t) => t.type === 'credit')
+      .reduce((sum, t) => sum + t.amount, 0);
+  }, [transactions]);
+
+  const totalDebit = useMemo(() => {
+    return transactions
+      .filter((t) => t.type === 'debit')
+      .reduce((sum, t) => sum + t.amount, 0);
+  }, [transactions]);
+
+  // Current month income & expense
+  const monthCreditTxns = useMemo(() => {
+    return transactions.filter((t) => t.type === 'credit' && t.date && t.date.startsWith(activeMonthStr));
+  }, [transactions, activeMonthStr]);
+
+  const monthDebitTxns = useMemo(() => {
+    return transactions.filter((t) => t.type === 'debit' && t.date && t.date.startsWith(activeMonthStr));
+  }, [transactions, activeMonthStr]);
+
+  const monthCredit = useMemo(() => {
+    return monthCreditTxns.reduce((sum, t) => sum + t.amount, 0);
+  }, [monthCreditTxns]);
+
+  const monthDebit = useMemo(() => {
+    return monthDebitTxns.reduce((sum, t) => sum + t.amount, 0);
+  }, [monthDebitTxns]);
+
+  // Current month savings rate: income > 0 ? (income - expense) / income : 0, clamped 0-100
+  const savingsRate = useMemo(() => {
+    if (monthCredit <= 0) return 0;
+    const rate = Math.round(((monthCredit - monthDebit) / monthCredit) * 100);
+    return Math.min(100, Math.max(0, rate));
+  }, [monthCredit, monthDebit]);
+
+  // Accounts & Net worth calculations
+  const hasAccounts = Boolean(accounts && accounts.length > 0);
+
+  // liquid = Σ balance of accounts with type 'Bank' | 'Wallet/UPI' | 'Debit Card'
+  const liquid = useMemo(() => {
+    if (!hasAccounts || !accounts) return 0;
+    return accounts
+      .filter((a) => a.type === 'Bank' || a.type === 'Wallet/UPI' || a.type === 'Debit Card')
+      .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+  }, [accounts, hasAccounts]);
+
+  // ccOutstanding = Σ balance of 'Credit Card'
+  const ccOutstanding = useMemo(() => {
+    if (!hasAccounts || !accounts) return 0;
+    return accounts
+      .filter((a) => a.type === 'Credit Card')
+      .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
+  }, [accounts, hasAccounts]);
+
+  // receivables = Σ remainingAmount of loans where type === 'lend' and not repaid
+  const receivables = useMemo(() => {
+    return (loans || [])
+      .filter((l) => l.type === 'lend' && getEffectiveLoanStatus(l, todayIso) !== 'repaid' && l.remainingAmount > 0)
+      .reduce((sum, l) => sum + l.remainingAmount, 0);
+  }, [loans, todayIso]);
+
+  // payables = Σ remainingAmount of loans where type === 'loan' and not repaid
+  const payables = useMemo(() => {
+    return (loans || [])
+      .filter((l) => l.type === 'loan' && getEffectiveLoanStatus(l, todayIso) !== 'repaid' && l.remainingAmount > 0)
+      .reduce((sum, l) => sum + l.remainingAmount, 0);
+  }, [loans, todayIso]);
+
+  // investmentsValue = Σ currentValue of investments with status !== 'redeemed'
+  const investmentsValue = useMemo(() => {
+    return (investments || [])
+      .filter((inv) => inv.status !== 'redeemed')
+      .reduce((sum, inv) => sum + (Number(inv.currentValue) || 0), 0);
+  }, [investments]);
+
+  // liabilities = ccOutstanding + payables
+  const totalLiabilities = ccOutstanding + payables;
+
+  // Fallback cashflow-based net worth if accounts is empty
+  const cashflowNetBalance = totalCredit - totalDebit;
+  const cashflowNetWorth = cashflowNetBalance + investmentsValue;
+
+  // netWorth = liquid − ccOutstanding + investmentsValue + receivables − payables
+  const totalNetWorth = hasAccounts
+    ? liquid - ccOutstanding + investmentsValue + receivables - payables
+    : cashflowNetWorth;
+
   const categoriesExceeding80 = categories.filter((cat) => {
     if (cat.type !== 'expense' || !cat.budgetLimit || cat.budgetLimit <= 0) return false;
     const spent = transactions
@@ -161,6 +244,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .reduce((sum, t) => sum + t.amount, 0);
     return (spent / cat.budgetLimit) >= 0.80;
   });
+
+  const overdueLoans = useMemo(() => {
+    return (loans || []).filter((l) => getEffectiveLoanStatus(l, todayIso) === 'overdue');
+  }, [loans, todayIso]);
 
   return (
     <div className="space-y-5 pb-16 relative font-mono text-white">
@@ -188,67 +275,183 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* ==================== 1. EXECUTIVE SUMMARY ==================== */}
-      <div className="bg-carbon border border-nothing p-3.5 sm:p-4 rounded-2xl shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 bg-red-950/60 border border-red-600/50 rounded-xl flex items-center justify-center text-red-500 shrink-0 shadow-inner">
-            <TrendingUp className="w-5 h-5" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
-                EXECUTIVE SUMMARY
-              </span>
-              <InfoButton
-                id="exec-summary-info"
-                title="Executive Summary"
-                content="Combined net financial standing across all liquid accounts, deposits, and active investments minus liabilities."
-                align="left"
-              />
+      {/* Overdue Loan / EMI Alert Banner */}
+      {overdueLoans.length > 0 && (
+        <div className="bg-obsidian border border-red-600/80 p-3 rounded-xl flex items-center justify-between flex-wrap gap-2 shadow-lg">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-lg bg-red-950/80 border border-red-700/80 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4 h-4 text-red-500 animate-pulse" />
             </div>
-            <div className="text-sm sm:text-base font-bold text-white tracking-tight flex items-center gap-2 mt-0.5">
-              <span>NET WORTH:</span>
-              <span className="text-emerald-400 font-extrabold">
-                {isNetWorthHidden ? '••••••••' : `${currencySymbol}${totalNetWorth.toLocaleString('en-IN')}`}
-              </span>
-              <button
-                type="button"
-                onClick={handleToggleMasterNetWorth}
-                className="p-1 text-[#888] hover:text-white transition-colors cursor-pointer"
-                title={isNetWorthHidden ? 'Show All Metrics' : 'Hide All Metrics'}
-              >
-                {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold text-red-500 uppercase tracking-wider truncate">
+                Overdue Payment Alert ({overdueLoans.length} {overdueLoans.length === 1 ? 'Loan/Lend' : 'Loans/Lends'})
+              </div>
+              <div className="text-xs text-white mt-0.5 truncate">
+                <span className="font-bold text-red-400">{overdueLoans[0].title || overdueLoans[0].personOrBank}</span> has overdue payment ({currencySymbol}{overdueLoans[0].remainingAmount.toLocaleString('en-IN')})
+              </div>
+            </div>
+          </div>
+          {onNavigateToLoans && (
+            <button
+              type="button"
+              onClick={onNavigateToLoans}
+              className="w-full sm:w-auto px-3 py-1.5 bg-red-600/90 hover:bg-red-600 text-white text-xs font-bold uppercase rounded-lg transition-colors cursor-pointer text-center"
+            >
+              View Loans
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ==================== 1. EXECUTIVE SUMMARY ==================== */}
+      <div className="bg-carbon border border-nothing p-3.5 sm:p-5 rounded-2xl shadow-md space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 bg-red-950/60 border border-red-600/50 rounded-xl flex items-center justify-center text-red-500 shrink-0 shadow-inner">
+              <TrendingUp className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
+                  EXECUTIVE SUMMARY
+                </span>
+                <InfoButton
+                  id="exec-summary-info"
+                  title="Net Worth Computation"
+                  content="Net Worth = Liquid Cash in Bank & Wallets − Credit Card Outstanding + Active Investments + Money Lent (Receivables) − Loans Owed (Liabilities)."
+                  align="left"
+                />
+              </div>
+              <div className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2 mt-0.5 font-mono">
+                <span>NET WORTH:</span>
+                <span className="text-emerald-400 font-extrabold">
+                  {isNetWorthHidden ? '••••••••' : `${currencySymbol}${totalNetWorth.toLocaleString('en-IN')}`}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleToggleMasterNetWorth}
+                  className="p-1 text-[#888] hover:text-white transition-colors cursor-pointer"
+                  title={isNetWorthHidden ? 'Show All Metrics' : 'Hide All Metrics'}
+                >
+                  {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-mono bg-obsidian/70 border border-nothing px-3 py-1.5 rounded-xl self-start md:self-auto">
+            <span className="text-[#888] uppercase text-[10px]">Savings Rate (This Mo):</span>
+            <span className={`font-bold ${savingsRate >= 20 ? 'text-emerald-400' : savingsRate > 0 ? 'text-amber-400' : 'text-[#888]'}`}>
+              {savingsRate}%
+            </span>
+          </div>
+        </div>
+
+        {/* Breakdown Row (Liquid / Investments / Receivables / Liabilities) */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-nothing/60 text-xs font-mono">
+          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
+            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
+              <span>Liquid</span>
+              <Wallet className="w-3 h-3 text-emerald-400" />
+            </div>
+            <div className="text-white font-bold text-xs sm:text-sm mt-1 truncate">
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${liquid.toLocaleString('en-IN')}`}
+            </div>
+          </div>
+
+          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
+            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
+              <span>Investments</span>
+              <TrendingUp className="w-3 h-3 text-cyan-400" />
+            </div>
+            <div className="text-cyan-400 font-bold text-xs sm:text-sm mt-1 truncate">
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${investmentsValue.toLocaleString('en-IN')}`}
+            </div>
+          </div>
+
+          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
+            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
+              <span>Receivables</span>
+              <ArrowDownLeft className="w-3 h-3 text-emerald-400" />
+            </div>
+            <div className="text-emerald-400 font-bold text-xs sm:text-sm mt-1 truncate">
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${receivables.toLocaleString('en-IN')}`}
+            </div>
+          </div>
+
+          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
+            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
+              <span>Liabilities</span>
+              <CreditCard className="w-3 h-3 text-red-400" />
+            </div>
+            <div className="text-red-400 font-bold text-xs sm:text-sm mt-1 truncate">
+              {isNetWorthHidden ? '••••••' : `-${currencySymbol}${totalLiabilities.toLocaleString('en-IN')}`}
             </div>
           </div>
         </div>
+
+        {/* If accounts is empty: one-line hint */}
+        {!hasAccounts && (
+          <div className="text-[11px] text-amber-400/90 font-mono flex items-center gap-1.5 pt-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
+            <span>Add accounts to see true net worth</span>
+          </div>
+        )}
       </div>
 
       {/* ==================== 2. FINANCIAL METRICS ==================== */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-[#888]">
+        <div className="flex items-center justify-between text-xs text-[#888] flex-wrap gap-2">
           <div className="flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-red-500" />
             <span className="uppercase font-bold tracking-wider text-white">FINANCIAL METRICS</span>
             <InfoButton
               id="fin-metrics-info"
               title="Financial Metrics"
-              content="Key performance indicators including Net Balance, Income Credits, Debited Expenses, and Invested Portfolio. Tap chevron to expand or collapse cards."
+              content="Key performance indicators: Cash in Accounts (= liquid bank & wallet balances), This Month's Income, Expenses, and Active Investments. Switch between This Month and All Time using the toggle."
               align="left"
             />
           </div>
-          <button
-            type="button"
-            onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
-            title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
-          >
-            {isKpiStacked ? (
-              <ChevronDown className="w-3.5 h-3.5 text-red-400" />
-            ) : (
-              <ChevronUp className="w-3.5 h-3.5 text-red-400" />
-            )}
-          </button>
+
+          <div className="flex items-center gap-2">
+            <div className="flex items-center bg-[#121218] border border-nothing rounded-lg p-0.5 text-[10px] font-mono">
+              <button
+                type="button"
+                onClick={() => setKpiTimeframe('month')}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                  kpiTimeframe === 'month'
+                    ? 'bg-red-600 text-white font-bold'
+                    : 'text-[#888] hover:text-white'
+                }`}
+              >
+                THIS MONTH
+              </button>
+              <button
+                type="button"
+                onClick={() => setKpiTimeframe('all')}
+                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                  kpiTimeframe === 'all'
+                    ? 'bg-red-600 text-white font-bold'
+                    : 'text-[#888] hover:text-white'
+                }`}
+              >
+                ALL TIME
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsKpiStacked(!isKpiStacked)}
+              className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+              title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
+            >
+              {isKpiStacked ? (
+                <ChevronDown className="w-3.5 h-3.5 text-red-400" />
+              ) : (
+                <ChevronUp className="w-3.5 h-3.5 text-red-400" />
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Vertical Stack / Expanded Container */}
@@ -261,7 +464,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
-          {/* 1. Net Balance KPI */}
+          {/* 1. Cash in Accounts KPI */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
             className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
@@ -273,7 +476,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
                 <Wallet className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Net Balance</span>
+                <span className="font-bold text-white tracking-wider">Cash in Accounts</span>
               </div>
               <button
                 type="button"
@@ -290,16 +493,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
-                {showNetBalance ? `${currencySymbol}${netBalance.toLocaleString('en-IN')}` : '••••••••'}
+                {showNetBalance
+                  ? `${currencySymbol}${(hasAccounts ? liquid : cashflowNetBalance).toLocaleString('en-IN')}`
+                  : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
-                <ArrowUpRight className="w-3 h-3" />
-                <span>+4.2% MoM</span>
+                {hasAccounts ? (
+                  <span>{accounts.filter((a) => a.type !== 'Credit Card').length} Liquid Accounts</span>
+                ) : (
+                  <span className="text-amber-400">Add accounts to see true net worth</span>
+                )}
               </div>
             </div>
           </div>
 
-          {/* 2. Total Credit KPI */}
+          {/* 2. Income KPI (This Month / All Time) */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
             className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
@@ -311,7 +519,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
                 <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Credit (Income)</span>
+                <span className="font-bold text-white tracking-wider">
+                  {kpiTimeframe === 'month' ? 'Income (This Month)' : 'Total Income (All Time)'}
+                </span>
               </div>
               <button
                 type="button"
@@ -328,15 +538,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
-                {showCredit ? `+${currencySymbol}${totalCredit.toLocaleString('en-IN')}` : '••••••••'}
+                {showCredit
+                  ? `+${currencySymbol}${(kpiTimeframe === 'month' ? monthCredit : totalCredit).toLocaleString('en-IN')}`
+                  : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {transactions.filter((t) => t.type === 'credit').length} Deposits
+                {(kpiTimeframe === 'month' ? monthCreditTxns : transactions.filter((t) => t.type === 'credit')).length} Deposits
               </div>
             </div>
           </div>
 
-          {/* 3. Total Debit KPI */}
+          {/* 3. Expenses KPI (This Month / All Time) */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
             className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
@@ -348,7 +560,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
                 <ArrowUpRight className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                <span className="font-bold text-white tracking-wider">Total Debit (Expenses)</span>
+                <span className="font-bold text-white tracking-wider">
+                  {kpiTimeframe === 'month' ? 'Expenses (This Month)' : 'Total Expenses (All Time)'}
+                </span>
               </div>
               <button
                 type="button"
@@ -365,10 +579,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
-                {showDebit ? `-${currencySymbol}${totalDebit.toLocaleString('en-IN')}` : '••••••••'}
+                {showDebit
+                  ? `-${currencySymbol}${(kpiTimeframe === 'month' ? monthDebit : totalDebit).toLocaleString('en-IN')}`
+                  : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {transactions.filter((t) => t.type === 'debit').length} Expenses
+                {(kpiTimeframe === 'month' ? monthDebitTxns : transactions.filter((t) => t.type === 'debit')).length} Expenses
               </div>
             </div>
           </div>
@@ -409,12 +625,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
-                {showInvestments ? `${currencySymbol}${totalInvested.toLocaleString('en-IN')}` : '••••••••'}
+                {showInvestments ? `${currencySymbol}${investmentsValue.toLocaleString('en-IN')}` : '••••••••'}
               </div>
               
               {/* Arrow at bottom right corner signifying show more / redirect */}
               <div className="flex items-center gap-1 text-[10px] sm:text-[11px] text-cyan-400 font-bold group-hover:translate-x-0.5 transition-transform">
-                <span>+21.8% Returns</span>
+                <span>{investments.filter((i) => i.status !== 'redeemed').length} Active</span>
                 <ArrowRight className="w-3.5 h-3.5 text-cyan-400 ml-0.5" />
               </div>
             </div>

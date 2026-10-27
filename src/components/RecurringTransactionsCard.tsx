@@ -35,6 +35,7 @@ import { InfoButton } from './InfoButton';
 import { Transaction, Category, LoanRecord } from '../types/finance';
 import { newId } from '../utils/ids';
 import { todayLocalISO, toLocalISODate, nowLocalTimeHHMM } from '../utils/dates';
+import { getEffectiveLoanStatus } from '../utils/loanStatus';
 
 export interface CustomRecurringBill {
   id: string;
@@ -335,8 +336,9 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
     // 3. Process Automated Loan EMI Repayment Schedules
     if (loans && loans.length > 0) {
+      const todayIso = todayLocalISO();
       loans.forEach((loan) => {
-        if (loan.status === 'repaid' || loan.remainingAmount <= 0) return;
+        if (getEffectiveLoanStatus(loan, todayIso) === 'repaid') return;
 
         // Find installments for the selectedMonth
         const scheduleInMonth = (loan.schedule || []).filter((s) => s.dueDate.startsWith(selectedMonth));
@@ -360,7 +362,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
             items.push({
               id: `loan_emi_${loan.id}_${inst.installmentNumber}`,
-              title: `EMI: ${loan.name || loan.personOrBank} (Inst #${inst.installmentNumber})`,
+              title: `EMI: ${loan.title || loan.personOrBank} (Inst #${inst.installmentNumber})`,
               amount: inst.emiAmount,
               category: 'Loans & Lends',
               payeeOrPayer: loan.personOrBank,
@@ -371,7 +373,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               daysRemaining,
               status,
               type: 'debit',
-              autoDebit: Boolean(loan.paymentAccountId || inst.paymentAccountId),
+              autoDebit: Boolean(inst.paymentAccountId || loan.linkedAccountId),
               isCustom: false,
             });
           });
@@ -397,7 +399,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
           items.push({
             id: `loan_emi_${loan.id}`,
-            title: `EMI: ${loan.name || loan.personOrBank}`,
+            title: `EMI: ${loan.title || loan.personOrBank}`,
             amount: loan.monthlyEmi,
             category: 'Loans & Lends',
             payeeOrPayer: loan.personOrBank,
@@ -408,7 +410,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             daysRemaining,
             status,
             type: 'debit',
-            autoDebit: Boolean(loan.paymentAccountId),
+            autoDebit: Boolean(loan.linkedAccountId),
             isCustom: false,
           });
         }

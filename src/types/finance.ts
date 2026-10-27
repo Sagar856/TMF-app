@@ -175,6 +175,7 @@ export interface LoanInstallment {
   confirmedAt?: string;
   skippedAt?: string;
   notes?: string;
+  paymentAccountId?: string;
 }
 
 export interface LoanRecord {

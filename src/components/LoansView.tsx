@@ -8,13 +8,14 @@ import { LoanScheduleModal } from './LoanScheduleModal';
 import { generateAmortizationSchedule, roundCurrency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
 import { todayLocalISO, addMonthsClamped } from '../utils/dates';
+import { getEffectiveLoanStatus } from '../utils/loanStatus';
 
 interface LoansViewProps {
   loans: LoanRecord[];
   accounts?: FinancialAccount[];
-  onAddLoan: (loan: LoanRecord) => void;
-  onRecordRepayment: (loanId: string, repayment: Repayment) => void;
-  onSettleLoan?: (loanId: string) => void;
+  onAddLoan: (loan: LoanRecord, accountId?: string, recordInLedger?: boolean) => void;
+  onRecordRepayment: (loanId: string, repayment: Repayment, accountId?: string, recordInLedger?: boolean) => void;
+  onSettleLoan?: (loanId: string, accountId?: string, recordInLedger?: boolean) => void;
   onDeleteLoan?: (loanId: string) => void;
   onUpdateLoan?: (loan: LoanRecord) => void;
   onConfirmInstallmentPayment?: (
@@ -63,6 +64,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [repayModalLoan, setRepayModalLoan] = useState<LoanRecord | null>(null);
+  const [settleModalLoan, setSettleModalLoan] = useState<LoanRecord | null>(null);
   const [editModalLoan, setEditModalLoan] = useState<LoanRecord | null>(null);
   const [selectedScheduleLoan, setSelectedScheduleLoan] = useState<LoanRecord | null>(null);
 
@@ -78,6 +80,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [newDiscounts, setNewDiscounts] = useState<string>('0');
   const [newManualEmi, setNewManualEmi] = useState<string>('');
   const [newLinkedAccountId, setNewLinkedAccountId] = useState<string>(accounts[0]?.id || '');
+  const [newRecordInLedger, setNewRecordInLedger] = useState<boolean>(true);
   const [newDueDate, setNewDueDate] = useState<string>(todayLocalISO());
   const [newFirstInstallmentDate, setNewFirstInstallmentDate] = useState<string>(() => {
     return addMonthsClamped(todayLocalISO(), 1);
@@ -89,6 +92,12 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [repayAmount, setRepayAmount] = useState<string>('');
   const [repayNote, setRepayNote] = useState<string>('');
   const [repayDate, setRepayDate] = useState<string>(todayLocalISO());
+  const [repayAccountId, setRepayAccountId] = useState<string>('');
+  const [repayRecordLedger, setRepayRecordLedger] = useState<boolean>(true);
+
+  // Settle form
+  const [settleAccountId, setSettleAccountId] = useState<string>('');
+  const [settleRecordLedger, setSettleRecordLedger] = useState<boolean>(true);
 
   // Edit loan form
   const [editPerson, setEditPerson] = useState<string>('');
@@ -181,9 +190,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
       // Status filter
       if (selectedStatus !== 'All') {
-        const isClosed = item.status === 'repaid' || item.remainingAmount === 0;
-        if (selectedStatus === 'Open' && isClosed) return false;
-        if (selectedStatus === 'Closed' && !isClosed) return false;
+        const today = todayLocalISO();
+        const effStatus = getEffectiveLoanStatus(item, today);
+        if (selectedStatus === 'Open' && effStatus === 'repaid') return false;
+        if (selectedStatus === 'Closed' && effStatus !== 'repaid') return false;
+        if (selectedStatus === 'Overdue' && effStatus !== 'overdue') return false;
       }
 
       return true;
@@ -206,7 +217,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const netPosition = totalOwedToMe - totalIowe;
 
   const openCount = useMemo(() => {
-    return loans.filter((l) => l.status !== 'repaid' && l.remainingAmount > 0).length;
+    const today = todayLocalISO();
+    return loans.filter((l) => getEffectiveLoanStatus(l, today) !== 'repaid').length;
   }, [loans]);
 
   // Outstanding by Person calculation for the Visual chart
@@ -257,6 +269,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
     setRepayAmount('');
     setRepayNote('');
     setRepayDate(todayLocalISO());
+    setRepayAccountId(loan.linkedAccountId || accounts[0]?.id || '');
+    setRepayRecordLedger(true);
   };
 
   const handleSaveRepayment = (e: React.FormEvent) => {
@@ -273,8 +287,20 @@ export const LoansView: React.FC<LoansViewProps> = ({
       note: repayNote.trim() || 'Partial repayment',
     };
 
-    onRecordRepayment(repayModalLoan.id, repayment);
+    onRecordRepayment(repayModalLoan.id, repayment, repayAccountId || undefined, repayRecordLedger);
     setRepayModalLoan(null);
+  };
+
+  const handleOpenSettleModal = (loan: LoanRecord) => {
+    setSettleModalLoan(loan);
+    setSettleAccountId(loan.linkedAccountId || accounts[0]?.id || '');
+    setSettleRecordLedger(true);
+  };
+
+  const handleConfirmSettle = () => {
+    if (!settleModalLoan) return;
+    onSettleLoan?.(settleModalLoan.id, settleAccountId || undefined, settleRecordLedger);
+    setSettleModalLoan(null);
   };
 
   const handleDeleteLoan = (loan: LoanRecord, e?: React.MouseEvent) => {
@@ -432,7 +458,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
       notes: newNotes.trim(),
     };
 
-    onAddLoan(newLoan);
+    onAddLoan(newLoan, newLinkedAccountId || undefined, newRecordInLedger);
     setIsAddModalOpen(false);
 
     // Reset form
@@ -448,11 +474,13 @@ export const LoansView: React.FC<LoansViewProps> = ({
     setNewDueDate(todayLocalISO());
     setNewNotes('');
     setLoanStructure('standard_emi');
+    setNewRecordInLedger(true);
   };
 
   // Active loans for top section
+  const today = todayLocalISO();
   const activeFilteredLoans = filteredLoans.filter(
-    (l) => l.status === 'active' && l.remainingAmount > 0
+    (l) => getEffectiveLoanStatus(l, today) !== 'repaid'
   );
 
   // Dynamic X-axis ticks for graph
@@ -631,6 +659,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 >
                   <option value="All">All Statuses</option>
                   <option value="Open">Open</option>
+                  <option value="Overdue">Overdue</option>
                   <option value="Closed">Closed</option>
                 </select>
               </div>
@@ -937,8 +966,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   {/* Header row */}
                   <div className="flex justify-between items-start">
                     <div>
-                      {item.loanStructure && (
-                        <div className="mb-1">
+                      <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                        {item.loanStructure && (
                           <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#1a1a24] text-red-400 border border-red-900/60">
                             {item.loanStructure === 'no_cost_emi'
                               ? 'No-Cost EMI (0% Int)'
@@ -952,8 +981,27 @@ export const LoansView: React.FC<LoansViewProps> = ({
                               ? 'Peer Lend'
                               : 'Peer Loan'}
                           </span>
-                        </div>
-                      )}
+                        )}
+                        {(() => {
+                          const eff = getEffectiveLoanStatus(item, today);
+                          if (eff === 'overdue') {
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-red-950/80 text-red-400 border border-red-600 animate-pulse">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                OVERDUE
+                              </span>
+                            );
+                          }
+                          if (eff === 'repaid') {
+                            return (
+                              <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-emerald-950/60 text-emerald-400 border border-emerald-600/60">
+                                CLOSED
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
                       <div className="flex flex-wrap items-center gap-2 text-xs text-white font-mono">
                         <span
                           className={
@@ -1037,7 +1085,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                     <button
                       type="button"
-                      onClick={() => onSettleLoan && onSettleLoan(item.id)}
+                      onClick={() => handleOpenSettleModal(item)}
                       className="px-3 py-1 bg-transparent border border-[#333] text-[#aaa] hover:text-white hover:border-[#555] font-mono text-[11px] uppercase rounded transition-colors cursor-pointer"
                     >
                       SETTLE
@@ -1094,7 +1142,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
               filteredLoans.map((item) => {
                 const isExpanded = expandedLoanIds.includes(item.id);
                 const paidAmount = item.totalAmount - item.remainingAmount;
-                const isClosed = item.status === 'repaid' || item.remainingAmount === 0;
+                const effStatus = getEffectiveLoanStatus(item, today);
+                const isClosed = effStatus === 'repaid';
 
                 return (
                   <React.Fragment key={item.id}>
@@ -1135,9 +1184,16 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                       {/* Status */}
                       <div className="col-span-1 text-center font-bold text-[11px]">
-                        <span className={isClosed ? 'text-emerald-400' : 'text-amber-400'}>
-                          {isClosed ? 'CLOSED' : 'OPEN'}
-                        </span>
+                        {effStatus === 'repaid' ? (
+                          <span className="text-emerald-400">CLOSED</span>
+                        ) : effStatus === 'overdue' ? (
+                          <span className="text-red-500 flex items-center justify-center gap-0.5">
+                            <AlertTriangle className="w-3 h-3 inline text-red-500 shrink-0" />
+                            OVERDUE
+                          </span>
+                        ) : (
+                          <span className="text-amber-400">OPEN</span>
+                        )}
                       </div>
 
                       {/* Actions */}
@@ -1261,6 +1317,24 @@ export const LoansView: React.FC<LoansViewProps> = ({
             <form onSubmit={handleSaveRepayment} className="space-y-3.5">
               <div>
                 <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  ACCOUNT
+                </label>
+                <select
+                  value={repayAccountId}
+                  onChange={(e) => setRepayAccountId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 cursor-pointer"
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bankName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   DATE
                 </label>
                 <input
@@ -1300,6 +1374,16 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 />
               </div>
 
+              <label className="flex items-center gap-2 text-xs font-mono text-[#aaa] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={repayRecordLedger}
+                  onChange={(e) => setRepayRecordLedger(e.target.checked)}
+                  className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+              </label>
+
               <div className="pt-2">
                 <button
                   type="submit"
@@ -1309,6 +1393,87 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== SETTLE LOAN MODAL ==================== */}
+      {settleModalLoan && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-sm w-full shadow-2xl relative space-y-4 font-mono">
+            <div className="flex justify-between items-center pb-3 border-b border-[#222]">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wider">
+                SETTLE {settleModalLoan.type === 'lend' ? 'LEND' : 'LOAN'}
+              </h3>
+              <button
+                onClick={() => setSettleModalLoan(null)}
+                className="text-[#666] hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="text-xs text-[#aaa] space-y-1">
+              <div>
+                Full settlement with{' '}
+                <span className="text-white font-bold">{settleModalLoan.personOrBank}</span>
+              </div>
+              <div className="text-sm font-bold text-white">
+                Amount: {currencySymbol}{settleModalLoan.remainingAmount.toLocaleString('en-IN')}
+              </div>
+              <p className="text-[10px] text-[#777]">
+                {settleModalLoan.type === 'lend'
+                  ? 'Remaining balance will be marked repaid and credited to your account.'
+                  : 'Remaining balance will be marked repaid and debited from your account.'}
+              </p>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="block text-[9px] font-bold text-[#777] uppercase tracking-wider mb-1">
+                  SETTLEMENT ACCOUNT
+                </label>
+                <select
+                  value={settleAccountId}
+                  onChange={(e) => setSettleAccountId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 cursor-pointer"
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bankName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-[#aaa] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={settleRecordLedger}
+                  onChange={(e) => setSettleRecordLedger(e.target.checked)}
+                  className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+              </label>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSettleModalLoan(null)}
+                  className="px-4 py-2.5 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSettle}
+                  className="px-5 py-2.5 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
+                >
+                  CONFIRM SETTLE
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -1619,25 +1784,6 @@ export const LoansView: React.FC<LoansViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Linked Payment Account */}
-                  <div>
-                    <label className="block text-[9px] font-bold text-[#aaa] uppercase tracking-wider mb-1">
-                      LINKED PAYMENT / DEBIT ACCOUNT
-                    </label>
-                    <select
-                      value={newLinkedAccountId}
-                      onChange={(e) => setNewLinkedAccountId(e.target.value)}
-                      className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 cursor-pointer"
-                    >
-                      <option value="">-- None (Manual Selection) --</option>
-                      {accounts.map((acc) => (
-                        <option key={acc.id} value={acc.id}>
-                          {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
                   {/* Manual EMI Override field */}
                   <div>
                     <label className="block text-[9px] font-bold text-[#aaa] uppercase tracking-wider mb-1">
@@ -1700,6 +1846,35 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   )}
                 </>
               )}
+
+              {/* Linked Payment Account */}
+              <div>
+                <label className="block text-[9px] font-bold text-[#aaa] uppercase tracking-wider mb-1">
+                  ACCOUNT
+                </label>
+                <select
+                  value={newLinkedAccountId}
+                  onChange={(e) => setNewLinkedAccountId(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600 cursor-pointer"
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs font-mono text-[#aaa] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={newRecordInLedger}
+                  onChange={(e) => setNewRecordInLedger(e.target.checked)}
+                  className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+              </label>
 
               {/* Notes */}
               <div>
@@ -1839,6 +2014,10 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              <p className="text-[10px] text-[#888] font-mono">
+                Note: Deleting this loan will not alter your account balance or transaction history.
+              </p>
 
               {/* Checkbox */}
               <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">

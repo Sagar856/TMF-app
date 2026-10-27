@@ -41,10 +41,11 @@ interface EditTransactionModalProps {
   loans?: LoanRecord[];
   initialCategoryType?: CategoryType;
   onSave: (tx: Transaction) => void;
-  onAddInvestment?: (inv: InvestmentRecord) => void;
-  onAddLoan?: (loan: LoanRecord) => void;
+  onAddInvestment?: (inv: InvestmentRecord, accountId?: string, recordInLedger?: boolean) => void;
+  onAddLoan?: (loan: LoanRecord, accountId?: string, recordInLedger?: boolean) => void;
   onClose: () => void;
   currencySymbol: string;
+  locationTracking?: boolean;
 }
 
 export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
@@ -57,6 +58,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   onAddLoan,
   onClose,
   currencySymbol,
+  locationTracking = false,
 }) => {
   const isEditingExisting = Boolean(transaction && transaction.id);
 
@@ -158,6 +160,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [invMarketValue, setInvMarketValue] = useState<string>('');
   const [invDate, setInvDate] = useState<string>(todayLocalISO());
   const [invNotes, setInvNotes] = useState<string>('');
+  const [invAccountId, setInvAccountId] = useState<string>(accounts[0]?.id || '');
+  const [invRecordLedger, setInvRecordLedger] = useState<boolean>(true);
 
   // --- Loan / Lend State ---
   const [loanDate, setLoanDate] = useState<string>(todayLocalISO());
@@ -165,15 +169,16 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [loanType, setLoanType] = useState<LoanType>('loan');
   const [loanPerson, setLoanPerson] = useState<string>('');
   const [loanAmount, setLoanAmount] = useState<string>('');
-  const [loanAccount, setLoanAccount] = useState<string>('UPI');
+  const [loanAccountId, setLoanAccountId] = useState<string>(accounts[0]?.id || '');
+  const [loanRecordLedger, setLoanRecordLedger] = useState<boolean>(true);
   const [loanNotes, setLoanNotes] = useState<string>('');
   const [loanRefNum, setLoanRefNum] = useState<string>('NA');
 
   const [autoMatchedCategory, setAutoMatchedCategory] = useState<string | null>(null);
 
-  // Retrieve current user location on modal open for new transaction
+  // Retrieve current user location on modal open for new transaction only if locationTracking is enabled
   useEffect(() => {
-    if (!isEditingExisting && !place) {
+    if (!isEditingExisting && !place && locationTracking) {
       let isMounted = true;
       setIsLocating(true);
       getCurrentDeviceLocation()
@@ -193,7 +198,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         isMounted = false;
       };
     }
-  }, [isEditingExisting]);
+  }, [isEditingExisting, place, locationTracking]);
 
   const handleFetchCurrentLocation = async () => {
     setIsLocating(true);
@@ -402,12 +407,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       currentValue: numVal,
       returnsPercent: returnPct,
       date: finalDate,
+      linkedAccountId: invAccountId || undefined,
       monthlyContributions: [{ month: invMonth, amount: numInv }],
       notes: invNotes.trim(),
     };
 
     if (onAddInvestment) {
-      onAddInvestment(newInv);
+      onAddInvestment(newInv, invAccountId || undefined, invRecordLedger);
     }
     onClose();
   };
@@ -426,15 +432,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       remainingAmount: numAmount,
       startDate: loanDate,
       dueDate: loanDueDate || addDays(loanDate, 30),
+      linkedAccountId: loanAccountId || undefined,
       status: 'active',
       repayments: [],
-      notes: `${loanNotes} (Account: ${loanAccount}${
-        loanRefNum && loanRefNum !== 'NA' ? `, Ref: ${loanRefNum}` : ''
-      })`,
+      notes: `${loanNotes}${loanRefNum && loanRefNum !== 'NA' ? ` (Ref: ${loanRefNum})` : ''}`.trim(),
     };
 
     if (onAddLoan) {
-      onAddLoan(newLoan);
+      onAddLoan(newLoan, loanAccountId || undefined, loanRecordLedger);
     }
     onClose();
   };
@@ -910,7 +915,36 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </div>
               </div>
 
-              {/* Row 5: NOTES */}
+              {/* Row 5: ACCOUNT */}
+              <div>
+                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  ACCOUNT
+                </label>
+                <select
+                  value={invAccountId}
+                  onChange={(e) => setInvAccountId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 cursor-pointer"
+                >
+                  <option value="">-- Select Account --</option>
+                  {accounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({acc.bankName})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs font-mono text-[#aaa] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={invRecordLedger}
+                  onChange={(e) => setInvRecordLedger(e.target.checked)}
+                  className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+              </label>
+
+              {/* Row 6: NOTES */}
               <div>
                 <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   NOTES
@@ -1063,18 +1097,29 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     ACCOUNT
                   </label>
                   <select
-                    value={loanAccount}
-                    onChange={(e) => setLoanAccount(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                    value={loanAccountId}
+                    onChange={(e) => setLoanAccountId(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 cursor-pointer"
                   >
-                    <option value="UPI">UPI</option>
-                    <option value="Cash">Cash</option>
-                    <option value="Bank Account">Bank Account</option>
-                    <option value="Credit Card">Credit Card</option>
-                    <option value="Wallet">Wallet</option>
+                    <option value="">-- Select Account --</option>
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.bankName})
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
+
+              <label className="flex items-center gap-2 text-xs font-mono text-[#aaa] cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={loanRecordLedger}
+                  onChange={(e) => setLoanRecordLedger(e.target.checked)}
+                  className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                />
+                <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+              </label>
 
               {/* Row 5: DESCRIPTION */}
               <div>

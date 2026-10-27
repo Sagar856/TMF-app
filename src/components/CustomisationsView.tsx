@@ -388,7 +388,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   };
 
   // Delete Confirmations
-  const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
   const [accountToDelete, setAccountToDelete] = useState<FinancialAccount | null>(null);
 
   // Smart Rules State (Local Storage backed)
@@ -1256,7 +1255,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                         </button>
                         <button
                           type="button"
-                          onClick={() => setCategoryToDelete(cat)}
+                          onClick={() => onDeleteCategory(cat.id)}
                           className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/50 rounded-lg transition-colors cursor-pointer"
                           title="Delete Category"
                         >
@@ -1692,9 +1691,20 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
               {/* Category Name */}
               <div>
-                <label className="block text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold mb-1">
-                  Category Name
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">
+                    Category Name
+                  </label>
+                  {editingCategory && (
+                    <span className="text-[10px] text-amber-500 dark:text-amber-400 font-mono font-medium">
+                      ({transactions.filter((t) => t.category === editingCategory.name).length}{' '}
+                      {transactions.filter((t) => t.category === editingCategory.name).length === 1
+                        ? 'transaction'
+                        : 'transactions'}{' '}
+                      affected)
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   required
@@ -1997,84 +2007,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {/* 9. DELETE CONFIRMATION DIALOGS                                            */}
       {/* ========================================================================= */}
-      {/* Category Deletion Dialog */}
-      <AnimatePresence>
-        {categoryToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 select-none">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setCategoryToDelete(null)}
-              className="absolute inset-0 bg-black/75 backdrop-blur-md"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 12 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 12 }}
-              className="relative z-10 w-full max-w-md bg-white dark:bg-[#121216] border border-slate-200 dark:border-[#222] rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-red-50 dark:bg-[#18181f] border border-red-200 dark:border-[#2d2d35] rounded-2xl shrink-0">
-                    <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-500" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 dark:text-white uppercase">
-                      Delete Category?
-                    </h3>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCategoryToDelete(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-lg transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="p-4 bg-slate-50 dark:bg-[#181820] border border-slate-200 dark:border-[#26262f] rounded-2xl space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500 dark:text-[#666]">Category:</span>
-                  <span className="font-bold text-slate-900 dark:text-white">{categoryToDelete.name}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500 dark:text-[#666]">Type:</span>
-                  <span className="font-bold uppercase text-slate-900 dark:text-white">{categoryToDelete.type}</span>
-                </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-slate-500 dark:text-[#666]">Subcategories:</span>
-                  <span className="text-slate-700 dark:text-[#ccc] truncate max-w-[200px]">
-                    {categoryToDelete.subcategories.join(', ')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setCategoryToDelete(null)}
-                  className="px-4 py-2 border border-slate-200 dark:border-[#2a2a34] text-xs font-bold rounded-xl text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white cursor-pointer uppercase"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onDeleteCategory(categoryToDelete.id);
-                    setCategoryToDelete(null);
-                  }}
-                  className="px-5 py-2 text-xs uppercase rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white shadow-sm transition-all cursor-pointer"
-                >
-                  Delete Category
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
       {/* Account Deletion Dialog */}
       <AnimatePresence>
         {accountToDelete && (

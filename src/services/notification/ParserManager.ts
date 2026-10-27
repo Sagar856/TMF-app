@@ -89,12 +89,6 @@ export function parseNotification(
     refNumber
   );
 
-  const defaultLocation: LocationTag = userLocation || {
-    lat: 19.076,
-    lng: 72.8777,
-    name: 'Current Location',
-  };
-
   const parsed: ParsedNotification = {
     id: newId('notif'),
     rawText,
@@ -105,7 +99,7 @@ export function parseNotification(
     time: timeStr,
     category: categoryMatch.category,
     subcategory: categoryMatch.subcategory,
-    location: defaultLocation,
+    location: userLocation ?? undefined,
     appSource,
     status: 'pending',
     accountLast4,

@@ -22,19 +22,27 @@ interface BottomNavProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   pendingNotificationsCount?: number;
+  pendingEmiCount?: number;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   activeTab,
   setActiveTab,
   pendingNotificationsCount = 0,
+  pendingEmiCount = 0,
 }) => {
   const navItems: NavItemConfig[] = [
     { id: 'dashboard', label: 'Home', shortLabel: 'Home', icon: LayoutDashboard },
     { id: 'transactions', label: 'Transactions', shortLabel: 'Txns', icon: ReceiptText },
     { id: 'accounts', label: 'Accounts', shortLabel: 'Accounts', icon: Building2 },
     { id: 'investments', label: 'Invest', shortLabel: 'Invest', icon: TrendingUp },
-    { id: 'loans', label: 'Loans', shortLabel: 'Loans', icon: HandCoins },
+    { 
+      id: 'loans', 
+      label: 'Loans', 
+      shortLabel: 'Loans', 
+      icon: HandCoins,
+      badgeCount: pendingEmiCount > 0 ? pendingEmiCount : undefined,
+    },
     { 
       id: 'settings', 
       label: 'Settings', 

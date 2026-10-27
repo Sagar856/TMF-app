@@ -29,6 +29,7 @@ import { EmiConfirmationPromptModal } from './components/EmiConfirmationPromptMo
 
 import {
   Transaction,
+  TransactionType,
   Category,
   FinancialAccount,
   InvestmentRecord,
@@ -37,7 +38,9 @@ import {
   UserSettings,
   Repayment,
   InvestmentRedemption,
-  EmiConfirmationRequest
+  EmiConfirmationRequest,
+  LocationTag,
+  PaymentSource,
 } from './types/finance';
 
 import {
@@ -80,11 +83,12 @@ import {
   deleteAllUserDataFromSupabase,
 } from './services/supabaseClient';
 
-import { parseSmsNotification } from './services/smsParser';
 import { parseNotification } from './services/notification/ParserManager';
+import { getCurrentDeviceLocation } from './services/locationService';
+import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { startNotificationListener } from './services/notificationListener';
 import { newId } from './utils/ids';
-import { todayLocalISO } from './utils/dates';
+import { todayLocalISO, nowLocalTimeHHMM } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
 import { notifyTransactionDetected } from './services/localNotifications';
 import { 
@@ -104,6 +108,32 @@ import {
 // Max wrong passcode attempts before a cooldown lockout kicks in.
 const MAX_PASSCODE_ATTEMPTS = 5;
 const PASSCODE_LOCKOUT_MS = 30_000;
+
+function ensureMandatoryCategories(cats: Category[]): Category[] {
+  let updated = [...cats];
+  let changed = false;
+  if (!updated.some((c) => c.name.toLowerCase() === 'loans & lends')) {
+    updated.push({
+      id: 'cat_loans',
+      name: 'Loans & Lends',
+      type: 'expense',
+      iconName: 'HandCoins',
+      subcategories: ['EMI Repayment', 'Loan Received', 'Lent Out', 'Repayment Received'],
+    });
+    changed = true;
+  }
+  if (!updated.some((c) => c.name.toLowerCase() === 'investment')) {
+    updated.push({
+      id: 'cat_investment',
+      name: 'Investment',
+      type: 'investment',
+      iconName: 'TrendingUp',
+      subcategories: ['Purchase', 'Redemption', 'SIP'],
+    });
+    changed = true;
+  }
+  return changed ? updated : cats;
+}
 
 export default function App() {
   // Navigation Tab
@@ -149,7 +179,12 @@ export default function App() {
 
   const [categories, setCategories] = useState<Category[]>(() => {
     const saved = localStorage.getItem('tmf_categories');
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    const parsed: Category[] = saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    const ensured = ensureMandatoryCategories(parsed);
+    if (saved && ensured.length !== parsed.length) {
+      localStorage.setItem('tmf_categories', JSON.stringify(ensured));
+    }
+    return ensured;
   });
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
@@ -251,27 +286,28 @@ export default function App() {
   const [isEmiModalOpen, setIsEmiModalOpen] = useState<boolean>(false);
 
   const pendingEmiRequests: EmiConfirmationRequest[] = useMemo(() => {
+    const today = todayLocalISO();
     const reqs: EmiConfirmationRequest[] = [];
     loans.forEach((loan) => {
       if (loan.status === 'repaid' || loan.remainingAmount <= 0 || !loan.schedule) return;
       loan.schedule.forEach((inst) => {
-        if (inst.status === 'scheduled' || inst.status === 'pending_confirmation') {
+        if (inst.status === 'pending_confirmation' || (inst.status === 'scheduled' && inst.dueDate <= today)) {
           reqs.push({
             id: `emi_req_${loan.id}_${inst.installmentNumber}`,
             loanId: loan.id,
             installmentNumber: inst.installmentNumber,
-            loanTitle: loan.name || loan.personOrBank,
+            loanTitle: loan.title || loan.personOrBank,
             lenderOrBank: loan.personOrBank,
             amount: inst.emiAmount,
             dueDate: inst.dueDate,
-            linkedAccountId: loan.paymentAccountId || inst.paymentAccountId,
+            linkedAccountId: inst.paymentAccountId || loan.linkedAccountId,
             status: 'pending',
             createdAt: new Date().toISOString(),
           });
         }
       });
     });
-    return reqs;
+    return reqs.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }, [loans]);
 
   const showToast = (
@@ -529,9 +565,10 @@ export default function App() {
         localStorage.setItem('tmf_accounts', JSON.stringify(filteredAcc));
       }
       if (cloudCat && cloudCat.length > 0) {
-        lastPushedRef.current['categories'] = JSON.stringify(cloudCat);
-        setCategories(cloudCat);
-        localStorage.setItem('tmf_categories', JSON.stringify(cloudCat));
+        const ensuredCat = ensureMandatoryCategories(cloudCat);
+        lastPushedRef.current['categories'] = JSON.stringify(ensuredCat);
+        setCategories(ensuredCat);
+        localStorage.setItem('tmf_categories', JSON.stringify(ensuredCat));
       }
       if (cloudInv) {
         const localInvMap = new Map<string, InvestmentRecord>();
@@ -677,6 +714,7 @@ export default function App() {
     localStorage.setItem('tmf_loans', '[]');
     localStorage.setItem('tmf_pending_notifications', '[]');
     sessionStorage.removeItem('tmf_session_unlocked');
+    resetDuplicateMemory();
   };
 
   // Bootstraps the real auth session on launch, and reacts to sign-in /
@@ -724,8 +762,26 @@ export default function App() {
   // it can be parsed exactly like the SMS simulator, then queued for review.
   useEffect(() => {
     if (!settings.autoExtractSms) return;
-    const stopListening = startNotificationListener((rawText) => {
-      const { parsed, isDuplicate } = parseNotification(rawText, null, transactions, pendingNotifications);
+    const stopListening = startNotificationListener(async (rawText) => {
+      let locationTag: LocationTag | null = null;
+      if (settings.locationTracking) {
+        try {
+          const locPromise = getCurrentDeviceLocation();
+          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
+          const devLoc = await Promise.race([locPromise, timeoutPromise]);
+          if (devLoc) {
+            locationTag = {
+              lat: devLoc.lat,
+              lng: devLoc.lng,
+              name: devLoc.formattedLocation,
+            };
+          }
+        } catch {
+          locationTag = null;
+        }
+      }
+
+      const { parsed, isDuplicate } = parseNotification(rawText, locationTag, transactions, pendingNotifications);
       if (isDuplicate) return; // Silently drop duplicates
 
       setPendingNotifications((prev) => [parsed, ...prev]);
@@ -735,7 +791,7 @@ export default function App() {
     });
     return stopListening;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.currencySymbol, transactions, pendingNotifications]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.currencySymbol, transactions, pendingNotifications]);
 
 
   // Passcode lockout cooldown ticker
@@ -824,6 +880,55 @@ export default function App() {
     return copy;
   };
 
+  // Helper to resolve notification category against current categories, falling back to matching type or Uncategorized
+  const resolveNotificationCategory = (
+    categoryName: string,
+    subcategoryName: string,
+    transactionType: TransactionType
+  ): { category: string; subcategory: string } => {
+    const targetType: 'expense' | 'income' = transactionType === 'credit' ? 'income' : 'expense';
+    const matchedCat = categories.find((c) => c.name.toLowerCase() === (categoryName || '').toLowerCase());
+    if (matchedCat) {
+      return {
+        category: matchedCat.name,
+        subcategory: matchedCat.subcategories.includes(subcategoryName)
+          ? subcategoryName
+          : (matchedCat.subcategories[0] || 'General'),
+      };
+    }
+
+    // Category was renamed or does not exist: fall back to first category of matching type or 'Uncategorized'
+    const firstMatching = categories.find((c) => c.type === targetType);
+    if (firstMatching) {
+      return {
+        category: firstMatching.name,
+        subcategory: firstMatching.subcategories[0] || 'General',
+      };
+    }
+
+    // Fall back to Uncategorized and create category if missing
+    const hasUncat = categories.some((c) => c.name.toLowerCase() === 'uncategorized' && c.type === targetType);
+    if (!hasUncat) {
+      const newUncat: Category = {
+        id: `cat_uncategorized_${targetType}`,
+        name: 'Uncategorized',
+        type: targetType,
+        iconName: 'Tag',
+        subcategories: ['General'],
+      };
+      setCategories((prev) => {
+        const updated = [...prev, newUncat];
+        localStorage.setItem('tmf_categories', JSON.stringify(updated));
+        return updated;
+      });
+    }
+
+    return {
+      category: 'Uncategorized',
+      subcategory: 'General',
+    };
+  };
+
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
   const handleConfirmAddNotification = (notif: ParsedNotification) => {
     // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
@@ -844,14 +949,19 @@ export default function App() {
     }
 
     const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
+    const { category: resolvedCat, subcategory: resolvedSubcat } = resolveNotificationCategory(
+      notif.category,
+      notif.subcategory,
+      notif.type
+    );
 
     const newTx: Transaction = {
       id: newId('tx_notif'),
       title: notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
-      category: notif.category,
-      subcategory: notif.subcategory,
+      category: resolvedCat,
+      subcategory: resolvedSubcat,
       date: notif.date,
       time: notif.time,
       location: notif.location,
@@ -891,14 +1001,19 @@ export default function App() {
     }
 
     const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
+    const { category: resolvedCat, subcategory: resolvedSubcat } = resolveNotificationCategory(
+      notif.category,
+      notif.subcategory,
+      notif.type
+    );
 
     // Open transaction editor with pre-filled details from notification
     setEditingTransaction({
       title: notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
-      category: notif.category,
-      subcategory: notif.subcategory,
+      category: resolvedCat,
+      subcategory: resolvedSubcat,
       date: notif.date,
       time: notif.time,
       location: notif.location,
@@ -1033,28 +1148,229 @@ export default function App() {
   };
 
   const handleUpdateCategory = (cat: Category) => {
-    setCategories((prev) => prev.map((c) => (c.id === cat.id ? cat : c)));
-  };
+    const prevCat = categories.find((c) => c.id === cat.id);
+    const oldName = prevCat?.name;
+    const nameChanged = Boolean(oldName && oldName !== cat.name);
 
-  const handleDeleteCategory = (id: string) => {
+    // Identify any subcategories removed in this update
+    const oldSubs = prevCat?.subcategories || [];
+    const newSubsSet = new Set(cat.subcategories || []);
+    const removedSubs = new Set(oldSubs.filter((s) => !newSubsSet.has(s)));
+
+    // Cascade name changes and removed subcategories to transactions in one setTransactions call
+    if (nameChanged || removedSubs.size > 0) {
+      setTransactions((prevTx) => {
+        let hasChanges = false;
+        const updated = prevTx.map((tx) => {
+          let updatedCategory = tx.category;
+          let updatedSubcategory = tx.subcategory;
+          let modified = false;
+
+          // 1. Category name rename
+          if (nameChanged && tx.category === oldName) {
+            updatedCategory = cat.name;
+            modified = true;
+          }
+
+          // 2. Removed subcategory reassignment to 'General'
+          const belongsToCategory = tx.category === cat.name || (oldName && tx.category === oldName);
+          if (belongsToCategory && removedSubs.has(tx.subcategory)) {
+            updatedSubcategory = 'General';
+            modified = true;
+          }
+
+          if (modified) {
+            hasChanges = true;
+            return {
+              ...tx,
+              category: updatedCategory,
+              subcategory: updatedSubcategory,
+            };
+          }
+          return tx;
+        });
+
+        if (hasChanges) {
+          localStorage.setItem('tmf_transactions', JSON.stringify(updated));
+          return updated;
+        }
+        return prevTx;
+      });
+    }
+
     setCategories((prev) => {
-      const updated = prev.filter((c) => c.id !== id);
+      const updated = prev.map((c) => (c.id === cat.id ? cat : c));
       localStorage.setItem('tmf_categories', JSON.stringify(updated));
       return updated;
     });
+  };
 
-    if (isCloudBackendConfigured()) {
-      deleteCategoryFromSupabase(id).then((result) => {
-        if (!result.success) {
-          setSyncStatus({ collection: 'delete-category', ...result, timestamp: Date.now() });
+  const handleDeleteCategory = (id: string) => {
+    const catToDelete = categories.find((c) => c.id === id);
+    if (!catToDelete) return;
+
+    // Prevent deleting the Uncategorized category while it is in use
+    if (catToDelete.name.toLowerCase() === 'uncategorized') {
+      const inUseCount = transactions.filter((t) => t.category.toLowerCase() === 'uncategorized').length;
+      if (inUseCount > 0) {
+        showToast(
+          `Cannot delete 'Uncategorized' while ${inUseCount} transaction${inUseCount === 1 ? '' : 's'} are using it.`,
+          'error'
+        );
+        return;
+      }
+    }
+
+    const affectedCount = transactions.filter((t) => t.category === catToDelete.name).length;
+    const description = affectedCount > 0
+      ? `${affectedCount} ${affectedCount === 1 ? 'transaction uses' : 'transactions use'} this category. They will be moved to 'Uncategorized'.`
+      : `Are you sure you want to delete category "${catToDelete.name}"?`;
+
+    setConfirmConfig({
+      title: `Delete "${catToDelete.name}"?`,
+      description,
+      confirmLabel: affectedCount > 0 ? 'Move & Delete' : 'Delete',
+      intent: 'danger',
+      icon: 'trash',
+      onConfirm: () => {
+        const targetType = catToDelete.type;
+
+        // Reassign affected transactions to Uncategorized in one batch
+        if (affectedCount > 0) {
+          setTransactions((prevTx) => {
+            const updated = prevTx.map((tx) => {
+              if (tx.category === catToDelete.name) {
+                return {
+                  ...tx,
+                  category: 'Uncategorized',
+                  subcategory: 'General',
+                };
+              }
+              return tx;
+            });
+            localStorage.setItem('tmf_transactions', JSON.stringify(updated));
+            return updated;
+          });
         }
+
+        // Remove category, and create Uncategorized if missing
+        setCategories((prev) => {
+          const filtered = prev.filter((c) => c.id !== id);
+          const hasUncat = filtered.some(
+            (c) => c.name.toLowerCase() === 'uncategorized' && c.type === targetType
+          );
+
+          if (affectedCount > 0 && !hasUncat) {
+            const uncategorizedCategory: Category = {
+              id: `cat_uncategorized_${targetType}`,
+              name: 'Uncategorized',
+              type: targetType,
+              iconName: 'Tag',
+              subcategories: ['General'],
+            };
+            const updated = [...filtered, uncategorizedCategory];
+            localStorage.setItem('tmf_categories', JSON.stringify(updated));
+            return updated;
+          }
+
+          localStorage.setItem('tmf_categories', JSON.stringify(filtered));
+          return filtered;
+        });
+
+        if (isCloudBackendConfigured()) {
+          deleteCategoryFromSupabase(id).then((result) => {
+            if (!result.success) {
+              setSyncStatus({ collection: 'delete-category', ...result, timestamp: Date.now() });
+            }
+          });
+        }
+
+        showToast(
+          affectedCount > 0
+            ? `Deleted "${catToDelete.name}". ${affectedCount} transaction${affectedCount === 1 ? '' : 's'} moved to Uncategorized.`
+            : `Deleted category "${catToDelete.name}".`,
+          'warning'
+        );
+      },
+    });
+  };
+
+  // Shared helper to record ledger transaction and adjust account balance synchronously
+  const postLedgerEntry = ({
+    title,
+    amount,
+    type,
+    category,
+    subcategory,
+    accountId,
+    date,
+    note,
+    source = 'Manual',
+  }: {
+    title: string;
+    amount: number;
+    type: TransactionType;
+    category: string;
+    subcategory: string;
+    accountId?: string;
+    date?: string;
+    note?: string;
+    source?: PaymentSource;
+  }) => {
+    const finalAccountId = accountId || '';
+    const newTx: Transaction = {
+      id: newId('tx'),
+      title,
+      amount,
+      type,
+      category,
+      subcategory,
+      date: date || todayLocalISO(),
+      time: nowLocalTimeHHMM(),
+      source,
+      paymentMethod: finalAccountId,
+      note,
+    };
+
+    setTransactions((prev) => {
+      const updated = [newTx, ...prev];
+      localStorage.setItem('tmf_transactions', JSON.stringify(updated));
+      return updated;
+    });
+
+    if (finalAccountId) {
+      const delta = type === 'credit' ? amount : -amount;
+      setAccounts((prevAccs) => {
+        const updated = adjustAccountBalance(prevAccs, finalAccountId, delta);
+        localStorage.setItem('tmf_accounts', JSON.stringify(updated));
+        return updated;
       });
     }
   };
 
   // Investment Actions
-  const handleAddInvestment = (inv: InvestmentRecord) => {
+  const handleAddInvestment = (
+    inv: InvestmentRecord,
+    accountId?: string,
+    recordInLedger: boolean = true
+  ) => {
     setInvestments((prev) => [...prev, inv]);
+
+    const targetAccId = accountId || inv.linkedAccountId;
+    if (recordInLedger && targetAccId && inv.amountInvested > 0) {
+      const subcat = inv.investmentPlan === 'sip' ? 'SIP' : 'Purchase';
+      postLedgerEntry({
+        title: `Investment: ${inv.name}`,
+        amount: inv.amountInvested,
+        type: 'debit',
+        category: 'Investment',
+        subcategory: subcat,
+        accountId: targetAccId,
+        date: inv.date || todayLocalISO(),
+        note: inv.notes || `Invested in ${inv.name} (${inv.type})`,
+        source: 'Manual',
+      });
+    }
   };
 
   const handleUpdateInvestment = (updatedInv: InvestmentRecord) => {
@@ -1082,11 +1398,56 @@ export default function App() {
   };
 
   // Loan Actions
-  const handleAddLoan = (loan: LoanRecord) => {
+  const handleAddLoan = (
+    loan: LoanRecord,
+    accountId?: string,
+    recordInLedger: boolean = true
+  ) => {
     setLoans((prev) => [...prev, loan]);
+
+    const targetAccId = accountId || loan.linkedAccountId;
+    if (recordInLedger && targetAccId) {
+      if (loan.type === 'loan') {
+        const creditAmt = loan.financedPrincipal || loan.totalAmount;
+        if (creditAmt > 0) {
+          postLedgerEntry({
+            title: `Loan Received: ${loan.title || loan.personOrBank}`,
+            amount: creditAmt,
+            type: 'credit',
+            category: 'Loans & Lends',
+            subcategory: 'Loan Received',
+            accountId: targetAccId,
+            date: loan.startDate || todayLocalISO(),
+            note: loan.notes || `Disbursed loan from ${loan.personOrBank}`,
+            source: 'Manual',
+          });
+        }
+      } else {
+        const debitAmt = loan.totalAmount;
+        if (debitAmt > 0) {
+          postLedgerEntry({
+            title: `Lent to ${loan.personOrBank}`,
+            amount: debitAmt,
+            type: 'debit',
+            category: 'Loans & Lends',
+            subcategory: 'Lent Out',
+            accountId: targetAccId,
+            date: loan.startDate || todayLocalISO(),
+            note: loan.notes || `Lent to ${loan.personOrBank}`,
+            source: 'Manual',
+          });
+        }
+      }
+    }
   };
 
-  const handleRecordRepayment = (loanId: string, repayment: Repayment) => {
+  const handleRecordRepayment = (
+    loanId: string,
+    repayment: Repayment,
+    accountId?: string,
+    recordInLedger: boolean = true
+  ) => {
+    let targetLoan: LoanRecord | null = null;
     setLoans((prev) =>
       prev.map((l) => {
         if (l.id !== loanId) return l;
@@ -1095,19 +1456,107 @@ export default function App() {
         const newRepayments = [repayment, ...l.repayments];
         const newStatus = newRemaining === 0 ? 'repaid' : 'active';
 
-        return {
+        const updated: LoanRecord = {
           ...l,
           remainingAmount: newRemaining,
           status: newStatus,
           repayments: newRepayments,
         };
+        targetLoan = updated;
+        return updated;
       })
     );
+
+    const loan = targetLoan || loans.find((l) => l.id === loanId);
+    if (!loan) return;
+
+    const targetAccId = accountId || loan.linkedAccountId;
+    if (recordInLedger && targetAccId && repayment.amount > 0) {
+      if (loan.type === 'loan') {
+        postLedgerEntry({
+          title: `Loan Repayment: ${loan.title || loan.personOrBank}`,
+          amount: repayment.amount,
+          type: 'debit',
+          category: 'Loans & Lends',
+          subcategory: 'EMI Repayment',
+          accountId: targetAccId,
+          date: repayment.date || todayLocalISO(),
+          note: repayment.note || `Repayment for ${loan.personOrBank}`,
+          source: 'Manual',
+        });
+      } else {
+        postLedgerEntry({
+          title: `Repayment Received: ${loan.personOrBank}`,
+          amount: repayment.amount,
+          type: 'credit',
+          category: 'Loans & Lends',
+          subcategory: 'Repayment Received',
+          accountId: targetAccId,
+          date: repayment.date || todayLocalISO(),
+          note: repayment.note || `Repayment received from ${loan.personOrBank}`,
+          source: 'Manual',
+        });
+      }
+    }
   };
 
-  const handleSettleLoan = (loanId: string) => {
+  const handleSettleLoan = (
+    loanId: string,
+    accountId?: string,
+    recordInLedger: boolean = true
+  ) => {
+    const loan = loans.find((l) => l.id === loanId);
+    if (!loan) return;
+
+    const remaining = loan.remainingAmount;
+    const targetAccId = accountId || loan.linkedAccountId;
+
+    if (recordInLedger && targetAccId && remaining > 0) {
+      if (loan.type === 'loan') {
+        postLedgerEntry({
+          title: `Settled Loan: ${loan.title || loan.personOrBank}`,
+          amount: remaining,
+          type: 'debit',
+          category: 'Loans & Lends',
+          subcategory: 'EMI Repayment',
+          accountId: targetAccId,
+          date: todayLocalISO(),
+          note: `Full settlement of ${loan.title || loan.personOrBank}`,
+          source: 'Manual',
+        });
+      } else {
+        postLedgerEntry({
+          title: `Settled Lend: ${loan.personOrBank}`,
+          amount: remaining,
+          type: 'credit',
+          category: 'Loans & Lends',
+          subcategory: 'Repayment Received',
+          accountId: targetAccId,
+          date: todayLocalISO(),
+          note: `Full settlement received from ${loan.personOrBank}`,
+          source: 'Manual',
+        });
+      }
+    }
+
+    const settleRepayment: Repayment = {
+      id: newId('rep'),
+      amount: remaining,
+      date: todayLocalISO(),
+      note: 'Full settlement',
+    };
+
     setLoans((prev) =>
-      prev.map((l) => (l.id === loanId ? { ...l, remainingAmount: 0, status: 'repaid' } : l))
+      prev.map((l) =>
+        l.id === loanId
+          ? {
+              ...l,
+              remainingAmount: 0,
+              status: 'repaid',
+              repayments: remaining > 0 ? [settleRepayment, ...(l.repayments || [])] : l.repayments,
+            }
+          : l
+      )
     );
   };
 
@@ -1144,84 +1593,76 @@ export default function App() {
     paidDate: string,
     notes?: string
   ) => {
-    const targetLoan = loans.find((l) => l.id === loanId);
-    if (!targetLoan) return;
+    let updatedTargetLoan: LoanRecord | null = null;
+    let isAlreadyPaid = false;
 
-    // Guard against duplicate confirmation
-    const inst = targetLoan.schedule?.find((s) => s.installmentNumber === installmentNumber);
-    if (inst && inst.status === 'paid') {
+    setLoans((prev) => {
+      const currentLoan = prev.find((l) => l.id === loanId);
+      if (!currentLoan) return prev;
+
+      const inst = currentLoan.schedule?.find((s) => s.installmentNumber === installmentNumber);
+      if (inst && inst.status === 'paid') {
+        isAlreadyPaid = true;
+        return prev;
+      }
+
+      return prev.map((l) => {
+        if (l.id !== loanId) return l;
+        const newSchedule = (l.schedule || []).map((s) => {
+          if (s.installmentNumber === installmentNumber) {
+            return {
+              ...s,
+              status: 'paid' as const,
+              paidDate,
+              paymentAccountId,
+              notes: notes || s.notes,
+            };
+          }
+          return s;
+        });
+
+        const newRepayment: Repayment = {
+          id: newId('rep'),
+          amount,
+          date: paidDate,
+          note: notes || `EMI Installment #${installmentNumber}`,
+        };
+        const newRepayments = [newRepayment, ...(l.repayments || [])];
+        const newRemaining = Math.max(0, l.remainingAmount - amount);
+        const isFullyPaid = newRemaining === 0 || newSchedule.every((s) => s.status === 'paid');
+
+        const updated: LoanRecord = {
+          ...l,
+          remainingAmount: newRemaining,
+          schedule: newSchedule,
+          repayments: newRepayments,
+          status: isFullyPaid ? ('repaid' as const) : ('active' as const),
+        };
+        updatedTargetLoan = updated;
+        return updated;
+      });
+    });
+
+    if (isAlreadyPaid) {
       showToast('This installment is already recorded as paid.', 'info');
       return;
     }
 
-    // 1. Update loan schedule and remaining balance
-    const updatedLoans = loans.map((l) => {
-      if (l.id !== loanId) return l;
-      const newSchedule = (l.schedule || []).map((s) => {
-        if (s.installmentNumber === installmentNumber) {
-          return {
-            ...s,
-            status: 'paid' as const,
-            paidDate,
-            paymentAccountId,
-            notes: notes || s.notes,
-          };
-        }
-        return s;
-      });
+    if (!updatedTargetLoan) return;
+    const targetLoan: LoanRecord = updatedTargetLoan;
 
-      const newRepayment: Repayment = {
-        id: newId('rep'),
-        amount,
-        date: paidDate,
-        note: notes || `EMI Installment #${installmentNumber}`,
-      };
-      const newRepayments = [newRepayment, ...(l.repayments || [])];
-      const newRemaining = Math.max(0, l.remainingAmount - amount);
-      const isFullyPaid = newRemaining === 0 || newSchedule.every((s) => s.status === 'paid');
-
-      return {
-        ...l,
-        remainingAmount: newRemaining,
-        schedule: newSchedule,
-        repayments: newRepayments,
-        status: isFullyPaid ? ('repaid' as const) : ('active' as const),
-      };
-    });
-    setLoans(updatedLoans);
-
-    // 2. Deduct amount from payment bank account
-    if (paymentAccountId) {
-      setAccounts((prev) =>
-        prev.map((acc) => {
-          if (acc.id === paymentAccountId) {
-            return {
-              ...acc,
-              balance: Math.round((acc.balance - amount) * 100) / 100,
-            };
-          }
-          return acc;
-        })
-      );
-    }
-
-    // 3. Record transaction in actual financial ledger
-    const targetAcc = accounts.find((a) => a.id === paymentAccountId);
-    const emiTx: Transaction = {
-      id: newId('tx_emi'),
-      title: `EMI Payment: ${targetLoan.name || targetLoan.personOrBank} (#${installmentNumber})`,
+    // Use unified postLedgerEntry to adjust account and post transaction
+    postLedgerEntry({
+      title: `EMI Payment: ${targetLoan.title || targetLoan.personOrBank} (#${installmentNumber})`,
       amount,
       type: 'debit',
       category: 'Loans & Lends',
       subcategory: 'EMI Repayment',
+      accountId: paymentAccountId,
       date: paidDate,
-      time: new Date().toTimeString().slice(0, 5),
-      source: 'Manual',
-      payeeOrPayer: targetLoan.personOrBank,
-      paymentMethod: targetAcc ? `${targetAcc.name}` : 'Bank Auto-Debit',
       note: notes || `Scheduled installment #${installmentNumber} of ${targetLoan.personOrBank}`,
-    };
-    setTransactions((prev) => [emiTx, ...prev]);
+      source: 'Manual',
+    });
 
     showToast(`EMI payment of ${settings.currencySymbol}${amount.toLocaleString('en-IN')} confirmed and recorded!`, 'success');
   };
@@ -1257,41 +1698,23 @@ export default function App() {
       prev.map((inv) => (inv.id === investmentId ? updatedInvestment : inv))
     );
 
-    // 2. Credit net proceeds to destination bank account
+    // 2. Use unified postLedgerEntry to credit account and post transaction
     if (redemption.creditedAccountId) {
-      setAccounts((prev) =>
-        prev.map((acc) => {
-          if (acc.id === redemption.creditedAccountId) {
-            return {
-              ...acc,
-              balance: Math.round((acc.balance + redemption.netCredited) * 100) / 100,
-            };
-          }
-          return acc;
-        })
-      );
+      postLedgerEntry({
+        title: `Redemption: ${updatedInvestment.name} (${redemption.isFullRedemption ? 'Full' : `${redemption.unitsOrSharesRedeemed} units`})`,
+        amount: redemption.netCredited,
+        type: 'credit',
+        category: 'Investment',
+        subcategory: 'Redemption',
+        accountId: redemption.creditedAccountId,
+        date: redemption.date,
+        note: `Gross proceeds: ${settings.currencySymbol}${redemption.grossProceeds.toLocaleString('en-IN')}, Fees: ${settings.currencySymbol}${(redemption.charges || 0).toLocaleString('en-IN')}, Tax: ${settings.currencySymbol}${(redemption.taxes || 0).toLocaleString('en-IN')}, Realized P&L: ${redemption.realizedGainLoss >= 0 ? '+' : ''}${settings.currencySymbol}${redemption.realizedGainLoss.toLocaleString('en-IN')}`,
+        source: 'Manual',
+      });
     }
 
-    // 3. Record ledger transaction
-    const targetAcc = accounts.find((a) => a.id === redemption.creditedAccountId);
-    const redemptionTx: Transaction = {
-      id: `tx_redemp_${redemption.id}`,
-      title: `Redemption: ${updatedInvestment.name} (${redemption.isFullRedemption ? 'Full' : `${redemption.unitsOrSharesRedeemed} units`})`,
-      amount: redemption.netCredited,
-      type: 'credit',
-      category: 'Investment',
-      subcategory: 'Redemption',
-      date: redemption.date,
-      time: new Date().toTimeString().slice(0, 5),
-      source: 'Manual',
-      payeeOrPayer: targetAcc ? targetAcc.name : 'Investment Proceeds',
-      paymentMethod: targetAcc ? `${targetAcc.name}` : 'Direct Credit',
-      note: `Gross proceeds: ${settings.currencySymbol}${redemption.grossProceeds.toLocaleString('en-IN')}, Fees: ${settings.currencySymbol}${(redemption.charges || 0).toLocaleString('en-IN')}, Tax: ${settings.currencySymbol}${(redemption.taxes || 0).toLocaleString('en-IN')}, Realized P&L: ${redemption.realizedGainLoss >= 0 ? '+' : ''}${settings.currencySymbol}${redemption.realizedGainLoss.toLocaleString('en-IN')}`,
-    };
-    setTransactions((prev) => [redemptionTx, ...prev]);
-
     showToast(
-      `Redeemed successfully! ${settings.currencySymbol}${redemption.netCredited.toLocaleString('en-IN')} credited to ${targetAcc?.name || 'account'}.`,
+      `Redeemed successfully! ${settings.currencySymbol}${redemption.netCredited.toLocaleString('en-IN')} credited to account.`,
       'success'
     );
   };
@@ -1447,6 +1870,7 @@ export default function App() {
         setInvestments([]);
         setLoans([]);
         setPendingNotifications([]);
+        resetDuplicateMemory();
 
         if (isCloudBackendConfigured()) {
           await deleteAllUserDataFromSupabase();
@@ -1589,6 +2013,7 @@ export default function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pendingNotificationsCount={pendingNotifications.length}
+          pendingEmiCount={pendingEmiRequests.length}
           onOpenSimulator={() => setIsSimulatorOpen(true)}
           supabaseConnected={isAuthenticated && (!syncStatus || syncStatus.success)}
           currencySymbol={settings.currencySymbol}
@@ -1676,6 +2101,7 @@ export default function App() {
               categories={categories}
               investments={investments}
               loans={loans}
+              accounts={accounts}
               pendingNotifications={pendingNotifications}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenAddTransaction={() => handleOpenAddModal()}
@@ -1685,6 +2111,7 @@ export default function App() {
               }}
               onNavigateToTransactions={() => setActiveTab('transactions')}
               onNavigateToInvestments={() => setActiveTab('investments')}
+              onNavigateToLoans={() => setActiveTab('loans')}
               onNavigateToCustomisations={() => setActiveTab('customisations')}
               onTriggerBudgetAlert={(alert) => setActiveBudgetPushAlert(alert)}
               currencySymbol={settings.currencySymbol}
@@ -1808,6 +2235,7 @@ export default function App() {
           activeTab={activeTab}
           setActiveTab={setActiveTab}
           pendingNotificationsCount={pendingNotifications.length}
+          pendingEmiCount={pendingEmiRequests.length}
         />
       </div>
 
@@ -1919,6 +2347,7 @@ export default function App() {
           onInterceptNotification={handleInterceptedFromSimulator}
           onClose={() => setIsSimulatorOpen(false)}
           currencySymbol={settings.currencySymbol}
+          locationTracking={Boolean(settings.locationTracking)}
         />
       )}
 
@@ -1938,6 +2367,7 @@ export default function App() {
             setEditingTransaction(null);
           }}
           currencySymbol={settings.currencySymbol}
+          locationTracking={Boolean(settings.locationTracking)}
         />
       )}
     </div>

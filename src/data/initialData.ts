@@ -184,8 +184,10 @@ export const INITIAL_CATEGORIES: Category[] = [
   { id: 'cat_bills', name: 'Bills & Utilities', type: 'expense', iconName: 'Zap', subcategories: ['Electricity', 'Internet', 'Mobile Recharge', 'Rent'], budgetLimit: 25000 },
   { id: 'cat_sub', name: 'Subscriptions', type: 'expense', iconName: 'Tv', subcategories: ['Streaming', 'Software AI', 'Gym Membership'], budgetLimit: 4000 },
   { id: 'cat_health', name: 'Health & Fitness', type: 'expense', iconName: 'HeartPulse', subcategories: ['Medicines', 'Doctor Consult', 'Supplements'], budgetLimit: 5000 },
+  { id: 'cat_loans', name: 'Loans & Lends', type: 'expense', iconName: 'HandCoins', subcategories: ['EMI Repayment', 'Loan Received', 'Lent Out', 'Repayment Received'] },
 
   // Investment
+  { id: 'cat_investment', name: 'Investment', type: 'investment', iconName: 'TrendingUp', subcategories: ['Purchase', 'Redemption', 'SIP'] },
   { id: 'cat_inv_stocks', name: 'Stocks & ETFs', type: 'investment', iconName: 'BarChart2', subcategories: ['Large Cap', 'Mid Cap', 'US Tech Stocks'] },
   { id: 'cat_inv_mf', name: 'Mutual Funds', type: 'investment', iconName: 'PieChart', subcategories: ['Index Funds', 'Elss Tax Saver', 'Flexi Cap'] },
   { id: 'cat_inv_crypto', name: 'Crypto & Assets', type: 'investment', iconName: 'Coins', subcategories: ['Bitcoin', 'Ethereum', 'Gold Sovereign'] },

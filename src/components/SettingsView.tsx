@@ -92,6 +92,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // UPI/SMS Interceptor & Notifications
   const [autoExtractSms, setAutoExtractSms] = useState<boolean>(settings?.autoExtractSms ?? true);
   const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(settings?.notificationsEnabled ?? true);
+  const [locationTracking, setLocationTracking] = useState<boolean>(Boolean(settings?.locationTracking));
   const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
 
   // Demat & Connected Accounts State
@@ -1035,6 +1036,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }`}
               >
                 {notificationsEnabled ? 'ENABLED' : 'DISABLED'}
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Location Tagging</span>
+                <InfoButton
+                  id="location-tagging-info"
+                  title="Location Tagging"
+                  content="Capture real GPS coordinates and reverse-geocode place names when recording transactions or intercepting notifications."
+                  align="left"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const updated = !locationTracking;
+                  setLocationTracking(updated);
+                  onUpdateSettings({ ...settings, locationTracking: updated });
+                }}
+                className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
+                  locationTracking 
+                    ? 'bg-red-600 text-white' 
+                    : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border border-slate-300 dark:border-[#333]'
+                }`}
+              >
+                {locationTracking ? 'ENABLED' : 'DISABLED'}
               </button>
             </div>
           </div>

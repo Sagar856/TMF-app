@@ -54,7 +54,7 @@ interface InvestmentsViewProps {
   investments: InvestmentRecord[];
   transactions?: Transaction[];
   accounts?: FinancialAccount[];
-  onAddInvestment: (inv: InvestmentRecord) => void;
+  onAddInvestment: (inv: InvestmentRecord, accountId?: string, recordInLedger?: boolean) => void;
   onUpdateInvestment?: (inv: InvestmentRecord) => void;
   onDeleteInvestment?: (id: string) => void;
   onEditTransaction?: (tx: Transaction) => void;
@@ -220,6 +220,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [fdPayout, setFdPayout] = useState<'at_maturity' | 'monthly' | 'quarterly'>('at_maturity');
   const [fdPrematurePenalty, setFdPrematurePenalty] = useState<string>('1.0');
   const [linkedAccountId, setLinkedAccountId] = useState<string>(accounts[0]?.id || '');
+  const [recordInLedger, setRecordInLedger] = useState<boolean>(true);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSearchingMf, setIsSearchingMf] = useState<boolean>(false);
   const [mfSearchResults, setMfSearchResults] = useState<Array<{ schemeCode: number; schemeName: string }>>([]);
@@ -251,6 +252,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setFdPayout('at_maturity');
     setFdPrematurePenalty('1.0');
     setLinkedAccountId(accounts[0]?.id || '');
+    setRecordInLedger(true);
     setFormError(null);
     setShowMfSearchResults(false);
     setMfSearchResults([]);
@@ -874,7 +876,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         payoutFrequency: type === 'Fixed Deposit' ? fdPayout : undefined,
         prematurePenaltyPercent: type === 'Fixed Deposit' ? penalty : undefined,
       };
-      onAddInvestment(newInv);
+      onAddInvestment(newInv, linkedAccountId || undefined, recordInLedger);
     }
 
     resetForm();
@@ -923,7 +925,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         type: tx.type === 'CREDIT' ? 'credit' : 'debit',
         category: 'Investment',
         paymentMethod: tx.account,
-        source: 'MANUAL',
+        source: 'Manual',
       });
     }
   };
@@ -2571,6 +2573,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 </select>
               </div>
 
+              {!editingInv && (
+                <label className="flex items-center gap-2 text-xs font-mono text-[#aaa] cursor-pointer pt-1">
+                  <input
+                    type="checkbox"
+                    checked={recordInLedger}
+                    onChange={(e) => setRecordInLedger(e.target.checked)}
+                    className="accent-red-600 rounded bg-black border border-[#333] cursor-pointer"
+                  />
+                  <span className="text-[11px] text-white">Record in ledger & adjust account balance</span>
+                </label>
+              )}
+
               <div>
                 <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
                   Notes / Folio / Demat Details
@@ -2781,6 +2795,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              <p className="text-[10px] text-[#888] font-mono">
+                Note: Deleting this asset will not alter your account balance or transaction history.
+              </p>
 
               {/* Checkbox */}
               <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
