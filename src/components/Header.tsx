@@ -15,6 +15,8 @@ interface HeaderProps {
   onOpenProfile?: () => void;
   onOpenAuth?: () => void;
   currencySymbol: string;
+  currencyCode?: string;
+  locationTracking?: boolean;
   theme?: 'dark' | 'light';
   onToggleTheme?: () => void;
 }
@@ -30,6 +32,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProfile,
   onOpenAuth,
   currencySymbol,
+  currencyCode,
+  locationTracking,
   theme = 'dark',
   onToggleTheme,
 }) => {
@@ -68,16 +72,18 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Live Clock & Currency Badge */}
         <div className="hidden lg:flex items-center gap-3 bg-obsidian border border-nothing px-3 py-1.5 rounded-lg text-xs font-mono text-[#888]">
-          <span className="text-white font-bold">{currencySymbol} INR</span>
+          <span className="text-white font-bold">{currencySymbol} {currencyCode || 'INR'}</span>
           <span className="text-[#333]">|</span>
           <span className="text-red-500 font-bold">{timeStr}</span>
         </div>
 
         {/* GPS Badge */}
-        <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 bg-obsidian border border-nothing rounded-lg text-[10px] font-mono text-[#777]">
-          <MapPin className="w-3 h-3 text-red-500 animate-pulse" />
-          <span>GPS Auto-Loc</span>
-        </div>
+        {locationTracking && (
+          <div className="hidden xl:flex items-center gap-1.5 px-2.5 py-1.5 bg-obsidian border border-nothing rounded-lg text-[10px] font-mono text-[#777]">
+            <MapPin className="w-3 h-3 text-red-500 animate-pulse" />
+            <span>GPS Auto-Loc</span>
+          </div>
+        )}
 
         {/* Theme Toggle Button */}
         {onToggleTheme && (

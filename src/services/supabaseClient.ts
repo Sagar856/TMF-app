@@ -55,18 +55,18 @@ export function getSupabaseClient(): SupabaseClient | null {
   if (clientInitAttempted) return null; // avoid retrying createClient on every call when misconfigured
 
   const metaEnv = (import.meta as unknown as { env?: Record<string, string> }).env || {};
-  const supabaseUrl = metaEnv.VITE_SUPABASE_URL?.trim();
+  const rawBackendUrl = metaEnv.VITE_SUPABASE_URL?.trim();
   const supabaseKey = metaEnv.VITE_SUPABASE_ANON_KEY?.trim();
 
   clientInitAttempted = true;
 
-  if (!isValidHttpUrl(supabaseUrl) || !supabaseKey || supabaseKey === 'undefined' || supabaseKey === 'null' || supabaseKey.includes('YOUR_SUPABASE')) {
+  if (!isValidHttpUrl(rawBackendUrl) || !supabaseKey || supabaseKey === 'undefined' || supabaseKey === 'null' || supabaseKey.includes('YOUR_SUPABASE')) {
     console.warn('Cloud sync is disabled: VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY are not configured or invalid.');
     return null;
   }
 
   try {
-    supabaseInstance = createClient(supabaseUrl!, supabaseKey);
+    supabaseInstance = createClient(rawBackendUrl!, supabaseKey);
   } catch (err) {
     console.warn('Failed to initialize Supabase client:', err);
     return null;
@@ -113,7 +113,7 @@ export async function checkBackendReachable(): Promise<boolean> {
 
 export async function signUpUser(email: string, pass: string, fullName: string) {
   const client = getSupabaseClient();
-  if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
+  if (!client) throw new Error("Cloud backend is not configured for this build");
 
   const emailRedirectTo = getAuthRedirectUrl();
 
@@ -142,7 +142,7 @@ export async function signUpUser(email: string, pass: string, fullName: string) 
 
 export async function signInUser(email: string, pass: string) {
   const client = getSupabaseClient();
-  if (!client) throw new Error("Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.");
+  if (!client) throw new Error("Cloud backend is not configured for this build");
 
   const { data, error } = await client.auth.signInWithPassword({
     email,
@@ -179,7 +179,7 @@ export async function getCurrentUserSession() {
 // the app itself. See the README for the exact URL to add.
 export async function sendPasswordResetEmail(email: string): Promise<void> {
   const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase is not configured yet. Please enter your Supabase URL & Key in Settings.');
+  if (!client) throw new Error('Cloud backend is not configured for this build');
 
   const redirectTo = getAuthRedirectUrl();
 
@@ -199,7 +199,7 @@ export async function sendPasswordResetEmail(email: string): Promise<void> {
 // called after a PASSWORD_RECOVERY event has established a recovery session.
 export async function updatePassword(newPassword: string): Promise<void> {
   const client = getSupabaseClient();
-  if (!client) throw new Error('Supabase is not configured yet.');
+  if (!client) throw new Error('Cloud backend is not configured for this build');
 
   const { error } = await client.auth.updateUser({ password: newPassword });
   if (error) throw error;

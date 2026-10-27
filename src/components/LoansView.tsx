@@ -59,7 +59,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [selectedStatus, setSelectedStatus] = useState<string>('All');
 
   // State for expanded payment histories in table
-  const [expandedLoanIds, setExpandedLoanIds] = useState<string[]>(['loan_swapnil']);
+  const [expandedLoanIds, setExpandedLoanIds] = useState<string[]>([]);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);

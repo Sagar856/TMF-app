@@ -157,7 +157,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span className="flex items-center gap-1">
             <MapPin className="w-3 h-3 text-red-500" /> GPS ACTIVE
           </span>
-          <span>v1.0.4</span>
+          <span>v{__APP_VERSION__}</span>
         </div>
       </div>
     </nav>

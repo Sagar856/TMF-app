@@ -20,6 +20,7 @@ import {
   Check,
 } from 'lucide-react';
 import { InfoButton } from './InfoButton';
+import { formatMoney } from '../utils/money';
 
 interface ConnectedAccountsViewProps {
   settings: UserSettings;
@@ -28,69 +29,7 @@ interface ConnectedAccountsViewProps {
   onUpdateSettings: (newSettings: UserSettings) => void;
 }
 
-const DEFAULT_BROKERS: ConnectedDematAccount[] = [
-  {
-    id: 'zerodha',
-    brokerName: 'Zerodha Kite',
-    brokerCode: 'Zerodha',
-    clientId: 'ZD8492',
-    isConnected: true,
-    connectedAt: '2026-09-10',
-    lastSyncedAt: 'Today, 06:30 AM',
-    apiKeyMasked: 'kite_live_••••••78a9',
-    mockPortfolioValue: 215450,
-    mockReturnsPercent: 14.8,
-    totalHoldingsCount: 6,
-    color: '#387ed1',
-  },
-  {
-    id: 'dhan',
-    brokerName: 'Dhan HQ',
-    brokerCode: 'Dhan',
-    clientId: 'DHAN3109',
-    isConnected: true,
-    connectedAt: '2026-09-22',
-    lastSyncedAt: 'Today, 06:30 AM',
-    apiKeyMasked: 'dhan_sec_••••••42ef',
-    mockPortfolioValue: 148200,
-    mockReturnsPercent: 9.4,
-    totalHoldingsCount: 4,
-    color: '#6842ff',
-  },
-  {
-    id: 'groww',
-    brokerName: 'Groww Direct',
-    brokerCode: 'Groww',
-    clientId: 'GW9041',
-    isConnected: false,
-    color: '#00d09c',
-    mockPortfolioValue: 0,
-    mockReturnsPercent: 0,
-    totalHoldingsCount: 0,
-  },
-  {
-    id: 'upstox',
-    brokerName: 'Upstox Pro',
-    brokerCode: 'Upstox',
-    clientId: 'UP8123',
-    isConnected: false,
-    color: '#8833ff',
-    mockPortfolioValue: 0,
-    mockReturnsPercent: 0,
-    totalHoldingsCount: 0,
-  },
-  {
-    id: 'angelone',
-    brokerName: 'Angel One (SmartAPI)',
-    brokerCode: 'Angel One',
-    clientId: 'AN6712',
-    isConnected: false,
-    color: '#f26522',
-    mockPortfolioValue: 0,
-    mockReturnsPercent: 0,
-    totalHoldingsCount: 0,
-  },
-];
+const DEFAULT_BROKERS: ConnectedDematAccount[] = [];
 
 export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
   settings,
@@ -105,16 +44,11 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
   // Modal state for linking/editing a broker
   const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
   const [brokerToLink, setBrokerToLink] = useState<ConnectedDematAccount | null>(null);
-  const [linkClientId, setLinkClientId] = useState<string>('');
-  const [linkApiKey, setLinkApiKey] = useState<string>('');
-  const [linkInitialValue, setLinkInitialValue] = useState<string>('150000');
+  const [linkInitialValue, setLinkInitialValue] = useState<string>('0');
 
   // Load connected accounts from settings or fallback to default
   const connectedBrokers = useMemo(() => {
-    if (settings.connectedDematAccounts && settings.connectedDematAccounts.length > 0) {
-      return settings.connectedDematAccounts;
-    }
-    return DEFAULT_BROKERS;
+    return settings.connectedDematAccounts || [];
   }, [settings.connectedDematAccounts]);
 
   // Aggregated External Portfolio Calculation
@@ -141,24 +75,22 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
         totalHoldingsCount += matchingHoldings.length;
       } else {
         const mockVal = broker.mockPortfolioValue || 0;
-        const returns = broker.mockReturnsPercent || 12;
+        const returns = broker.mockReturnsPercent || 0;
         const mockInv = returns > 0 ? mockVal / (1 + returns / 100) : mockVal;
         totalValue += mockVal;
         totalInvested += mockInv;
-        totalHoldingsCount += broker.totalHoldingsCount || 3;
+        totalHoldingsCount += broker.totalHoldingsCount || 0;
       }
     });
 
     const totalProfit = Math.round((totalValue - totalInvested) * 100) / 100;
     const returnPct = totalInvested > 0 ? ((totalProfit / totalInvested) * 100).toFixed(2) : '0.00';
-    const dayEstimatedChange = Math.round(totalValue * 0.0125 * 100) / 100;
 
     return {
       totalValue: Math.round(totalValue * 100) / 100,
       totalInvested: Math.round(totalInvested * 100) / 100,
       totalProfit,
       returnPct,
-      dayEstimatedChange,
       connectedBrokersCount,
       totalHoldingsCount,
     };
@@ -167,29 +99,36 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
   // Sync all connected portfolios
   const handleSyncAll = () => {
     setIsSyncingAll(true);
-    setTimeout(() => {
-      const nowStr = new Date().toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-      const updated = connectedBrokers.map((b) => {
-        if (!b.isConnected) return b;
-        return {
-          ...b,
-          lastSyncedAt: `Today, ${nowStr}`,
-        };
-      });
+    const nowStr = new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    const updated = connectedBrokers.map((b) => {
+      if (!b.isConnected) return b;
+      const matching = investments.filter(
+        (inv) => (inv.dematAccount || '').toLowerCase() === b.brokerCode.toLowerCase()
+      );
+      const totalCur = matching.reduce((sum, h) => sum + h.currentValue, 0);
+      const totalInv = matching.reduce((sum, h) => sum + h.amountInvested, 0);
+      const retPct = totalInv > 0 ? ((totalCur - totalInv) / totalInv) * 100 : 0;
+      return {
+        ...b,
+        lastSyncedAt: `Today, ${nowStr}`,
+        mockPortfolioValue: matching.length > 0 ? totalCur : b.mockPortfolioValue || 0,
+        mockReturnsPercent: matching.length > 0 ? Math.round(retPct * 10) / 10 : b.mockReturnsPercent || 0,
+        totalHoldingsCount: matching.length > 0 ? matching.length : b.totalHoldingsCount || 0,
+      };
+    });
 
-      onUpdateSettings({
-        ...settings,
-        connectedDematAccounts: updated,
-      });
+    onUpdateSettings({
+      ...settings,
+      connectedDematAccounts: updated,
+    });
 
-      setIsSyncingAll(false);
-      setSyncFeedback('All external Demat portfolios synced successfully!');
-      setTimeout(() => setSyncFeedback(null), 3500);
-    }, 850);
+    setIsSyncingAll(false);
+    setSyncFeedback('All external Demat portfolios synced successfully!');
+    setTimeout(() => setSyncFeedback(null), 3500);
   };
 
   // Sync a single broker
@@ -201,9 +140,18 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
     });
     const updated = connectedBrokers.map((b) => {
       if (b.id !== brokerId) return b;
+      const matching = investments.filter(
+        (inv) => (inv.dematAccount || '').toLowerCase() === b.brokerCode.toLowerCase()
+      );
+      const totalCur = matching.reduce((sum, h) => sum + h.currentValue, 0);
+      const totalInv = matching.reduce((sum, h) => sum + h.amountInvested, 0);
+      const retPct = totalInv > 0 ? ((totalCur - totalInv) / totalInv) * 100 : 0;
       return {
         ...b,
         lastSyncedAt: `Today, ${nowStr}`,
+        mockPortfolioValue: matching.length > 0 ? totalCur : b.mockPortfolioValue || 0,
+        mockReturnsPercent: matching.length > 0 ? Math.round(retPct * 10) / 10 : b.mockReturnsPercent || 0,
+        totalHoldingsCount: matching.length > 0 ? matching.length : b.totalHoldingsCount || 0,
       };
     });
 
@@ -238,18 +186,10 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
   // Open modal to link a broker
   const handleOpenLinkModal = (broker: ConnectedDematAccount) => {
     setBrokerToLink(broker);
-    setLinkClientId(
-      broker.clientId ||
-        `${broker.id.toUpperCase().slice(0, 2)}${Math.floor(1000 + Math.random() * 9000)}`
-    );
-    setLinkApiKey(
-      broker.apiKeyMasked ||
-        `${broker.id}_live_token_${Math.random().toString(36).substring(2, 8)}`
-    );
     setLinkInitialValue(
       broker.mockPortfolioValue && broker.mockPortfolioValue > 0
         ? broker.mockPortfolioValue.toString()
-        : '150000'
+        : '0'
     );
     setShowLinkModal(true);
   };
@@ -259,24 +199,29 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
     e.preventDefault();
     if (!brokerToLink) return;
 
-    const val = parseFloat(linkInitialValue) || 125000;
+    const val = parseFloat(linkInitialValue) || 0;
     const nowStr = new Date().toLocaleTimeString('en-US', {
       hour: '2-digit',
       minute: '2-digit',
     });
+
+    const matching = investments.filter(
+      (inv) => (inv.dematAccount || '').toLowerCase() === brokerToLink.brokerCode.toLowerCase()
+    );
+    const totalCur = matching.reduce((sum, h) => sum + h.currentValue, 0);
+    const totalInv = matching.reduce((sum, h) => sum + h.amountInvested, 0);
+    const retPct = totalInv > 0 ? ((totalCur - totalInv) / totalInv) * 100 : 0;
 
     const updated = connectedBrokers.map((b) => {
       if (b.id !== brokerToLink.id) return b;
       return {
         ...b,
         isConnected: true,
-        clientId: linkClientId.trim() || b.clientId,
-        apiKeyMasked: `${brokerToLink.id}_token_••••${Math.random().toString(36).substring(2, 6)}`,
         connectedAt: todayLocalISO(),
         lastSyncedAt: `Today, ${nowStr}`,
-        mockPortfolioValue: val,
-        mockReturnsPercent: 12.8,
-        totalHoldingsCount: Math.max(3, Math.floor(val / 35000)),
+        mockPortfolioValue: matching.length > 0 ? totalCur : val,
+        mockReturnsPercent: matching.length > 0 ? Math.round(retPct * 10) / 10 : 0,
+        totalHoldingsCount: matching.length,
       };
     });
 
@@ -287,7 +232,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
 
     setShowLinkModal(false);
     setBrokerToLink(null);
-    setSyncFeedback(`Successfully linked ${brokerToLink.brokerName} Demat account!`);
+    setSyncFeedback(`Successfully linked ${brokerToLink.brokerName} portfolio!`);
     setTimeout(() => setSyncFeedback(null), 3500);
   };
 
@@ -323,14 +268,14 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm sm:text-base font-bold text-white uppercase tracking-wider">
-                  Aggregated External Portfolio
+                  Manual Broker Portfolios (no live connection)
                 </h3>
                 <span className="text-[10px] px-2 py-0.5 bg-purple-950 text-purple-300 border border-purple-700/50 rounded-full font-bold">
                   {aggregatedStats.connectedBrokersCount} Linked
                 </span>
               </div>
               <p className="text-[10px] text-[#888]">
-                Real-time valuation across Zerodha, Dhan, and external Demat accounts
+                Manual portfolio aggregation from tracked investment holdings
               </p>
             </div>
           </div>
@@ -367,17 +312,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
             <div className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
               {showValueMasked
                 ? '••••••••'
-                : `${currencySymbol}${aggregatedStats.totalValue.toLocaleString('en-IN', {
-                    minimumFractionDigits: 1,
-                    maximumFractionDigits: 2,
-                  })}`}
-            </div>
-            <div className="text-[11px] text-emerald-400 font-bold flex items-center gap-1 mt-1">
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>
-                +{currencySymbol}
-                {aggregatedStats.dayEstimatedChange.toLocaleString('en-IN')} (+1.25% Today)
-              </span>
+                : formatMoney(aggregatedStats.totalValue, { symbol: currencySymbol, locale: settings?.locale })}
             </div>
           </div>
 
@@ -389,10 +324,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
             <div className="text-lg sm:text-xl font-bold text-[#bbb]">
               {showValueMasked
                 ? '••••••••'
-                : `${currencySymbol}${aggregatedStats.totalInvested.toLocaleString('en-IN', {
-                    minimumFractionDigits: 1,
-                    maximumFractionDigits: 2,
-                  })}`}
+                : formatMoney(aggregatedStats.totalInvested, { symbol: currencySymbol, locale: settings?.locale })}
             </div>
             <div className="text-[10px] text-[#777] mt-1">
               {aggregatedStats.totalHoldingsCount} Holdings Across Connected Demats
@@ -407,10 +339,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
             <div className="text-lg sm:text-xl font-bold text-emerald-400">
               {showValueMasked
                 ? '••••••••'
-                : `+${currencySymbol}${aggregatedStats.totalProfit.toLocaleString('en-IN', {
-                    minimumFractionDigits: 1,
-                    maximumFractionDigits: 2,
-                  })}`}
+                : `+${formatMoney(aggregatedStats.totalProfit, { symbol: currencySymbol, locale: settings?.locale })}`}
             </div>
             <div className="text-[10px] text-emerald-400 font-bold mt-1">
               +{aggregatedStats.returnPct}% Overall Net Return
@@ -492,11 +421,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
                         Portfolio Value
                       </span>
                       <span className="font-bold text-white">
-                        {currencySymbol}
-                        {displayValue.toLocaleString('en-IN', {
-                          minimumFractionDigits: 1,
-                          maximumFractionDigits: 2,
-                        })}
+                        {formatMoney(displayValue, { symbol: currencySymbol, locale: settings?.locale })}
                       </span>
                     </div>
                     <div className="text-right">
@@ -585,48 +510,8 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
 
             <form onSubmit={handleConfirmLink} className="space-y-3.5">
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1 flex items-center justify-between">
-                  <span>Client ID / UCC (User Code)</span>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setLinkClientId(
-                        `${brokerToLink.id.toUpperCase().slice(0, 2)}${Math.floor(
-                          1000 + Math.random() * 9000
-                        )}`
-                      )
-                    }
-                    className="text-[9px] text-purple-400 hover:underline cursor-pointer"
-                  >
-                    Generate Random ID
-                  </button>
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={linkClientId}
-                  onChange={(e) => setLinkClientId(e.target.value)}
-                  placeholder="e.g. ZD8492 or DHAN3109"
-                  className="w-full px-3 py-2 bg-[#1b1b28] border border-[#37374e] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
-                />
-              </div>
-
-              <div>
                 <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  API Key / Access Token (Mock Session)
-                </label>
-                <input
-                  type="text"
-                  value={linkApiKey}
-                  onChange={(e) => setLinkApiKey(e.target.value)}
-                  placeholder="mock_api_token_..."
-                  className="w-full px-3 py-2 bg-[#1b1b28] border border-[#37374e] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500 font-mono"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  Initial Synced Portfolio Value ({currencySymbol})
+                  Manual Initial Portfolio Value ({currencySymbol})
                 </label>
                 <input
                   type="number"
@@ -634,7 +519,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
                   value={linkInitialValue}
                   onWheel={(e) => (e.target as HTMLElement).blur()}
                   onChange={(e) => setLinkInitialValue(e.target.value)}
-                  placeholder="150000"
+                  placeholder="0"
                   className="w-full px-3 py-2 bg-[#1b1b28] border border-[#37374e] rounded-xl text-xs text-white focus:outline-none focus:border-purple-500"
                 />
               </div>
@@ -642,10 +527,10 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
               <div className="p-3 bg-purple-950/40 border border-purple-800/40 rounded-xl text-[10px] text-[#bbb] space-y-1">
                 <div className="font-bold text-white flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  Mock Connect Architecture
+                  Manual Portfolio Architecture
                 </div>
                 <p>
-                  This links the account and automatically syncs holdings into your aggregated external portfolio summary card.
+                  This links the account and automatically syncs holdings matching this broker code from your tracked investments.
                 </p>
               </div>
 
@@ -654,7 +539,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
                   type="submit"
                   className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-lg"
                 >
-                  Connect & Sync Portfolio
+                  Link & Sync Portfolio
                 </button>
               </div>
             </form>

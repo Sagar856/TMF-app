@@ -31,6 +31,8 @@ import {
 import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
 import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 import { InfoButton } from './InfoButton';
+import { EmptyState } from './EmptyState';
+import { formatMoney } from '../utils/money';
 
 import { Transaction, Category, LoanRecord } from '../types/finance';
 import { newId } from '../utils/ids';
@@ -417,88 +419,10 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       });
     }
 
-    // Fallback: If no bills detected, populate preset demo recurring items
-    if (items.length === 0) {
-      const defaultPresets: DetectedRecurringItem[] = [
-        {
-          id: 'preset_airtel',
-          title: 'Airtel Fiber & Mobile',
-          amount: 2360,
-          category: 'Bills & Utilities',
-          payeeOrPayer: 'Airtel Digital Broadband',
-          frequency: 'Monthly',
-          expectedDayOfMonth: 15,
-          lastPaidDate: '2026-07-15',
-          nextDueDate: `${selectedMonth}-15`,
-          daysRemaining: 3,
-          status: 'DUE_SOON',
-          type: 'debit',
-          autoDebit: false,
-        },
-        {
-          id: 'preset_zerodha',
-          title: 'Zerodha Mutual Fund SIP',
-          amount: 15000,
-          category: 'Mutual Funds',
-          payeeOrPayer: 'Zerodha Broking Ltd',
-          frequency: 'Monthly',
-          expectedDayOfMonth: 20,
-          lastPaidDate: '2026-07-20',
-          nextDueDate: `${selectedMonth}-20`,
-          daysRemaining: 8,
-          status: 'SCHEDULED',
-          type: 'debit',
-          autoDebit: true,
-        },
-        {
-          id: 'preset_rent',
-          title: 'Apartment House Rent',
-          amount: 35000,
-          category: 'Bills & Utilities',
-          payeeOrPayer: 'Landlord Direct UPI',
-          frequency: 'Monthly',
-          expectedDayOfMonth: 1,
-          lastPaidDate: '2026-07-01',
-          nextDueDate: `${selectedMonth}-01`,
-          daysRemaining: -2,
-          status: 'OVERDUE',
-          type: 'debit',
-          autoDebit: false,
-        },
-        {
-          id: 'preset_salary',
-          title: 'Monthly Tech Salary',
-          amount: 145000,
-          category: 'Salary',
-          payeeOrPayer: 'Nothing Technologies',
-          frequency: 'Monthly',
-          expectedDayOfMonth: 25,
-          lastPaidDate: '2026-07-25',
-          nextDueDate: `${selectedMonth}-25`,
-          daysRemaining: 13,
-          status: 'SCHEDULED',
-          type: 'credit',
-          autoDebit: true,
-        },
-      ];
-
-      return defaultPresets.map((preset) => {
-        const dueDateObj = new Date(preset.nextDueDate);
-        const diffTime = dueDateObj.getTime() - referenceDateObj.getTime();
-        const days = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        let st: DetectedRecurringItem['status'] = preset.status;
-        if (markedPaidIds.has(preset.id)) st = 'PAID';
-        else if (days < 0) st = 'OVERDUE';
-        else if (days === 0) st = 'DUE_TODAY';
-        else if (days <= 7) st = 'DUE_SOON';
-        return { ...preset, daysRemaining: days, status: st };
-      });
-    }
-
     // Sort items: OVERDUE / DUE_TODAY / DUE_SOON first, then SCHEDULED, then PAID
     const statusPriority = { OVERDUE: 1, DUE_TODAY: 2, DUE_SOON: 3, SCHEDULED: 4, PAID: 5 };
     return items.sort((a, b) => statusPriority[a.status] - statusPriority[b.status]);
-  }, [transactions, customBills, referenceDateObj, selectedMonth, markedPaidIds]);
+  }, [transactions, customBills, loans, referenceDateObj, selectedMonth, markedPaidIds]);
 
   // Projected Outflows & Financial Metrics for Selected Month
   const monthlyMetrics = useMemo(() => {
@@ -699,7 +623,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             <div className="text-[10px] text-[#888] mt-0.5 flex items-center gap-2 flex-wrap">
               <span>{monthlyMetrics.totalBillsCount} Monthly Bills</span>
               <span>•</span>
-              <span>Projected Outflow: <strong className="text-red-400">{currencySymbol}{monthlyMetrics.totalProjectedOutflows.toLocaleString('en-IN')}</strong></span>
+              <span>Projected Outflow: <strong className="text-red-400">{formatMoney(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}</strong></span>
             </div>
           </div>
         </div>
@@ -742,111 +666,123 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       {/* Progressive Scroll-Driven Body Content */}
       <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
         <div ref={handleContentRef} className="p-3.5 sm:p-4 pt-0 space-y-4 border-t border-nothing/60 bg-carbon">
-          {/* Top Month Selector & Projected Outflows Banner */}
-          <div className="p-3.5 bg-obsidian border border-nothing rounded-xl space-y-3 mt-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              {/* Month Selector Controls */}
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrevMonth}
-                  className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
-                  title="Previous Month"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-2 px-3 py-1 bg-carbon border border-nothing rounded-lg">
-                  <Calendar className="w-3.5 h-3.5 text-red-400" />
-                  <span className="text-xs font-bold text-white uppercase tracking-wide">
-                    {formatMonthLabel(selectedMonth)}
-                  </span>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleNextMonth}
-                  className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
-                  title="Next Month"
-                >
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-
-                {selectedMonth !== currentMonthStr && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedMonth(currentMonthStr);
-                      setSelectedCalendarDay(null);
-                    }}
-                    className="text-[10px] text-red-400 hover:underline ml-1 cursor-pointer font-bold"
-                  >
-                    Reset Today
-                  </button>
-                )}
-              </div>
-
-              {/* View Mode Switcher (Calendar vs List) */}
-              <div className="flex items-center gap-1 bg-carbon p-1 rounded-lg border border-nothing self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('CALENDAR')}
-                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === 'CALENDAR'
-                      ? 'bg-red-600 text-white shadow'
-                      : 'text-[#888] hover:text-white'
-                  }`}
-                >
-                  <CalendarDays className="w-3 h-3" />
-                  <span>Calendar View</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setViewMode('LIST')}
-                  className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
-                    viewMode === 'LIST'
-                      ? 'bg-red-600 text-white shadow'
-                      : 'text-[#888] hover:text-white'
-                  }`}
-                >
-                  <List className="w-3 h-3" />
-                  <span>List View</span>
-                </button>
-              </div>
+          {recurringItems.length === 0 ? (
+            <div className="py-6">
+              <EmptyState
+                icon={Repeat}
+                title="No Recurring Bills Found"
+                description="No repeated bills or active loan EMIs were detected."
+                actionLabel="Add recurring bill"
+                onAction={() => setShowAddModal(true)}
+              />
             </div>
+          ) : (
+            <>
+              {/* Top Month Selector & Projected Outflows Banner */}
+              <div className="p-3.5 bg-obsidian border border-nothing rounded-xl space-y-3 mt-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  {/* Month Selector Controls */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handlePrevMonth}
+                      className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
+                      title="Previous Month"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
 
-            {/* Projected Outflows Metric Bar */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#1e1e1e]">
-              <div className="p-2.5 bg-carbon border border-red-900/40 rounded-xl space-y-0.5">
-                <div className="text-[9px] uppercase font-bold text-[#888]">Total Projected Outflow</div>
-                <div className="text-sm sm:text-base font-bold text-red-400">
-                  {currencySymbol}{monthlyMetrics.totalProjectedOutflows.toLocaleString('en-IN')}
+                    <div className="flex items-center gap-2 px-3 py-1 bg-carbon border border-nothing rounded-lg">
+                      <Calendar className="w-3.5 h-3.5 text-red-400" />
+                      <span className="text-xs font-bold text-white uppercase tracking-wide">
+                        {formatMonthLabel(selectedMonth)}
+                      </span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleNextMonth}
+                      className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
+                      title="Next Month"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+
+                    {selectedMonth !== currentMonthStr && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedMonth(currentMonthStr);
+                          setSelectedCalendarDay(null);
+                        }}
+                        className="text-[10px] text-red-400 hover:underline ml-1 cursor-pointer font-bold"
+                      >
+                        Reset Today
+                      </button>
+                    )}
+                  </div>
+
+                  {/* View Mode Switcher (Calendar vs List) */}
+                  <div className="flex items-center gap-1 bg-carbon p-1 rounded-lg border border-nothing self-start sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('CALENDAR')}
+                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                        viewMode === 'CALENDAR'
+                          ? 'bg-red-600 text-white shadow'
+                          : 'text-[#888] hover:text-white'
+                      }`}
+                    >
+                      <CalendarDays className="w-3 h-3" />
+                      <span>Calendar View</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setViewMode('LIST')}
+                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
+                        viewMode === 'LIST'
+                          ? 'bg-red-600 text-white shadow'
+                          : 'text-[#888] hover:text-white'
+                      }`}
+                    >
+                      <List className="w-3 h-3" />
+                      <span>List View</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Projected Outflows Metric Bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#1e1e1e]">
+                  <div className="p-2.5 bg-carbon border border-red-900/40 rounded-xl space-y-0.5">
+                    <div className="text-[9px] uppercase font-bold text-[#888]">Total Projected Outflow</div>
+                    <div className="text-sm sm:text-base font-bold text-red-400">
+                      {formatMoney(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-carbon border border-emerald-900/40 rounded-xl space-y-0.5">
+                    <div className="text-[9px] uppercase font-bold text-[#888]">Paid Outflows</div>
+                    <div className="text-sm sm:text-base font-bold text-emerald-400">
+                      {formatMoney(monthlyMetrics.paidOutflows, { symbol: currencySymbol })}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-carbon border border-amber-900/40 rounded-xl space-y-0.5">
+                    <div className="text-[9px] uppercase font-bold text-[#888]">Remaining Pending</div>
+                    <div className="text-sm sm:text-base font-bold text-amber-400">
+                      {formatMoney(monthlyMetrics.remainingOutflows, { symbol: currencySymbol })}
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-carbon border border-nothing rounded-xl space-y-0.5">
+                    <div className="text-[9px] uppercase font-bold text-[#888]">Projected Inflows</div>
+                    <div className="text-sm sm:text-base font-bold text-blue-400">
+                      {formatMoney(monthlyMetrics.totalProjectedInflows, { symbol: currencySymbol })}
+                    </div>
+                  </div>
                 </div>
               </div>
-
-              <div className="p-2.5 bg-carbon border border-emerald-900/40 rounded-xl space-y-0.5">
-                <div className="text-[9px] uppercase font-bold text-[#888]">Paid Outflows</div>
-                <div className="text-sm sm:text-base font-bold text-emerald-400">
-                  {currencySymbol}{monthlyMetrics.paidOutflows.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-carbon border border-amber-900/40 rounded-xl space-y-0.5">
-                <div className="text-[9px] uppercase font-bold text-[#888]">Remaining Pending</div>
-                <div className="text-sm sm:text-base font-bold text-amber-400">
-                  {currencySymbol}{monthlyMetrics.remainingOutflows.toLocaleString('en-IN')}
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-carbon border border-nothing rounded-xl space-y-0.5">
-                <div className="text-[9px] uppercase font-bold text-[#888]">Projected Inflows</div>
-                <div className="text-sm sm:text-base font-bold text-blue-400">
-                  {currencySymbol}{monthlyMetrics.totalProjectedInflows.toLocaleString('en-IN')}
-                </div>
-              </div>
-            </div>
-          </div>
 
           {/* ==================== MONTHLY CALENDAR VIEW ==================== */}
           {viewMode === 'CALENDAR' && (
@@ -954,7 +890,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                           <div className={`text-[9px] sm:text-[10px] font-bold ${
                             hasOverdueOrToday ? 'text-red-400' : allPaid ? 'text-emerald-400' : 'text-amber-300'
                           }`}>
-                            {currencySymbol}{totalDayExpense.toLocaleString('en-IN')}
+                            {formatMoney(totalDayExpense, { symbol: currencySymbol })}
                           </div>
                           {dayBills.length > 1 && (
                             <div className="text-[8px] text-[#888] hidden sm:block">
@@ -1114,8 +1050,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                               : 'text-white'
                           }`}
                         >
-                          {item.type === 'credit' ? '+' : '-'}{currencySymbol}
-                          {item.amount.toLocaleString('en-IN')}
+                          {item.type === 'credit' ? '+' : '-'}{formatMoney(item.amount, { symbol: currencySymbol })}
                         </div>
 
                         {/* Status Label Tag */}
@@ -1182,6 +1117,8 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                 <ArrowUpRight className="w-3 h-3" />
               </button>
             </div>
+          )}
+            </>
           )}
         </div>
       </div>

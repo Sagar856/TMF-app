@@ -28,15 +28,27 @@ import {
   MoreVertical,
   Check
 } from 'lucide-react';
-import { FinancialAccount, Transaction, AccountType } from '../types/finance';
+import { FinancialAccount, Transaction, AccountType, UserSettings } from '../types/finance';
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
+import { formatMoney } from '../utils/money';
+
+function formatDueDay(dayStr?: string): string {
+  if (!dayStr) return '';
+  const num = parseInt(dayStr, 10);
+  if (isNaN(num)) return `Due on the ${dayStr}`;
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = num % 100;
+  const suffix = s[(v - 20) % 10] || s[v] || s[0];
+  return `Due on the ${num}${suffix}`;
+}
 
 interface AccountsViewProps {
   accounts: FinancialAccount[];
   transactions: Transaction[];
   currencySymbol: string;
+  settings?: UserSettings;
   onAddAccount: (acc: FinancialAccount) => void;
   onUpdateAccount: (acc: FinancialAccount) => void;
   onDeleteAccount: (id: string) => void;
@@ -46,6 +58,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   accounts,
   transactions,
   currencySymbol,
+  settings,
   onAddAccount,
   onUpdateAccount,
   onDeleteAccount,
@@ -127,17 +140,18 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   // Form Fields
   const [accName, setAccName] = useState<string>('');
-  const [bankName, setBankName] = useState<string>('Kotak');
+  const [bankName, setBankName] = useState<string>('');
   const [accType, setAccType] = useState<AccountType>('Bank');
   const [last4, setLast4] = useState<string>('');
   const [balance, setBalance] = useState<string>('');
   const [creditLimit, setCreditLimit] = useState<string>('');
   const [approxMonthlyBill, setApproxMonthlyBill] = useState<string>('');
-  const [dueDate, setDueDate] = useState<string>('15th Aug');
-  const [cardHolderName, setCardHolderName] = useState<string>('sgrnboff');
+  const [dueDate, setDueDate] = useState<string>('');
+  const [cardHolderName, setCardHolderName] = useState<string>(settings?.userName || '');
   const [cardNetwork, setCardNetwork] = useState<'Visa' | 'Mastercard' | 'RuPay' | 'Amex'>('Visa');
   const [cardTheme, setCardTheme] = useState<'silver' | 'dark' | 'emerald' | 'gold' | 'midnight'>('silver');
   const [isDefault, setIsDefault] = useState<boolean>(false);
+  const [formError, setFormError] = useState<string>('');
 
   // Filtered accounts
   const filteredAccounts = useMemo(() => {
@@ -185,15 +199,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleOpenAdd = () => {
     setEditingAcc(null);
+    setFormError('');
     setAccName('');
-    setBankName('Kotak');
+    setBankName('');
     setAccType('Bank');
     setLast4('');
     setBalance('');
-    setCreditLimit('300000');
+    setCreditLimit('');
     setApproxMonthlyBill('');
-    setDueDate('15th Aug');
-    setCardHolderName('sgrnboff');
+    setDueDate('');
+    setCardHolderName(settings?.userName || '');
     setCardNetwork('Visa');
     setCardTheme('silver');
     setIsDefault(false);
@@ -203,6 +218,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const handleOpenEdit = (acc: FinancialAccount, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingAcc(acc);
+    setFormError('');
     setAccName(acc.name);
     setBankName(acc.bankName);
     setAccType(acc.type);
@@ -210,8 +226,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setBalance(acc.balance.toString());
     setCreditLimit(acc.creditLimit ? acc.creditLimit.toString() : '');
     setApproxMonthlyBill(acc.approxMonthlyBill ? acc.approxMonthlyBill.toString() : '');
-    setDueDate(acc.dueDate || '15th Aug');
-    setCardHolderName(acc.cardHolderName || 'sgrnboff');
+    setDueDate(acc.dueDate || '');
+    setCardHolderName(acc.cardHolderName || settings?.userName || '');
     setCardNetwork(acc.cardNetwork || 'Visa');
     setCardTheme(acc.cardColorTheme || 'silver');
     setIsDefault(Boolean(acc.isDefault));
@@ -220,21 +236,29 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError('');
+
+    const cleanedLast4 = last4.trim();
+    if (!/^\d{4}$/.test(cleanedLast4)) {
+      setFormError('Account / Card last 4 must be exactly 4 digits');
+      return;
+    }
+
     const balNum = parseFloat(balance) || 0;
     const limitNum = parseFloat(creditLimit) || 0;
     const billNum = parseFloat(approxMonthlyBill) || balNum;
 
     const updated: FinancialAccount = {
       id: editingAcc ? editingAcc.id : newId('acc'),
-      name: accName.trim() || `${bankName} ${accType}`,
+      name: accName.trim() || `${bankName || 'Account'} ${accType}`,
       bankName: bankName.trim(),
       type: accType,
-      accountNumberLast4: last4.trim().slice(-4) || '1234',
+      accountNumberLast4: cleanedLast4,
       balance: balNum,
       creditLimit: accType === 'Credit Card' ? limitNum : undefined,
       approxMonthlyBill: accType === 'Credit Card' ? billNum : undefined,
-      dueDate: accType === 'Credit Card' ? dueDate : undefined,
-      cardHolderName: cardHolderName.trim() || 'sgrnboff',
+      dueDate: accType === 'Credit Card' ? dueDate.trim() : undefined,
+      cardHolderName: cardHolderName.trim() || settings?.userName || 'User',
       cardNetwork,
       cardColorTheme: cardTheme,
       isDefault,
@@ -538,7 +562,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <div className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold border ${
                         isSilver ? 'bg-slate-900/10 border-slate-900/30 text-slate-950' : 'bg-red-950/80 border-red-500/40 text-red-400'
                       }`}>
-                        DUE: {card.dueDate}
+                        {formatDueDay(card.dueDate)}
                       </div>
                     )}
                   </div>
@@ -549,7 +573,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <div className="flex justify-between text-[8px] font-mono opacity-80">
                         <span className={subTextColor}>UTILIZATION</span>
                         <span className={`font-bold ${textColor}`}>
-                          {Math.round((card.balance / card.creditLimit) * 100)}% ({currencySymbol}{card.balance.toLocaleString('en-IN')})
+                          {Math.round((card.balance / card.creditLimit) * 100)}% ({formatMoney(card.balance, { symbol: currencySymbol, locale: settings?.locale })})
                         </span>
                       </div>
                       <div className="w-full h-1 bg-black/20 rounded-full overflow-hidden">
@@ -566,14 +590,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     <div>
                       <div className={`text-[8px] uppercase ${subTextColor}`}>HOLDER</div>
                       <div className={`font-bold uppercase tracking-wider ${textColor}`}>
-                        {card.cardHolderName || 'sgrnboff'}
+                        {card.cardHolderName || settings?.userName || 'User'}
                       </div>
                     </div>
 
                     <div className="text-right">
                       <div className={`text-[8px] uppercase ${subTextColor}`}>APPROX BILL</div>
                       <div className={`text-xs font-mono font-black ${textColor}`}>
-                        {currencySymbol}{(card.approxMonthlyBill || card.balance).toLocaleString('en-IN')}
+                        {formatMoney(card.approxMonthlyBill || card.balance, { symbol: currencySymbol, locale: settings?.locale })}
                       </div>
                     </div>
                   </div>
@@ -650,7 +674,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
-                {showNetLiquid ? `${currencySymbol}${totalLiquidAssets.toLocaleString('en-IN')}` : '••••••••'}
+                {showNetLiquid ? formatMoney(totalLiquidAssets, { symbol: currencySymbol, locale: settings?.locale }) : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 {bankAccounts.length} Banks + {wallets.length} Wallets
@@ -687,7 +711,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
-                {showCardSpent ? `${currencySymbol}${totalCreditCardSpent.toLocaleString('en-IN')}` : '••••••••'}
+                {showCardSpent ? formatMoney(totalCreditCardSpent, { symbol: currencySymbol, locale: settings?.locale }) : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Across {creditCards.length} Cards
@@ -724,7 +748,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-amber-400 tracking-tight">
-                {showEstBills ? `${currencySymbol}${totalApproxMonthlyBill.toLocaleString('en-IN')}` : '••••••••'}
+                {showEstBills ? formatMoney(totalApproxMonthlyBill, { symbol: currencySymbol, locale: settings?.locale }) : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Approx statement due
@@ -805,7 +829,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <div className="pt-2 border-t border-[#222] flex items-center justify-between">
                     <span className="text-[10px] text-[#666] uppercase">AVAILABLE BALANCE</span>
                     <span className="text-base font-bold font-mono text-emerald-400">
-                      {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                      {formatMoney(acc.balance, { symbol: currencySymbol, locale: settings?.locale })}
                     </span>
                   </div>
                 </div>
@@ -854,7 +878,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   </div>
 
                   <div className={`font-bold font-mono text-xs ${tx.type === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
-                    {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                    {tx.type === 'debit' ? '-' : '+'}{formatMoney(tx.amount, { symbol: currencySymbol, locale: settings?.locale })}
                   </div>
                 </div>
               ))
@@ -879,6 +903,12 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {formError && (
+              <div className="p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-400 text-xs">
+                {formError}
+              </div>
+            )}
 
             <form onSubmit={handleSaveAccount} className="space-y-4 text-xs font-mono">
               <div>
@@ -1024,16 +1054,31 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
                     <div>
                       <label className="block text-[10px] text-[#777] uppercase mb-1">
-                        DUE DATE
+                        STATEMENT DUE DAY (1–31)
                       </label>
                       <input
-                        type="text"
+                        type="number"
+                        min={1}
+                        max={31}
                         value={dueDate}
                         onChange={(e) => setDueDate(e.target.value)}
-                        placeholder="15th Aug"
+                        placeholder="15"
                         className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-white focus:outline-none focus:border-red-600"
                       />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] text-[#777] uppercase mb-1">
+                      CARD HOLDER NAME
+                    </label>
+                    <input
+                      type="text"
+                      value={cardHolderName}
+                      onChange={(e) => setCardHolderName(e.target.value)}
+                      placeholder={settings?.userName || 'User'}
+                      className="w-full px-3.5 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-white focus:outline-none focus:border-red-600"
+                    />
                   </div>
                 </>
               )}
@@ -1130,7 +1175,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Current Balance:</span>
                     <span className="font-bold text-emerald-400">
-                      {currencySymbol}{accountToDelete.balance.toLocaleString('en-IN')}
+                      {formatMoney(accountToDelete.balance, { symbol: currencySymbol, locale: settings?.locale })}
                     </span>
                   </div>
                 </div>

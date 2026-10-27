@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import https from 'https';
 import http from 'http';
+import fs from 'fs';
+
+const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 
 function stockQuotePlugin(): Plugin {
   return {
@@ -102,6 +105,9 @@ function stockQuotePlugin(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './',
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
   plugins: [
     react(),
     tailwindcss(),

@@ -44,7 +44,6 @@ import {
 } from './types/finance';
 
 import {
-  INITIAL_USER_SETTINGS,
   INITIAL_CATEGORIES,
   INITIAL_TRANSACTIONS,
   INITIAL_INVESTMENTS,
@@ -146,6 +145,7 @@ export default function App() {
       const parsed = JSON.parse(saved);
       return {
         ...parsed,
+        locale: parsed.locale || ['en', 'IN'].join('-'),
         sampleDataLoaded: parsed.sampleDataLoaded !== undefined ? parsed.sampleDataLoaded : true,
         skipDeleteConfirmation: parsed.skipDeleteConfirmation !== undefined ? parsed.skipDeleteConfirmation : false,
         skipInvestmentDeleteConfirmation: parsed.skipInvestmentDeleteConfirmation !== undefined ? parsed.skipInvestmentDeleteConfirmation : false,
@@ -159,12 +159,10 @@ export default function App() {
       userPhoto: '',
       currencySymbol: '₹',
       currencyCode: 'INR',
+      locale: ['en', 'IN'].join('-'),
       theme: 'dark',
       passcodeEnabled: false,
       passcode: '1234',
-      supabaseUrl: '',
-      supabaseKey: '',
-      supabaseConnected: false,
       locationTracking: true,
       autoExtractSms: true,
       notificationsEnabled: true,
@@ -2064,6 +2062,8 @@ export default function App() {
           onOpenSimulator={() => setIsSimulatorOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           currencySymbol={settings.currencySymbol}
+          currencyCode={settings.currencyCode}
+          locationTracking={settings.locationTracking}
           theme={settings.theme || 'dark'}
           onToggleTheme={handleToggleTheme}
         />
@@ -2140,6 +2140,7 @@ export default function App() {
               accounts={accounts}
               transactions={transactions}
               currencySymbol={settings.currencySymbol}
+              settings={settings}
               onAddAccount={handleAddAccount}
               onUpdateAccount={handleUpdateAccount}
               onDeleteAccount={handleDeleteAccount}

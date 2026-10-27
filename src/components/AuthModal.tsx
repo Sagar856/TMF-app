@@ -58,7 +58,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
     if (!supabaseConfigured) {
-      setErrorMsg('Cloud account creation requires Supabase to be configured in Settings. You can still use the app locally without an account.');
+      setErrorMsg('Cloud backend is not configured for this build');
       return;
     }
 
@@ -93,7 +93,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     if (!supabaseConfigured) {
-      setErrorMsg('Cloud sign-in requires Supabase to be configured in Settings. You can continue using the app locally without signing in.');
+      setErrorMsg('Cloud backend is not configured for this build');
       return;
     }
 
@@ -123,7 +123,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
     if (!supabaseConfigured) {
-      setErrorMsg('Password reset requires Supabase to be configured in Settings.');
+      setErrorMsg('Cloud backend is not configured for this build');
       return;
     }
 

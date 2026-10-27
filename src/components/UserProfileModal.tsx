@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { UserSettings, FinancialAccount } from '../types/finance';
 import { signInUser, updatePassword } from '../services/supabaseClient';
+import { formatMoney } from '../utils/money';
 
 interface UserProfileModalProps {
   settings: UserSettings;
@@ -317,14 +318,6 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 />
               </div>
 
-              <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-bold text-white">KYC Verification Status</div>
-                  <div className="text-[10px] text-emerald-400 mt-0.5">PAN & Aadhaar Linked • Verified</div>
-                </div>
-                <ShieldCheck className="w-5 h-5 text-emerald-400" />
-              </div>
-
               <div className="pt-2 flex items-center justify-between">
                 <button
                   type="submit"
@@ -496,7 +489,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
                     <div className="text-right">
                       <div className="text-xs font-bold text-white">
-                        {settings.currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                        {formatMoney(acc.balance, { symbol: settings.currencySymbol, locale: settings.locale })}
                       </div>
                       <div className="text-[9px] text-emerald-400">ACTIVE</div>
                     </div>

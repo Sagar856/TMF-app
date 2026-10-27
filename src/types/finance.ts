@@ -272,12 +272,10 @@ export interface UserSettings {
   userPhoto?: string;
   currencySymbol: string;
   currencyCode: string;
+  locale?: string;
   theme?: 'dark' | 'light';
   passcodeEnabled: boolean;
   passcode: string;
-  supabaseUrl: string;
-  supabaseKey: string;
-  supabaseConnected: boolean;
   locationTracking: boolean;
   autoExtractSms: boolean;
   notificationsEnabled: boolean;

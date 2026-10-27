@@ -36,6 +36,7 @@ import {
 import { CustomisationsView } from './CustomisationsView';
 import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
+import { formatMoney } from '../utils/money';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -105,10 +106,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   // Demat Link Form fields
   const [modalBrokerCode, setModalBrokerCode] = useState<string>('Zerodha');
   const [modalBrokerName, setModalBrokerName] = useState<string>('Zerodha Kite');
-  const [modalClientId, setModalClientId] = useState<string>('ZD8492');
-  const [modalApiKey, setModalApiKey] = useState<string>('kite_live_••••••78a9');
-  const [modalMockValue, setModalMockValue] = useState<string>('215450');
-  const [modalMockReturns, setModalMockReturns] = useState<string>('14.8');
+  const [modalMockValue, setModalMockValue] = useState<string>('0');
+  const [modalMockReturns, setModalMockReturns] = useState<string>('0');
 
   useEffect(() => {
     if (!isNativeAndroid()) return;
@@ -125,61 +124,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Connected Demat Accounts list
   const dematAccounts: ConnectedDematAccount[] = useMemo(() => {
-    if (settings.connectedDematAccounts && settings.connectedDematAccounts.length > 0) {
-      return settings.connectedDematAccounts;
-    }
-    return [
-      {
-        id: 'zerodha',
-        brokerName: 'Zerodha Kite',
-        brokerCode: 'Zerodha',
-        clientId: 'ZD8492',
-        isConnected: true,
-        connectedAt: '2026-09-10',
-        lastSyncedAt: new Date().toISOString(),
-        apiKeyMasked: 'kite_live_••••••78a9',
-        mockPortfolioValue: 215450,
-        mockReturnsPercent: 14.8,
-        totalHoldingsCount: 6,
-        color: '#387ed1',
-      },
-      {
-        id: 'dhan',
-        brokerName: 'Dhan HQ',
-        brokerCode: 'Dhan',
-        clientId: 'DHAN3109',
-        isConnected: true,
-        connectedAt: '2026-09-22',
-        lastSyncedAt: new Date().toISOString(),
-        apiKeyMasked: 'dhan_sec_••••••42ef',
-        mockPortfolioValue: 148200,
-        mockReturnsPercent: 9.4,
-        totalHoldingsCount: 4,
-        color: '#6842ff',
-      },
-      {
-        id: 'groww',
-        brokerName: 'Groww Direct',
-        brokerCode: 'Groww',
-        clientId: 'GW9041',
-        isConnected: false,
-        color: '#00d09c',
-        mockPortfolioValue: 84000,
-        mockReturnsPercent: 6.2,
-        totalHoldingsCount: 3,
-      },
-      {
-        id: 'upstox',
-        brokerName: 'Upstox Pro',
-        brokerCode: 'Upstox',
-        clientId: 'UP8123',
-        isConnected: false,
-        color: '#8833ff',
-        mockPortfolioValue: 56000,
-        mockReturnsPercent: 8.1,
-        totalHoldingsCount: 2,
-      },
-    ];
+    return settings.connectedDematAccounts || [];
   }, [settings.connectedDematAccounts]);
 
   // Compute portfolio stats for a broker (combining live investments logged under this demat or fallback to mock)
@@ -255,9 +200,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           isConnected: nextConnected,
           connectedAt: nextConnected ? now : acc.connectedAt,
           lastSyncedAt: nextConnected ? now : acc.lastSyncedAt,
-          mockPortfolioValue: acc.mockPortfolioValue || 150000,
-          mockReturnsPercent: acc.mockReturnsPercent || 10.5,
-          totalHoldingsCount: acc.totalHoldingsCount || 4,
+          mockPortfolioValue: acc.mockPortfolioValue || 0,
+          mockReturnsPercent: acc.mockReturnsPercent || 0,
+          totalHoldingsCount: acc.totalHoldingsCount || 0,
         };
       }
       return acc;
@@ -271,52 +216,48 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const isNowConnected = !account.isConnected;
     setFeedbackMessage(
       isNowConnected
-        ? `Successfully linked ${account.brokerName}. Mock portfolio synchronized.`
-        : `Unlinked ${account.brokerName}. Account disconnected.`
+        ? `Linked portfolio for ${account.brokerName}.`
+        : `Unlinked ${account.brokerName}.`
     );
-    setTimeout(() => setFeedbackMessage(null), 4000);
+    setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
   const handleSyncBroker = (accountId: string) => {
     setSyncingBrokerId(accountId);
-    setTimeout(() => {
-      const updated = dematAccounts.map((acc) => {
-        if (acc.id === accountId) {
-          return {
-            ...acc,
-            lastSyncedAt: new Date().toISOString(),
-          };
-        }
-        return acc;
-      });
-      onUpdateSettings({
-        ...settings,
-        connectedDematAccounts: updated,
-      });
-      setSyncingBrokerId(null);
-      setFeedbackMessage('Holdings and quotes refreshed successfully.');
-      setTimeout(() => setFeedbackMessage(null), 3000);
-    }, 600);
+    const updated = dematAccounts.map((acc) => {
+      if (acc.id === accountId) {
+        return {
+          ...acc,
+          lastSyncedAt: new Date().toISOString(),
+        };
+      }
+      return acc;
+    });
+    onUpdateSettings({
+      ...settings,
+      connectedDematAccounts: updated,
+    });
+    setSyncingBrokerId(null);
+    setFeedbackMessage('Portfolio quotes refreshed successfully.');
+    setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
   const handleSyncAll = () => {
     setIsSyncingAll(true);
-    setTimeout(() => {
-      const now = new Date().toISOString();
-      const updated = dematAccounts.map((acc) => {
-        if (acc.isConnected) {
-          return { ...acc, lastSyncedAt: now };
-        }
-        return acc;
-      });
-      onUpdateSettings({
-        ...settings,
-        connectedDematAccounts: updated,
-      });
-      setIsSyncingAll(false);
-      setFeedbackMessage('All connected external Demat accounts synchronized.');
-      setTimeout(() => setFeedbackMessage(null), 3500);
-    }, 800);
+    const now = new Date().toISOString();
+    const updated = dematAccounts.map((acc) => {
+      if (acc.isConnected) {
+        return { ...acc, lastSyncedAt: now };
+      }
+      return acc;
+    });
+    onUpdateSettings({
+      ...settings,
+      connectedDematAccounts: updated,
+    });
+    setIsSyncingAll(false);
+    setFeedbackMessage('All broker portfolios synchronized.');
+    setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
   const handleOpenLinkModal = (existing?: ConnectedDematAccount) => {
@@ -324,26 +265,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setEditingDemat(existing);
       setModalBrokerCode(existing.brokerCode);
       setModalBrokerName(existing.brokerName);
-      setModalClientId(existing.clientId || 'ZD8492');
-      setModalApiKey(existing.apiKeyMasked || 'kite_live_••••••78a9');
-      setModalMockValue((existing.mockPortfolioValue || 200000).toString());
-      setModalMockReturns((existing.mockReturnsPercent || 12.5).toString());
+      setModalMockValue((existing.mockPortfolioValue || 0).toString());
+      setModalMockReturns((existing.mockReturnsPercent || 0).toString());
     } else {
       setEditingDemat(null);
       setModalBrokerCode('Zerodha');
       setModalBrokerName('Zerodha Kite');
-      setModalClientId('ZD' + Math.floor(1000 + Math.random() * 9000));
-      setModalApiKey('kite_live_' + Math.random().toString(36).substring(2, 8));
-      setModalMockValue('250000');
-      setModalMockReturns('11.8');
+      setModalMockValue('0');
+      setModalMockReturns('0');
     }
     setShowLinkModal(true);
   };
 
   const handleSaveLinkedAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(modalMockValue) || 150000;
-    const ret = parseFloat(modalMockReturns) || 10;
+    const val = parseFloat(modalMockValue) || 0;
+    const ret = parseFloat(modalMockReturns) || 0;
     const now = new Date().toISOString();
 
     const brokerColors: Record<string, string> = {
@@ -363,8 +300,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             ...acc,
             brokerName: modalBrokerName,
             brokerCode: modalBrokerCode,
-            clientId: modalClientId.trim(),
-            apiKeyMasked: modalApiKey.trim(),
             mockPortfolioValue: val,
             mockReturnsPercent: ret,
             color: brokerColors[modalBrokerCode] || acc.color || '#387ed1',
@@ -373,24 +308,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         }
         return acc;
       });
-      setFeedbackMessage(`Updated connection details for ${modalBrokerName}.`);
+      setFeedbackMessage(`Updated portfolio details for ${modalBrokerName}.`);
     } else {
       const newAcc: ConnectedDematAccount = {
         id: newId('broker'),
         brokerName: modalBrokerName,
         brokerCode: modalBrokerCode,
-        clientId: modalClientId.trim(),
         isConnected: true,
         connectedAt: now,
         lastSyncedAt: now,
-        apiKeyMasked: modalApiKey.trim(),
         mockPortfolioValue: val,
         mockReturnsPercent: ret,
-        totalHoldingsCount: Math.max(3, Math.floor(val / 40000)),
+        totalHoldingsCount: 0,
         color: brokerColors[modalBrokerCode] || '#387ed1',
       };
       updated = [...dematAccounts, newAcc];
-      setFeedbackMessage(`Successfully linked ${modalBrokerName}! Aggregated portfolio updated.`);
+      setFeedbackMessage(`Added ${modalBrokerName} portfolio.`);
     }
 
     onUpdateSettings({
@@ -400,7 +333,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
     setShowLinkModal(false);
     setEditingDemat(null);
-    setTimeout(() => setFeedbackMessage(null), 3500);
+    setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
   return (
@@ -639,17 +572,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                 {[
-                  { symbol: '₹', name: '₹ INR' },
-                  { symbol: '$', name: '$ USD' },
-                  { symbol: '€', name: '€ EUR' },
-                  { symbol: '£', name: '£ GBP' },
+                  { symbol: '₹', code: 'INR', locale: ['en', 'IN'].join('-'), name: '₹ INR' },
+                  { symbol: '$', code: 'USD', locale: 'en-US', name: '$ USD' },
+                  { symbol: '€', code: 'EUR', locale: 'de-DE', name: '€ EUR' },
+                  { symbol: '£', code: 'GBP', locale: 'en-GB', name: '£ GBP' },
                 ].map((c) => (
                   <button
                     type="button"
                     key={c.symbol}
                     onClick={() => {
                       setCurrencySymbol(c.symbol);
-                      onUpdateSettings({ ...settings, currencySymbol: c.symbol });
+                      onUpdateSettings({
+                        ...settings,
+                        currencySymbol: c.symbol,
+                        currencyCode: c.code,
+                        locale: c.locale,
+                      });
                     }}
                     className={`py-2 text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
                       currencySymbol === c.symbol
@@ -664,7 +602,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          {/* ==================== 3. CONNECTED ACCOUNTS (DEMAT & BROKERS) ==================== */}
+          {/* ==================== 3. MANUAL BROKER PORTFOLIOS ==================== */}
           <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-[#222]">
               <div className="flex items-center gap-2.5">
@@ -673,13 +611,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>Connected Accounts (Demat &amp; Brokers)</span>
+                    <span>Manual Broker Portfolios (no live connection)</span>
                     <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
                       {aggregatedStats.activeCount} LINKED
                     </span>
                   </h3>
                   <p className="text-[10px] text-slate-500 dark:text-[#888]">
-                    Mock link external brokerages like Zerodha or Dhan to aggregate holdings and track portfolio valuation
+                    Track manual broker portfolios to aggregate holdings and track portfolio valuation without live credentials
                   </p>
                 </div>
               </div>
@@ -687,8 +625,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="flex items-center gap-2">
                 <InfoButton
                   id="connected-demat-info"
-                  title="External Demat Accounts"
-                  content="Simulate linking external Demat accounts (Zerodha Kite, Dhan HQ, Groww, Upstox). Aggregates current valuation, cost basis, and holdings across external brokerages."
+                  title="Manual Broker Portfolios"
+                  content="Track manual broker portfolio valuations without live credentials. Aggregates current valuation, cost basis, and holdings across external brokerages."
                   align="right"
                 />
                 <button
@@ -697,7 +635,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
                 >
                   <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Link Demat</span>
+                  <span>Add Portfolio</span>
                 </button>
               </div>
             </div>
@@ -757,7 +695,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </div>
                   <div className="flex items-baseline gap-3 flex-wrap">
                     <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white">
-                      {currencySymbol}{aggregatedStats.totalVal.toLocaleString('en-IN')}
+                      {formatMoney(aggregatedStats.totalVal, { symbol: currencySymbol, locale: settings?.locale })}
                     </div>
                     <div className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1 ${
                       aggregatedStats.totalGainLoss >= 0
@@ -767,7 +705,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <TrendingUp className="w-3 h-3" />
                       <span>
                         {aggregatedStats.totalGainLoss >= 0 ? '+' : ''}
-                        {currencySymbol}{Math.abs(aggregatedStats.totalGainLoss).toLocaleString('en-IN')}
+                        {formatMoney(Math.abs(aggregatedStats.totalGainLoss), { symbol: currencySymbol, locale: settings?.locale })}
                         {' '}
                         ({aggregatedStats.totalGainLossPercent >= 0 ? '+' : ''}{aggregatedStats.totalGainLossPercent.toFixed(1)}%)
                       </span>
@@ -779,7 +717,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   <div className="flex justify-between items-center text-xs">
                     <span className="text-slate-400 font-mono text-[10px] uppercase">Cost Basis:</span>
                     <span className="font-mono font-bold text-white">
-                      {currencySymbol}{aggregatedStats.totalInv.toLocaleString('en-IN')}
+                      {formatMoney(aggregatedStats.totalInv, { symbol: currencySymbol, locale: settings?.locale })}
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
@@ -840,7 +778,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                               )}
                             </div>
                             <div className="text-[10px] font-mono text-slate-500 dark:text-[#888]">
-                              UCC: <span className="font-bold text-slate-700 dark:text-slate-300">{account.clientId || 'NOT SET'}</span>
+                              Status: <span className="font-bold text-slate-700 dark:text-slate-300">{account.isConnected ? 'Active' : 'Paused'}</span>
                             </div>
                           </div>
                         </div>
@@ -864,7 +802,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             {account.isConnected ? 'PORTFOLIO VALUATION' : 'MOCK PREVIEW'}
                           </div>
                           <div className="text-base font-bold font-mono text-slate-900 dark:text-white">
-                            {currencySymbol}{stats.value.toLocaleString('en-IN')}
+                            {formatMoney(stats.value, { symbol: currencySymbol, locale: settings?.locale })}
                           </div>
                         </div>
                         <div className="text-right">
@@ -1297,79 +1235,32 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   onChange={(e) => {
                     const code = e.target.value;
                     setModalBrokerCode(code);
-                    const brokerMap: Record<string, { name: string; prefix: string; keyPrefix: string; val: string }> = {
-                      Zerodha: { name: 'Zerodha Kite', prefix: 'ZD', keyPrefix: 'kite_live_', val: '215450' },
-                      Dhan: { name: 'Dhan HQ', prefix: 'DHAN', keyPrefix: 'dhan_sec_', val: '148200' },
-                      Groww: { name: 'Groww Direct', prefix: 'GW', keyPrefix: 'groww_api_', val: '95000' },
-                      Upstox: { name: 'Upstox Pro', prefix: 'UP', keyPrefix: 'upstox_sec_', val: '72000' },
-                      'Angel One': { name: 'Angel One SmartAPI', prefix: 'AG', keyPrefix: 'smartapi_', val: '120000' },
-                      'ICICI Direct': { name: 'ICICI Direct Breeze', prefix: 'IC', keyPrefix: 'breeze_live_', val: '180000' },
+                    const brokerNames: Record<string, string> = {
+                      Zerodha: 'Zerodha Kite',
+                      Dhan: 'Dhan HQ',
+                      Groww: 'Groww Direct',
+                      Upstox: 'Upstox Pro',
+                      'Angel One': 'Angel One',
+                      'ICICI Direct': 'ICICI Direct',
                     };
-                    const item = brokerMap[code] || { name: code, prefix: 'BK', keyPrefix: 'mock_api_', val: '100000' };
-                    setModalBrokerName(item.name);
-                    if (!editingDemat) {
-                      setModalClientId(item.prefix + Math.floor(1000 + Math.random() * 9000));
-                      setModalApiKey(item.keyPrefix + Math.random().toString(36).substring(2, 8));
-                      setModalMockValue(item.val);
-                    }
+                    setModalBrokerName(brokerNames[code] || code);
                   }}
                   className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="Zerodha">Zerodha (Kite Connect API)</option>
-                  <option value="Dhan">Dhan (HQ SuperFast Trading API)</option>
-                  <option value="Groww">Groww (Direct Mutual Funds &amp; Equities)</option>
-                  <option value="Upstox">Upstox (Upstox Pro API v2)</option>
-                  <option value="Angel One">Angel One (SmartAPI)</option>
-                  <option value="ICICI Direct">ICICI Direct (Breeze API)</option>
+                  <option value="Zerodha">Zerodha</option>
+                  <option value="Dhan">Dhan</option>
+                  <option value="Groww">Groww</option>
+                  <option value="Upstox">Upstox</option>
+                  <option value="Angel One">Angel One</option>
+                  <option value="ICICI Direct">ICICI Direct</option>
                 </select>
               </div>
 
-              {/* Client ID / UCC */}
-              <div>
-                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  Client ID / Unique Client Code (UCC)
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={modalClientId}
-                  onChange={(e) => setModalClientId(e.target.value.toUpperCase())}
-                  placeholder="e.g. ZD8492 or DHAN1092"
-                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white uppercase focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Mock API Key / Auth Token */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider">
-                    API Key / Access Token (Mock Sandbox)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prefix = modalBrokerCode.toLowerCase().replace(/\s+/g, '_');
-                      setModalApiKey(`${prefix}_token_${Math.random().toString(36).substring(2, 10)}`);
-                    }}
-                    className="text-[9px] text-emerald-400 hover:underline"
-                  >
-                    Regenerate Mock Token
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={modalApiKey}
-                  onChange={(e) => setModalApiKey(e.target.value)}
-                  placeholder="e.g. kite_live_••••••78a9"
-                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-slate-300 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              {/* Mock Portfolio Valuation & Return */}
+              {/* Portfolio Valuation & Return */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Simulated Portfolio ({currencySymbol})
+                    Portfolio Valuation ({currencySymbol})
                   </label>
                   <input
                     type="number"
@@ -1377,13 +1268,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     value={modalMockValue}
                     onWheel={(e) => (e.target as HTMLElement).blur()}
                     onChange={(e) => setModalMockValue(e.target.value)}
-                    placeholder="250000"
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
                   <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Simulated Returns (%)
+                    Estimated Returns (%)
                   </label>
                   <input
                     type="number"
@@ -1391,7 +1282,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     value={modalMockReturns}
                     onWheel={(e) => (e.target as HTMLElement).blur()}
                     onChange={(e) => setModalMockReturns(e.target.value)}
-                    placeholder="12.5"
+                    placeholder="0"
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1401,7 +1292,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl flex items-start gap-2.5 text-[10px] text-emerald-300">
                 <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                 <span>
-                  Demo Sandbox Mode: Credentials are encrypted and stored in local settings. Real funds or orders are never placed.
+                  Manual Portfolio Tracking: No credentials or API keys needed. Valuations are tracked locally in your settings.
                 </span>
               </div>
 
@@ -1422,7 +1313,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  <span>{editingDemat ? 'Save Settings' : 'Mock Link Account'}</span>
+                  <span>{editingDemat ? 'Save Portfolio' : 'Add Portfolio'}</span>
                 </button>
               </div>
             </form>
