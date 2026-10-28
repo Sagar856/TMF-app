@@ -1,5 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
-import React, { useState } from 'react';
+import { isOperatingExpense } from '../utils/transactionKind';
+import React, { useMemo, useState } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { PieChart } from 'lucide-react';
 import { InfoButton } from './InfoButton';
@@ -8,30 +9,25 @@ interface CategoryDonutChartProps {
   transactions: Transaction[];
   categories: Category[];
   currencySymbol: string;
+  /** YYYY-MM to scope the chart to; omit for all time. */
+  month?: string;
 }
 
 export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
   transactions,
   categories,
   currencySymbol,
+  month,
 }) => {
   const formatAmount = useMoneyFormatter();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  // Filter debit transactions only
-  const debitTransactions = transactions.filter((t) => t.type === 'debit');
+  // Operating expenses only, scoped to the selected month when provided
+  const debitTransactions = useMemo(
+    () => transactions.filter((t) => isOperatingExpense(t) && (!month || (t.date && t.date.startsWith(month)))),
+    [transactions, month]
+  );
   const totalDebit = debitTransactions.reduce((sum, t) => sum + t.amount, 0);
-
-  // Group expenses by Category
-  const categorySpendMap: { [catName: string]: { amount: number; count: number } } = {};
-
-  debitTransactions.forEach((t) => {
-    if (!categorySpendMap[t.category]) {
-      categorySpendMap[t.category] = { amount: 0, count: 0 };
-    }
-    categorySpendMap[t.category].amount += t.amount;
-    categorySpendMap[t.category].count += 1;
-  });
 
   // Dot-Matrix Palette for Donut Segments
   const SEGMENT_COLORS = [
@@ -44,17 +40,35 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
     '#3b82f6', // Bright Blue
     '#64748b', // Slate
   ];
+  const OTHER_COLOR = '#475569';
+  const MAX_SEGMENTS = 7;
 
-  // Convert to sorted array
-  const categoryData = Object.keys(categorySpendMap)
-    .map((name, idx) => {
-      const amount = categorySpendMap[name].amount;
-      const count = categorySpendMap[name].count;
-      const percent = totalDebit > 0 ? (amount / totalDebit) * 100 : 0;
-      const color = SEGMENT_COLORS[idx % SEGMENT_COLORS.length];
-      return { name, amount, count, percent, color };
-    })
-    .sort((a, b) => b.amount - a.amount);
+  // Group expenses by Category (case-insensitive), then fold the tail into "Other"
+  const categoryData = useMemo(() => {
+    const map = new Map<string, { name: string; amount: number; count: number }>();
+    debitTransactions.forEach((t) => {
+      const key = (t.category || 'Uncategorized').trim().toLowerCase();
+      const entry = map.get(key) || { name: t.category || 'Uncategorized', amount: 0, count: 0 };
+      entry.amount += t.amount;
+      entry.count += 1;
+      map.set(key, entry);
+    });
+    const sorted = Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+    const head = sorted.slice(0, MAX_SEGMENTS);
+    const tail = sorted.slice(MAX_SEGMENTS);
+    const rows = head.map((row, idx) => ({ ...row, color: SEGMENT_COLORS[idx % SEGMENT_COLORS.length], isOther: false }));
+    if (tail.length > 0) {
+      rows.push({
+        name: `Other (${tail.length})`,
+        amount: tail.reduce((s, r) => s + r.amount, 0),
+        count: tail.reduce((s, r) => s + r.count, 0),
+        color: OTHER_COLOR,
+        isOther: true,
+      });
+    }
+    return rows.map((row) => ({ ...row, percent: totalDebit > 0 ? (row.amount / totalDebit) * 100 : 0 }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debitTransactions, totalDebit]);
 
   // Calculate SVG Donut Arcs
   const radius = 70;
@@ -85,16 +99,21 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
           <InfoButton
             id="category-donut-info"
             title="Category Expense Donut"
-            content="Proportional breakdown of total monthly debits grouped by spending category."
+            content={month ? 'Proportional breakdown of this month\u2019s operating expenses by category. Investments, EMIs and transfers are excluded.' : 'Proportional breakdown of all operating expenses by category.'}
             align="left"
           />
         </div>
         <span className="text-[10px] text-[#666] font-mono uppercase tracking-wider">
-          {categoryData.length} Categories
+          {month ? `${month} · ` : ''}{categoryData.filter((c) => !c.isOther).length}{categoryData.some((c) => c.isOther) ? '+' : ''} Categories
         </span>
       </div>
 
-      {/* Donut & Stats Container */}
+      {debitTransactions.length === 0 ? (
+        <div className="py-10 text-center space-y-1">
+          <div className="text-xs font-mono font-bold text-white">No expenses {month ? 'this month' : 'yet'}</div>
+          <div className="text-[10px] font-mono text-[#666]">Spending by category will appear here once you log an expense.</div>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
         {/* SVG Donut */}
         <div className="relative flex items-center justify-center p-2">
@@ -147,9 +166,9 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
           </div>
         </div>
 
-        {/* Category Legend List */}
+        {/* Category Legend List (all segments, scrollable) */}
         <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-          {categoryData.slice(0, 5).map((cat, idx) => {
+          {categoryData.map((cat, idx) => {
             const isHovered = hoveredIndex === idx;
             return (
               <div
@@ -187,6 +206,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
           })}
         </div>
       </div>
+      )}
     </div>
   );
 };

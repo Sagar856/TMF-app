@@ -56,7 +56,7 @@ export const BudgetPushNotificationBanner: React.FC<BudgetPushNotificationBanner
   const is100 = alert.level === '100';
 
   return (
-    <div className="fixed top-4 left-0 right-0 z-[10000] flex justify-center px-3 sm:px-4 pointer-events-none font-mono">
+    <div className="fixed top-4 left-0 right-0 z-toast flex justify-center px-3 sm:px-4 pointer-events-none font-mono">
       <motion.div
         initial={{ opacity: 0, y: -40, scale: 0.94 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -64,8 +64,8 @@ export const BudgetPushNotificationBanner: React.FC<BudgetPushNotificationBanner
         transition={{ type: 'spring', stiffness: 420, damping: 28 }}
         className={`pointer-events-auto w-full max-w-lg rounded-2xl border backdrop-blur-xl shadow-[0_12px_40px_rgba(0,0,0,0.8)] overflow-hidden ${
           is100
-            ? 'bg-[#180d0f]/95 border-red-600/90 shadow-[0_10px_35px_rgba(220,38,38,0.35)]'
-            : 'bg-[#18130d]/95 border-amber-500/80 shadow-[0_10px_35px_rgba(245,158,11,0.25)]'
+            ? 'bg-surface-1/95 border-red-600/90 shadow-[0_10px_35px_rgba(220,38,38,0.35)]'
+            : 'bg-surface-1/95 border-amber-500/80 shadow-[0_10px_35px_rgba(245,158,11,0.25)]'
         }`}
       >
         {/* Top Mini Tag Bar */}

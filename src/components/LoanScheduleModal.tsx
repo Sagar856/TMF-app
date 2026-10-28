@@ -104,7 +104,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#1a1a24] text-[#aaa] border border-[#333]">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-surface-2 text-content-2 border border-line">
             Scheduled
           </span>
         );
@@ -112,20 +112,20 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 font-mono">
+    <div role="dialog" aria-modal="true" aria-label="Loan repayment schedule" className="fixed inset-0 z-modal flex items-center justify-center p-3 sm:p-4 font-mono">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-backdrop backdrop-blur-xs transition-opacity" onClick={onClose} />
 
       {/* Modal Container */}
-      <div className="relative z-10 bg-[#121217] border border-[#2a2a34] rounded-3xl p-5 sm:p-6 max-w-4xl w-full text-white shadow-2xl max-h-[92vh] flex flex-col space-y-4 animate-in zoom-in-95 duration-150">
+      <div className="relative z-10 bg-surface-1 border border-line rounded-3xl p-5 sm:p-6 max-w-4xl w-full text-content-1 shadow-2xl max-h-[92vh] flex flex-col space-y-4 animate-in zoom-in-95 duration-150">
         {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[#222] shrink-0">
+        <div className="flex items-center justify-between pb-3 border-b border-line shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-red-950/70 border border-red-700/60 flex items-center justify-center text-red-400">
               <Calendar className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <h3 className="text-base font-bold text-content-1 uppercase tracking-wider flex items-center gap-2">
                 <span>Amortization Repayment Schedule</span>
                 {loan.loanStructure === 'no_cost_emi' && (
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 border border-emerald-700 text-emerald-400 font-bold">
@@ -133,41 +133,41 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                   </span>
                 )}
               </h3>
-              <p className="text-xs text-[#888] truncate max-w-[420px]">
+              <p className="text-xs text-content-3 truncate max-w-[420px]">
                 {loan.title} · Financed: {currencySymbol}{formatAmount(loan.totalAmount)}
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#1e1e24] border border-[#333] text-[#aaa] hover:text-white transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl bg-surface-2 border border-line text-content-2 hover:text-content-1 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Loan Stats KPI Ribbon */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-[#181820] border border-[#262632] rounded-2xl shrink-0 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 p-3 bg-surface-2 border border-line rounded-2xl shrink-0 text-xs">
           <div>
-            <span className="text-[#666] block text-[9px] uppercase tracking-wider">Installments Paid</span>
-            <span className="font-bold text-white">
+            <span className="text-content-3 block text-[9px] uppercase tracking-wider">Installments Paid</span>
+            <span className="font-bold text-content-1">
               {paidCount} / {schedule.length}
             </span>
           </div>
           <div>
-            <span className="text-[#666] block text-[9px] uppercase tracking-wider">Principal Repaid</span>
+            <span className="text-content-3 block text-[9px] uppercase tracking-wider">Principal Repaid</span>
             <span className="font-bold text-emerald-400">
               {currencySymbol}{formatAmount(totalPrincipalPaid)}
             </span>
           </div>
           <div>
-            <span className="text-[#666] block text-[9px] uppercase tracking-wider">Interest Paid</span>
+            <span className="text-content-3 block text-[9px] uppercase tracking-wider">Interest Paid</span>
             <span className="font-bold text-amber-400">
               {currencySymbol}{formatAmount(totalInterestPaid)}
             </span>
           </div>
           <div>
-            <span className="text-[#666] block text-[9px] uppercase tracking-wider">Remaining Balance</span>
+            <span className="text-content-3 block text-[9px] uppercase tracking-wider">Remaining Balance</span>
             <span className="font-bold text-red-400">
               {currencySymbol}{formatAmount(loan.remainingAmount)}
             </span>
@@ -176,8 +176,8 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
 
         {/* Confirmation Modal Overlay when user clicks Confirm on an installment */}
         {confirmingInstallment && (
-          <div className="p-4 bg-gradient-to-br from-red-950/40 via-[#181820] to-[#14141c] border-2 border-red-600/70 rounded-2xl space-y-3 shrink-0 animate-in fade-in duration-150">
-            <div className="flex items-center justify-between pb-2 border-b border-[#333]">
+          <div className="p-4 bg-red-50 dark:bg-red-950/40 border-2 border-red-600/70 rounded-2xl space-y-3 shrink-0 animate-in fade-in duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-line">
               <div className="flex items-center gap-2 text-xs font-bold text-red-400 uppercase tracking-wider">
                 <AlertCircle className="w-4 h-4 text-red-500" />
                 <span>Confirm EMI Payment #{confirmingInstallment.installmentNumber}</span>
@@ -185,47 +185,47 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmingInstallment(null)}
-                className="text-[#888] hover:text-white p-0.5 cursor-pointer"
+                className="text-content-3 hover:text-content-1 p-0.5 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {actionError && (
-              <div className="p-2.5 bg-red-950 border border-red-800 rounded-xl text-xs text-red-300">
+              <div className="p-2.5 bg-red-50 dark:bg-red-950 border border-red-300 dark:border-red-800 rounded-xl text-xs text-red-700 dark:text-red-300">
                 {actionError}
               </div>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase mb-1">Due Date</label>
-                <div className="font-bold text-white">{confirmingInstallment.dueDate}</div>
+                <label className="block text-[10px] text-content-2 uppercase mb-1">Due Date</label>
+                <div className="font-bold text-content-1">{confirmingInstallment.dueDate}</div>
               </div>
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase mb-1">Installment Amount</label>
+                <label className="block text-[10px] text-content-2 uppercase mb-1">Installment Amount</label>
                 <div className="font-bold text-lg text-emerald-400">
                   {currencySymbol}{formatAmount(confirmingInstallment.emiAmount)}
                 </div>
               </div>
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase mb-1">Payment Date</label>
+                <label className="block text-[10px] text-content-2 uppercase mb-1">Payment Date</label>
                 <input
                   type="date"
                   value={paymentDate}
                   onChange={(e) => setPaymentDate(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-[#121216] border border-[#333] rounded-lg text-xs text-white"
+                  className="w-full px-2.5 py-1.5 bg-surface-1 border border-line rounded-lg text-xs text-content-1"
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase mb-1">Debit Bank Account</label>
+                <label className="block text-[10px] text-content-2 uppercase mb-1">Debit Bank Account</label>
                 <select
                   value={selectedAccountId}
                   onChange={(e) => setSelectedAccountId(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-[#121216] border border-[#333] rounded-lg text-xs text-white"
+                  className="w-full px-2.5 py-1.5 bg-surface-1 border border-line rounded-lg text-xs text-content-1"
                 >
                   {accounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
@@ -235,13 +235,13 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] text-[#aaa] uppercase mb-1">Payment Note</label>
+                <label className="block text-[10px] text-content-2 uppercase mb-1">Payment Note</label>
                 <input
                   type="text"
                   placeholder="Auto-debit confirmed"
                   value={paymentNote}
                   onChange={(e) => setPaymentNote(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-[#121216] border border-[#333] rounded-lg text-xs text-white"
+                  className="w-full px-2.5 py-1.5 bg-surface-1 border border-line rounded-lg text-xs text-content-1"
                 />
               </div>
             </div>
@@ -250,7 +250,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
               <button
                 type="button"
                 onClick={() => setConfirmingInstallment(null)}
-                className="px-3 py-1.5 bg-[#222] text-[#aaa] hover:text-white rounded-lg text-xs font-bold uppercase"
+                className="px-3 py-1.5 bg-surface-2 text-content-2 hover:text-content-1 rounded-lg text-xs font-bold uppercase"
               >
                 Cancel
               </button>
@@ -267,10 +267,10 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
         )}
 
         {/* Schedule Table */}
-        <div className="flex-1 overflow-y-auto border border-[#222] rounded-2xl bg-[#0e0e12]">
+        <div className="flex-1 overflow-y-auto border border-line rounded-2xl bg-surface-1">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="sticky top-0 bg-[#16161c] border-b border-[#252530] text-[10px] text-[#888] uppercase tracking-wider font-bold z-10">
+              <tr className="sticky top-0 bg-surface-2 border-b border-line text-[10px] text-content-3 uppercase tracking-wider font-bold z-10">
                 <th className="py-2.5 px-3">#</th>
                 <th className="py-2.5 px-3">Due Date</th>
                 <th className="py-2.5 px-3">EMI Amount</th>
@@ -281,24 +281,24 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                 <th className="py-2.5 px-3 text-right">Action</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#1b1b22]">
+            <tbody className="divide-y divide-line">
               {schedule.map((inst) => {
                 const isPaid = inst.status === 'paid';
                 const isPending = inst.status === 'pending_confirmation';
                 return (
                   <tr
                     key={inst.installmentNumber}
-                    className={`hover:bg-[#15151c] transition-colors ${
+                    className={`hover:bg-surface-3 transition-colors ${
                       isPending ? 'bg-red-950/20' : ''
                     }`}
                   >
-                    <td className="py-2.5 px-3 font-mono font-bold text-[#888]">
+                    <td className="py-2.5 px-3 font-mono font-bold text-content-3">
                       {inst.installmentNumber}
                     </td>
-                    <td className="py-2.5 px-3 whitespace-nowrap text-white">
+                    <td className="py-2.5 px-3 whitespace-nowrap text-content-1">
                       {inst.dueDate}
                     </td>
-                    <td className="py-2.5 px-3 font-mono font-bold text-white whitespace-nowrap">
+                    <td className="py-2.5 px-3 font-mono font-bold text-content-1 whitespace-nowrap">
                       {currencySymbol}{formatAmount(inst.emiAmount)}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-emerald-400 hidden sm:table-cell whitespace-nowrap">
@@ -307,7 +307,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                     <td className="py-2.5 px-3 font-mono text-amber-400 hidden sm:table-cell whitespace-nowrap">
                       {currencySymbol}{formatAmount(inst.interestComponent)}
                     </td>
-                    <td className="py-2.5 px-3 font-mono text-[#aaa] whitespace-nowrap">
+                    <td className="py-2.5 px-3 font-mono text-content-2 whitespace-nowrap">
                       {currencySymbol}{formatAmount(inst.outstandingBalance)}
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
@@ -330,7 +330,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                             <button
                               type="button"
                               onClick={() => onSkipInstallment(loan.id, inst.installmentNumber)}
-                              className="px-2 py-1 bg-[#202028] hover:bg-[#2c2c36] text-[#888] hover:text-white text-[10px] rounded-lg transition-colors cursor-pointer"
+                              className="px-2 py-1 bg-surface-2 hover:bg-surface-3 text-content-3 hover:text-content-1 text-[10px] rounded-lg transition-colors cursor-pointer"
                               title="Skip this installment"
                             >
                               Skip
@@ -339,7 +339,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                         </div>
                       )}
                       {isPaid && (
-                        <span className="text-[10px] text-[#666]">
+                        <span className="text-[10px] text-content-3">
                           {inst.paidDate || 'Paid'}
                         </span>
                       )}
@@ -352,14 +352,14 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between items-center pt-2 border-t border-[#222] shrink-0 text-xs">
-          <div className="text-[10px] text-[#777]">
+        <div className="flex justify-between items-center pt-2 border-t border-line shrink-0 text-xs">
+          <div className="text-[10px] text-content-3">
             Total {schedule.length} installments scheduled · Industry standard reducing balance amortization
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="px-4 py-2 bg-[#1e1e24] hover:bg-[#252530] border border-[#333] text-xs font-bold uppercase rounded-xl text-white cursor-pointer"
+            className="px-4 py-2 bg-surface-2 hover:bg-surface-3 border border-line text-xs font-bold uppercase rounded-xl text-content-1 cursor-pointer"
           >
             Close Schedule
           </button>

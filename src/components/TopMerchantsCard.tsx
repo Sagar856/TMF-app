@@ -1,4 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { isOperatingExpense } from '../utils/transactionKind';
 import React from 'react';
 import { Transaction } from '../types/finance';
 import { MapPin, Store, ShoppingBag, Coffee, Car, Zap, Building2, ExternalLink } from 'lucide-react';
@@ -7,11 +8,14 @@ import { InfoButton } from './InfoButton';
 interface TopMerchantsCardProps {
   transactions: Transaction[];
   currencySymbol: string;
+  /** YYYY-MM to scope to; omit for all time. */
+  month?: string;
 }
 
 export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
   transactions,
   currencySymbol,
+  month,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Aggregate expenses by merchant/location name or payee
@@ -23,16 +27,17 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
     };
   } = {};
 
-  const debitTxs = transactions.filter((t) => t.type === 'debit');
+  const debitTxs = transactions.filter((t) => isOperatingExpense(t) && (!month || (t.date && t.date.startsWith(month))));
   const totalDebitSum = debitTxs.reduce((sum, t) => sum + t.amount, 0);
 
   debitTxs.forEach((t) => {
-    const rawName = t.payeeOrPayer || t.location?.name || t.title;
-    const key = rawName.trim();
+    const rawName = (t.payeeOrPayer || t.location?.name || t.title || '').trim() || 'Unknown merchant';
+    // Group case/whitespace-insensitively ("Amazon", "amazon ", "AMAZON" are one merchant)
+    const key = rawName.toLowerCase().replace(/\s+/g, ' ');
 
     if (!merchantMap[key]) {
       merchantMap[key] = {
-        name: key,
+        name: rawName,
         totalSpent: 0,
         txCount: 0,
       };
@@ -42,9 +47,11 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
     merchantMap[key].txCount += 1;
   });
 
-  const sortedMerchants = Object.values(merchantMap)
-    .sort((a, b) => b.totalSpent - a.totalSpent)
-    .slice(0, 5);
+  const allMerchants = Object.values(merchantMap).sort((a, b) => b.totalSpent - a.totalSpent);
+  const sortedMerchants = allMerchants.slice(0, 5);
+  const topSum = sortedMerchants.reduce((s, m) => s + m.totalSpent, 0);
+  const otherShare = totalDebitSum > 0 ? Math.max(0, ((totalDebitSum - topSum) / totalDebitSum) * 100) : 0;
+  const otherCount = allMerchants.length - sortedMerchants.length;
 
   const maxSpent = sortedMerchants.length > 0 ? sortedMerchants[0].totalSpent : 1;
 
@@ -92,8 +99,10 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
       {totalDebitSum > 0 && sortedMerchants.length > 0 && (
         <div className="space-y-1.5 bg-obsidian p-2.5 rounded-xl border border-nothing">
           <div className="flex items-center justify-between text-[9px] font-mono text-[#888]">
-            <span>SHARE DISTRIBUTION</span>
-            <span className="text-white font-bold">{sortedMerchants.length} TOP SPEND DESTINATIONS</span>
+            <span>SHARE DISTRIBUTION{month ? ` · ${month}` : ''}</span>
+            <span className="text-white font-bold">
+              {otherShare >= 0.5 ? `TOP ${sortedMerchants.length} = ${(100 - otherShare).toFixed(0)}% · OTHER ${otherShare.toFixed(0)}%` : `${sortedMerchants.length} TOP SPEND DESTINATIONS`}
+            </span>
           </div>
           <div className="w-full h-3 bg-[#111] rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-[#222]">
             {sortedMerchants.map((merchant, idx) => {
@@ -108,6 +117,13 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
                 />
               );
             })}
+            {otherShare >= 1 && (
+              <div
+                title={`Other (${otherCount} merchant${otherCount === 1 ? '' : 's'}): ${otherShare.toFixed(1)}%`}
+                style={{ width: `${otherShare}%` }}
+                className="h-full bg-slate-600 rounded-sm transition-all hover:opacity-80"
+              />
+            )}
           </div>
         </div>
       )}
@@ -123,7 +139,7 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
           return (
             <div
               key={idx}
-              className="p-3 bg-obsidian border border-nothing hover:border-[#333] rounded-xl space-y-2 transition-all hover:bg-[#121212]"
+              className="p-3 bg-obsidian border border-nothing hover:border-[#333] rounded-xl space-y-2 transition-all hover:bg-surface-3"
             >
               {/* Row 1: Brand Info & Amount */}
               <div className="flex items-center justify-between gap-2 min-w-0">

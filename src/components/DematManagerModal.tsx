@@ -20,6 +20,7 @@ import {
 import { findStockBySymbol } from '../services/stocksDatabase';
 import { roundCurrency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
+import { parseNumberInput } from '../utils/numberInput';
 import { todayLocalISO, currentMonthLocal } from '../utils/dates';
 
 interface DematManagerModalProps {
@@ -122,15 +123,28 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
     const isDhanFormat = header.includes('symbol') && (header.includes('quantity') || header.includes('qty'));
 
     const items: InvestmentRecord[] = [];
+    const rowErrors: string[] = [];
 
     for (let i = 1; i < lines.length; i++) {
       const row = lines[i].split(',').map((c) => c.trim().replace(/^"|"$/g, ''));
       if (row.length < 3) continue;
 
       let symbol = row[0].toUpperCase();
-      let shares = parseFloat(row[1]) || 0;
-      let buyPrice = parseFloat(row[2]) || 0;
-      let ltp = parseFloat(row[3]) || buyPrice;
+      const sharesParse = parseNumberInput(row[1], { label: 'Quantity', min: 0 });
+      const priceParse = parseNumberInput(row[2], { label: 'Buy price', min: 0 });
+      const ltpParse = parseNumberInput(row[3] ?? '', { label: 'LTP', min: 0, allowEmpty: true });
+      if (sharesParse.ok === false || priceParse.ok === false || ltpParse.ok === false) {
+        const err = [sharesParse, priceParse, ltpParse].find((r) => !r.ok) as { ok: false; error: string };
+        rowErrors.push(`Row ${i + 1} (${symbol || '?'}): ${err.error}`);
+        continue;
+      }
+      const shares = sharesParse.value ?? 0;
+      const buyPrice = priceParse.value ?? 0;
+      if (shares <= 0 || buyPrice <= 0) {
+        rowErrors.push(`Row ${i + 1} (${symbol || '?'}): quantity and buy price must be greater than zero.`);
+        continue;
+      }
+      const ltp = ltpParse.value ?? buyPrice;
 
       if (isZerodhaFormat || isDhanFormat) {
         // Find in stock database for clean company name
@@ -164,8 +178,15 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
     }
 
     if (items.length === 0) {
-      setParseError('Could not recognize holdings in the CSV. Please use the sample template.');
+      setParseError(
+        rowErrors.length > 0
+          ? `No valid holdings found. ${rowErrors.slice(0, 3).join(' ')}`
+          : 'Could not recognize holdings in the CSV. Please use the sample template.'
+      );
       return;
+    }
+    if (rowErrors.length > 0) {
+      setParseError(`${rowErrors.length} row${rowErrors.length === 1 ? '' : 's'} skipped: ${rowErrors.slice(0, 3).join(' ')}${rowErrors.length > 3 ? ' …' : ''}`);
     }
 
     setParsedPreview(items);
@@ -183,7 +204,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/85 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4 font-mono select-none">
-      <div className="bg-[#121218] border border-[#2c2c3c] rounded-3xl max-w-2xl w-full shadow-2xl relative max-h-[92vh] flex flex-col text-white">
+      <div className="bg-[#121218] border border-line rounded-3xl max-w-2xl w-full shadow-2xl relative max-h-[92vh] flex flex-col text-white">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-[#222] shrink-0">
           <div className="flex items-center gap-3">
@@ -208,7 +229,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex border-b border-[#222] bg-[#0c0c12] px-5 shrink-0">
+        <div className="flex border-b border-[#222] bg-surface-1 px-5 shrink-0">
           <button
             onClick={() => setActiveTab('OVERVIEW')}
             className={`py-3 px-4 text-xs font-bold uppercase tracking-wider border-b-2 transition-colors cursor-pointer ${
@@ -276,7 +297,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                   return (
                     <div
                       key={broker.id}
-                      className="p-3.5 bg-[#171722] border border-[#272738] rounded-2xl flex flex-col justify-between"
+                      className="p-3.5 bg-surface-1 border border-line rounded-2xl flex flex-col justify-between"
                     >
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2">
@@ -286,12 +307,12 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                           />
                           <span className="text-xs font-bold text-white">{broker.name}</span>
                         </div>
-                        <span className="text-[9px] px-2 py-0.5 bg-[#222232] text-[#aaa] rounded-md font-mono">
+                        <span className="text-[9px] px-2 py-0.5 bg-surface-2 text-[#aaa] rounded-md font-mono">
                           {data.count} {data.count === 1 ? 'Holding' : 'Holdings'}
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 mt-1 pt-2 border-t border-[#222230] text-[11px]">
+                      <div className="grid grid-cols-2 gap-2 mt-1 pt-2 border-t border-line text-[11px]">
                         <div>
                           <div className="text-[9px] text-[#777] uppercase">Current Value</div>
                           <div className="font-bold text-white text-xs">
@@ -356,14 +377,14 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                   <button
                     type="button"
                     onClick={() => handleLoadSampleCsv('zerodha')}
-                    className="flex-1 py-2 px-2.5 bg-[#1f1f2e] hover:bg-[#28283a] border border-[#333] rounded-xl text-[10px] text-[#ccc] hover:text-white transition-colors cursor-pointer"
+                    className="flex-1 py-2 px-2.5 bg-surface-2 hover:bg-surface-3 border border-[#333] rounded-xl text-[10px] text-[#ccc] hover:text-white transition-colors cursor-pointer"
                   >
                     Sample Zerodha CSV
                   </button>
                   <button
                     type="button"
                     onClick={() => handleLoadSampleCsv('dhan')}
-                    className="flex-1 py-2 px-2.5 bg-[#1f1f2e] hover:bg-[#28283a] border border-[#333] rounded-xl text-[10px] text-[#ccc] hover:text-white transition-colors cursor-pointer"
+                    className="flex-1 py-2 px-2.5 bg-surface-2 hover:bg-surface-3 border border-[#333] rounded-xl text-[10px] text-[#ccc] hover:text-white transition-colors cursor-pointer"
                   >
                     Sample Dhan CSV
                   </button>
@@ -381,7 +402,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                   value={csvText}
                   onChange={(e) => setCsvText(e.target.value)}
                   placeholder={`Instrument,Qty,Avg cost,LTP\nNATIONALUM,100,285.50,318.40\nRELIANCE,10,2890.00,2985.40`}
-                  className="w-full px-3 py-2 bg-[#181822] border border-[#333] rounded-xl text-xs text-white placeholder-[#555] font-mono focus:outline-none focus:border-purple-500 resize-none"
+                  className="w-full px-3 py-2 bg-[#181822] border border-[#333] rounded-xl text-xs text-white placeholder-content-3 font-mono focus:outline-none focus:border-purple-500 resize-none"
                 />
               </div>
 
@@ -397,7 +418,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
 
               {/* Preview table */}
               {parsedPreview.length > 0 && (
-                <div className="p-3 bg-[#15151e] border border-purple-800/40 rounded-2xl space-y-3">
+                <div className="p-3 bg-surface-1 border border-purple-800/40 rounded-2xl space-y-3">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-white">
                       Preview: {parsedPreview.length} Holdings Ready to Import
@@ -409,7 +430,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                     {parsedPreview.map((item, idx) => (
                       <div
                         key={idx}
-                        className="p-2 bg-[#1c1c28] rounded-xl flex items-center justify-between text-xs"
+                        className="p-2 bg-surface-2 rounded-xl flex items-center justify-between text-xs"
                       >
                         <div>
                           <div className="font-bold text-white">{item.symbol}</div>
@@ -443,7 +464,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
           {/* TAB 3: GUIDE */}
           {activeTab === 'GUIDE' && (
             <div className="space-y-4 text-xs leading-relaxed text-[#ccc]">
-              <div className="p-3.5 bg-[#171722] border border-[#272738] rounded-2xl space-y-2">
+              <div className="p-3.5 bg-surface-1 border border-line rounded-2xl space-y-2">
                 <div className="font-bold text-white flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-purple-400" />
                   How to Track Other Demat Accounts (Dhan, Zerodha, Groww)
@@ -454,7 +475,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
               </div>
 
               {/* Method 1 */}
-              <div className="p-3.5 bg-[#171722] border border-[#272738] rounded-2xl space-y-2">
+              <div className="p-3.5 bg-surface-1 border border-line rounded-2xl space-y-2">
                 <div className="font-bold text-emerald-400 text-xs">
                   Method 1: Direct CSV / Holdings Export (Zero-cost & Instant)
                 </div>
@@ -475,7 +496,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
               </div>
 
               {/* Method 2 */}
-              <div className="p-3.5 bg-[#171722] border border-[#272738] rounded-2xl space-y-2">
+              <div className="p-3.5 bg-surface-1 border border-line rounded-2xl space-y-2">
                 <div className="font-bold text-cyan-400 text-xs">
                   Method 2: Consolidated Account Statement (e-CAS) from CDSL / NSDL
                 </div>
@@ -485,7 +506,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
               </div>
 
               {/* Method 3 */}
-              <div className="p-3.5 bg-[#171722] border border-[#272738] rounded-2xl space-y-2">
+              <div className="p-3.5 bg-surface-1 border border-line rounded-2xl space-y-2">
                 <div className="font-bold text-purple-400 text-xs">
                   Method 3: Direct Broker Open API Connection
                 </div>

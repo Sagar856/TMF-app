@@ -42,22 +42,54 @@
   --dot-color: rgba(255, 255, 255, 0.08);
   --scrollbar-bg: #09090c;
   --scrollbar-thumb: #2a2a38;
+  --overlay-backdrop: rgba(0, 0, 0, 0.75);
 }
 
-.light {
-  --bg-app: #f4f5f8;
-  --bg-sidebar: #ffffff;
-  --bg-card: #ffffff;
-  --bg-elevated: #f8fafc;
-  --bg-input: #ffffff;
-  --border-nothing: #e2e8f0;
-  --border-light: #cbd5e1;
-  --text-main: #090d16;
-  --text-dim: #334155;
-  --text-muted: #475569;
-  --dot-color: rgba(0, 0, 0, 0.06);
-  --scrollbar-bg: #f4f5f8;
-  --scrollbar-thumb: #cbd5e1;
+/* Light-mode values live in ONE place (see ".light" block below). */
+
+/*
+ * Semantic design tokens. Components should prefer these utilities
+ * (bg-surface-1/2/3, text-content-1/2/3, border-line, bg-backdrop) over
+ * hard-coded hex colours so both themes are handled by the variables above.
+ */
+@theme inline {
+  --color-surface-0: var(--bg-app);
+  --color-surface-1: var(--bg-card);
+  --color-surface-2: var(--bg-elevated);
+  --color-surface-3: var(--bg-input);
+  --color-content-1: var(--text-main);
+  --color-content-2: var(--text-dim);
+  --color-content-3: var(--text-muted);
+  --color-line: var(--border-nothing);
+  --color-line-strong: var(--border-light);
+  --color-backdrop: var(--overlay-backdrop);
+}
+
+/* Stacking scale: nav < fab < popover < modal < toast */
+@layer utilities {
+  .z-nav { z-index: 40; }
+  .z-fab { z-index: 45; }
+  .z-popover { z-index: 50; }
+  .z-modal { z-index: 60; }
+  .z-toast { z-index: 70; }
+}
+
+/*
+ * Stacked KPI "deck": only the top card is readable, the cards beneath peek
+ * out as solid edges. Translucent backgrounds would let their text bleed
+ * through, so force an opaque surface and hide lower cards' content until
+ * hovered/focused.
+ */
+.kpi-stack > * {
+  background-color: var(--bg-card) !important;
+  backdrop-filter: none !important;
+}
+.kpi-stack > * + * > * {
+  visibility: hidden;
+}
+.kpi-stack > * + *:hover > *,
+.kpi-stack > * + *:focus-within > * {
+  visibility: visible;
 }
 
 body {
@@ -171,6 +203,7 @@ main:focus {
   --dot-color: rgba(0, 0, 0, 0.05);
   --scrollbar-bg: #f4f4f6;
   --scrollbar-thumb: #cbd5e1;
+  --overlay-backdrop: rgba(15, 23, 42, 0.45);
   background-color: var(--bg-app);
   color: #0f172a;
 }
@@ -395,8 +428,25 @@ main:focus {
 .light .bg-blue-600, .light .bg-blue-600 *,
 .light .bg-indigo-600, .light .bg-indigo-600 *,
 .light .bg-purple-600, .light .bg-purple-600 *,
-.light .bg-amber-600, .light .bg-amber-600 * {
+.light .bg-amber-600, .light .bg-amber-600 *,
+/* Dark "inverted" pills used for the active nav item / selected segment */
+.light .bg-slate-900, .light .bg-slate-900 *,
+.light .bg-slate-800, .light .bg-slate-800 * {
   color: #ffffff !important;
+}
+
+/* Surfaces that stay dark in both themes (e.g. themed credit cards):
+   keep their own light-on-dark text instead of the global light remap. */
+.light .dark-surface .text-white { color: #ffffff !important; }
+.light .dark-surface .text-\[\#bbb\] { color: #d4d4d8 !important; }
+.light .dark-surface .text-red-400 { color: #fca5a5 !important; }
+.light .dark-surface .text-slate-950 { color: #020617 !important; }
+.light .dark-surface .text-slate-700 { color: #334155 !important; }
+.light .dark-surface .bg-red-950\/60,
+.light .dark-surface .bg-red-950\/80 {
+  background-color: rgba(69, 10, 10, 0.8) !important;
+  border-color: rgba(239, 68, 68, 0.4) !important;
+  color: #fca5a5 !important;
 }
 
 /* Deepen button fills that otherwise fail contrast with white labels. */

@@ -230,16 +230,198 @@ export function subscribeToAuthChanges(
 export interface SyncResult {
   success: boolean;
   error?: string;
+  /** Non-fatal: the write succeeded but some columns were skipped because the cloud schema is outdated. */
+  warning?: string;
+  /** True when the error/warning is caused by the deployed Supabase schema missing columns from supabase_schema.sql. */
+  schemaOutdated?: boolean;
+}
+
+export const SCHEMA_OUTDATED_HINT =
+  'Run the latest supabase_schema.sql in your Supabase SQL Editor to update the cloud schema.';
+
+// PostgREST reports an unknown column as PGRST204:
+// "Could not find the 'ref_number' column of 'transactions' in the schema cache".
+// Postgres itself (e.g. when a *filter* references the column) reports 42703:
+// "column transactions.deleted_at does not exist".
+function extractMissingColumn(err: unknown): string | null {
+  const e = err as { code?: string; message?: string } | null;
+  const message = e?.message || '';
+  const match = /could not find the '([^']+)' column/i.exec(message);
+  if (match) return match[1];
+  const pgMatch = /column (?:[\w"]+\.)?"?([\w]+)"? does not exist/i.exec(message);
+  if (pgMatch) return pgMatch[1];
+  if (e?.code === 'PGRST204' || e?.code === '42703') {
+    const alt = /'([^']+)'/.exec(message);
+    return alt ? alt[1] : null;
+  }
+  return null;
+}
+
+type UpsertRow = Record<string, unknown>;
+
+/** Minimal shape of the PostgREST builder we rely on (keeps the helper testable without a live client). */
+export interface UpsertClientLike {
+  from(table: string): {
+    upsert(rows: UpsertRow[], options: { onConflict: string }): PromiseLike<{ error: { code?: string; message?: string } | null }>;
+  };
+}
+
+// Upserts rows and, when the live schema lacks a column the app now writes,
+// strips that column and retries so a stale cloud schema degrades to a
+// warning instead of blocking every sync of the whole collection.
+export async function upsertWithSchemaFallback(
+  client: UpsertClientLike,
+  table: string,
+  rows: UpsertRow[],
+  context: string
+): Promise<SyncResult> {
+  const skipped: string[] = [];
+  let currentRows = rows;
+  // Bounded retry loop: each pass can remove at most one missing column.
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const { error } = await client.from(table).upsert(currentRows, { onConflict: 'user_id,id' });
+    if (!error) {
+      if (skipped.length === 0) return { success: true };
+      const warning = `Cloud schema is outdated: ${skipped.join(', ')} not synced for ${context}. ${SCHEMA_OUTDATED_HINT}`;
+      console.warn(`Supabase sync warning [${context}]:`, warning);
+      return { success: true, warning, schemaOutdated: true };
+    }
+    const missing = extractMissingColumn(error);
+    if (!missing || skipped.includes(missing) || missing === 'id' || missing === 'user_id') {
+      const result = syncError(context, error);
+      return missing ? { ...result, schemaOutdated: true, error: `${result.error}. ${SCHEMA_OUTDATED_HINT}` } : result;
+    }
+    skipped.push(missing);
+    currentRows = currentRows.map((row) => {
+      const { [missing]: _dropped, ...rest } = row;
+      return rest;
+    });
+  }
+  return { success: false, error: `Could not sync ${context}: too many missing columns. ${SCHEMA_OUTDATED_HINT}`, schemaOutdated: true };
 }
 
 function syncError(context: string, err: unknown): SyncResult {
   const message = (err as { message?: string })?.message || String(err);
-  if (isNetworkOrFetchError(err) || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+  if (isNetworkOrFetchError(err) || (typeof navigator !== 'undefined' && navigator.onLine === false)) {
     console.warn(`Supabase sync offline/unreachable [${context}]: Cloud backend unreachable. Changes are saved locally.`);
     return { success: false, error: 'Cloud offline or unreachable. Changes saved in local storage.' };
   }
   console.warn(`Supabase sync issue [${context}]:`, message);
   return { success: false, error: message };
+}
+
+type SyncTable = 'transactions' | 'categories' | 'financial_accounts' | 'investments' | 'loans';
+
+function isMissingColumnError(err: unknown, column: string): boolean {
+  const missing = extractMissingColumn(err);
+  return missing === column;
+}
+
+/**
+ * Soft-deletes rows by stamping `deleted_at` (a tombstone every device will
+ * see on its next fetch). Falls back to a hard delete when the live schema
+ * predates the tombstone column. Always scoped to the signed-in user as
+ * defense in depth alongside RLS.
+ */
+async function deleteRows(table: SyncTable, ids: string[], context: string): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+  if (ids.length === 0) return { success: true };
+
+  try {
+    const { data: { user } } = await client.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+
+    const now = new Date().toISOString();
+    if (tombstoneColumnSupported !== false) {
+      const soft = await client
+        .from(table)
+        .update({ deleted_at: now })
+        .eq('user_id', user.id)
+        .in('id', ids);
+      if (!soft.error) {
+        tombstoneColumnSupported = true;
+        return { success: true };
+      }
+      if (!isMissingColumnError(soft.error, 'deleted_at')) return syncError(context, soft.error);
+      tombstoneColumnSupported = false;
+    }
+
+    const hard = await client.from(table).delete().eq('user_id', user.id).in('id', ids);
+    if (hard.error) return syncError(context, hard.error);
+    return { success: true, warning: `Cloud schema is outdated: deletions are not tombstoned for ${table}. ${SCHEMA_OUTDATED_HINT}`, schemaOutdated: true };
+  } catch (err) {
+    return syncError(context, err);
+  }
+}
+
+/**
+ * Fetches live rows (tombstones excluded). On schemas without `deleted_at`
+ * the plain select is used instead. Rows are untyped (`any`) exactly like the
+ * previous `select('*')` calls so the per-table mappers keep working.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRow = any;
+interface SelectResult {
+  data: AnyRow[] | null;
+  error: { message?: string; code?: string } | null;
+}
+
+// Remembered per session so an old schema isn't probed on every fetch/delete.
+let tombstoneColumnSupported: boolean | null = null;
+
+async function selectLiveRows(table: SyncTable, orderBy?: { column: string; ascending: boolean }): Promise<SelectResult> {
+  const client = getSupabaseClient();
+  if (!client) return { data: null, error: null };
+  if (tombstoneColumnSupported !== false) {
+    let query = client.from(table).select('*').is('deleted_at', null);
+    if (orderBy) query = query.order(orderBy.column, { ascending: orderBy.ascending });
+    const first = await query;
+    if (!first.error) {
+      tombstoneColumnSupported = true;
+      return { data: first.data as AnyRow[], error: null };
+    }
+    if (!isMissingColumnError(first.error, 'deleted_at')) return { data: null, error: first.error };
+    tombstoneColumnSupported = false;
+  }
+  let fallback = client.from(table).select('*');
+  if (orderBy) fallback = fallback.order(orderBy.column, { ascending: orderBy.ascending });
+  const second = await fallback;
+  return { data: (second.data as AnyRow[] | null) ?? null, error: second.error };
+}
+
+export interface CloudTombstones {
+  transactions: string[];
+  accounts: string[];
+  categories: string[];
+  investments: string[];
+  loans: string[];
+}
+
+/** IDs deleted on any device. Empty arrays when the schema has no tombstones yet. */
+export async function fetchCloudTombstones(): Promise<CloudTombstones> {
+  const empty: CloudTombstones = { transactions: [], accounts: [], categories: [], investments: [], loans: [] };
+  const client = getSupabaseClient();
+  if (!client || tombstoneColumnSupported === false) return empty;
+  const tables: Array<[keyof CloudTombstones, SyncTable]> = [
+    ['transactions', 'transactions'],
+    ['accounts', 'financial_accounts'],
+    ['categories', 'categories'],
+    ['investments', 'investments'],
+    ['loans', 'loans'],
+  ];
+  const results = await Promise.all(
+    tables.map(async ([key, table]) => {
+      try {
+        const { data, error } = await client.from(table).select('id').not('deleted_at', 'is', null);
+        if (error || !data) return [key, []] as const;
+        return [key, (data as { id: string }[]).map((r) => r.id)] as const;
+      } catch {
+        return [key, []] as const;
+      }
+    })
+  );
+  return results.reduce<CloudTombstones>((acc, [key, ids]) => ({ ...acc, [key]: ids }), empty);
 }
 
 // 1. Transactions Sync
@@ -268,39 +450,23 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
       payment_method: t.paymentMethod || null,
       note: t.note || null,
       ref_number: t.refNumber || null,
+      kind: t.kind || null,
+      account_id: t.accountId || null,
+      to_account_id: t.toAccountId || null,
     }));
 
-    const { error } = await client.from('transactions').upsert(rows, { onConflict: 'user_id,id' });
-    if (error) return syncError('transactions', error);
-    return { success: true };
+    return upsertWithSchemaFallback(client, 'transactions', rows, 'transactions');
   } catch (err) {
     return syncError('transactions', err);
   }
 }
 
 export async function deleteTransactionFromSupabase(id: string): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  try {
-    const { error } = await client.from('transactions').delete().eq('id', id);
-    if (error) return syncError('delete-transaction', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-transaction', err);
-  }
+  return deleteRows('transactions', [id], 'delete-transaction');
 }
 
 export async function deleteMultipleTransactionsFromSupabase(ids: string[]): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client || ids.length === 0) return { success: true };
-  try {
-    const { error } = await client.from('transactions').delete().in('id', ids);
-    if (error) return syncError('delete-multiple-transactions', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-multiple-transactions', err);
-  }
+  return deleteRows('transactions', ids, 'delete-multiple-transactions');
 }
 
 export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | null> {
@@ -308,7 +474,7 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
   if (!client) return null;
 
   try {
-    const { data, error } = await client.from('transactions').select('*').order('date', { ascending: false });
+    const { data, error } = await selectLiveRows('transactions', { column: 'date', ascending: false });
     if (error) {
       if (isNetworkOrFetchError(error)) {
         console.warn('Supabase fetch [transactions]: Cloud backend is currently offline. Using local data.');
@@ -335,6 +501,9 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
       paymentMethod: row.payment_method,
       note: row.note,
       refNumber: row.ref_number || undefined,
+      kind: row.kind || undefined,
+      accountId: row.account_id || undefined,
+      toAccountId: row.to_account_id || undefined,
     }));
   } catch (err) {
     if (isNetworkOrFetchError(err)) {
@@ -365,25 +534,14 @@ export async function syncCategoriesToSupabase(categories: Category[]): Promise<
       budget_limit: c.budgetLimit || 0,
     }));
 
-    const { error } = await client.from('categories').upsert(rows, { onConflict: 'user_id,id' });
-    if (error) return syncError('categories', error);
-    return { success: true };
+    return upsertWithSchemaFallback(client, 'categories', rows, 'categories');
   } catch (err) {
     return syncError('categories', err);
   }
 }
 
 export async function deleteCategoryFromSupabase(id: string): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  try {
-    const { error } = await client.from('categories').delete().eq('id', id);
-    if (error) return syncError('delete-category', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-category', err);
-  }
+  return deleteRows('categories', [id], 'delete-categorie');
 }
 
 export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> {
@@ -391,7 +549,7 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
   if (!client) return null;
 
   try {
-    const { data, error } = await client.from('categories').select('*');
+    const { data, error } = await selectLiveRows('categories');
     if (error) {
       if (isNetworkOrFetchError(error)) {
         console.warn('Supabase fetch [categories]: Cloud backend is currently offline. Using local data.');
@@ -446,37 +604,18 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
       is_default: Boolean(a.isDefault),
     }));
 
-    const { error } = await client.from('financial_accounts').upsert(rows, { onConflict: 'user_id,id' });
-    if (error) return syncError('financial_accounts', error);
-    return { success: true };
+    return upsertWithSchemaFallback(client, 'financial_accounts', rows, 'financial_accounts');
   } catch (err) {
     return syncError('financial_accounts', err);
   }
 }
 
 export async function deleteAccountFromSupabase(id: string): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  try {
-    const { error } = await client.from('financial_accounts').delete().eq('id', id);
-    if (error) return syncError('delete-account', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-account', err);
-  }
+  return deleteRows('financial_accounts', [id], 'delete-financial-account');
 }
 
 export async function deleteMultipleAccountsFromSupabase(ids: string[]): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client || ids.length === 0) return { success: true };
-  try {
-    const { error } = await client.from('financial_accounts').delete().in('id', ids);
-    if (error) return syncError('delete-multiple-accounts', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-multiple-accounts', err);
-  }
+  return deleteRows('financial_accounts', ids, 'delete-multiple-financial-accounts');
 }
 
 export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | null> {
@@ -484,7 +623,7 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
   if (!client) return null;
 
   try {
-    const { data, error } = await client.from('financial_accounts').select('*');
+    const { data, error } = await selectLiveRows('financial_accounts');
     if (error) {
       if (isNetworkOrFetchError(error)) {
         console.warn('Supabase fetch [financial_accounts]: Cloud backend is currently offline. Using local data.');
@@ -543,37 +682,18 @@ export async function syncInvestmentsToSupabase(investments: InvestmentRecord[])
       details: inv,
     }));
 
-    const { error } = await client.from('investments').upsert(rows, { onConflict: 'user_id,id' });
-    if (error) return syncError('investments', error);
-    return { success: true };
+    return upsertWithSchemaFallback(client, 'investments', rows, 'investments');
   } catch (err) {
     return syncError('investments', err);
   }
 }
 
 export async function deleteInvestmentFromSupabase(id: string): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  try {
-    const { error } = await client.from('investments').delete().eq('id', id);
-    if (error) return syncError('delete-investment', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-investment', err);
-  }
+  return deleteRows('investments', [id], 'delete-investment');
 }
 
 export async function deleteMultipleInvestmentsFromSupabase(ids: string[]): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client || ids.length === 0) return { success: true };
-  try {
-    const { error } = await client.from('investments').delete().in('id', ids);
-    if (error) return syncError('delete-multiple-investments', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-multiple-investments', err);
-  }
+  return deleteRows('investments', ids, 'delete-multiple-investments');
 }
 
 export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[] | null> {
@@ -581,7 +701,7 @@ export async function fetchInvestmentsFromSupabase(): Promise<InvestmentRecord[]
   if (!client) return null;
 
   try {
-    const { data, error } = await client.from('investments').select('*');
+    const { data, error } = await selectLiveRows('investments');
     if (error) {
       if (isNetworkOrFetchError(error)) {
         console.warn('Supabase fetch [investments]: Cloud backend is currently offline. Using local data.');
@@ -639,37 +759,18 @@ export async function syncLoansToSupabase(loans: LoanRecord[]): Promise<SyncResu
       details: l,
     }));
 
-    const { error } = await client.from('loans').upsert(rows, { onConflict: 'user_id,id' });
-    if (error) return syncError('loans', error);
-    return { success: true };
+    return upsertWithSchemaFallback(client, 'loans', rows, 'loans');
   } catch (err) {
     return syncError('loans', err);
   }
 }
 
 export async function deleteLoanFromSupabase(id: string): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  try {
-    const { error } = await client.from('loans').delete().eq('id', id);
-    if (error) return syncError('delete-loan', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-loan', err);
-  }
+  return deleteRows('loans', [id], 'delete-loan');
 }
 
 export async function deleteMultipleLoansFromSupabase(ids: string[]): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client || ids.length === 0) return { success: true };
-  try {
-    const { error } = await client.from('loans').delete().in('id', ids);
-    if (error) return syncError('delete-multiple-loans', error);
-    return { success: true };
-  } catch (err) {
-    return syncError('delete-multiple-loans', err);
-  }
+  return deleteRows('loans', ids, 'delete-multiple-loans');
 }
 
 export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
@@ -677,14 +778,12 @@ export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
-    // Under RLS, deleting with neq('id', '') wipes the authenticated user's records
-    const results = await Promise.all([
-      client.from('transactions').delete().neq('id', ''),
-      client.from('categories').delete().neq('id', ''),
-      client.from('financial_accounts').delete().neq('id', ''),
-      client.from('investments').delete().neq('id', ''),
-      client.from('loans').delete().neq('id', ''),
-    ]);
+    const { data: { user } } = await client.auth.getUser();
+    if (!user) return { success: false, error: 'Not signed in' };
+    // Explicit user scope as defense in depth alongside RLS. Hard delete is
+    // intentional here: "Reset all data" must also remove tombstones.
+    const tables: SyncTable[] = ['transactions', 'categories', 'financial_accounts', 'investments', 'loans'];
+    const results = await Promise.all(tables.map((t) => client.from(t).delete().eq('user_id', user.id)));
 
     for (const res of results) {
       if (res.error) {
@@ -702,7 +801,7 @@ export async function fetchLoansFromSupabase(): Promise<LoanRecord[] | null> {
   if (!client) return null;
 
   try {
-    const { data, error } = await client.from('loans').select('*');
+    const { data, error } = await selectLiveRows('loans');
     if (error) {
       if (isNetworkOrFetchError(error)) {
         console.warn('Supabase fetch [loans]: Cloud backend is currently offline. Using local data.');

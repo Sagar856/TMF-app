@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   payment_method TEXT,
   note TEXT,
   ref_number TEXT,
+  kind TEXT,
+  account_id TEXT,
+  to_account_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, id)
 );
@@ -119,7 +122,6 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
   currency_symbol TEXT DEFAULT '₹',
   theme TEXT DEFAULT 'dark',
   passcode_enabled BOOLEAN DEFAULT FALSE,
-  passcode TEXT DEFAULT '1234',
   default_net_worth_masked BOOLEAN DEFAULT TRUE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -129,30 +131,81 @@ CREATE TABLE IF NOT EXISTS public.user_settings (
 -- =======================================================
 -- IDEMPOTENT MIGRATION FOR EXISTING PROJECTS:
 -- Replace single-column PK with composite PRIMARY KEY (user_id, id)
--- And add details JSONB column to investments and loans
+-- And add details JSONB column to investments and loans.
+-- Safe to re-run: constraints are only (re)created when they are not
+-- already the composite (user_id, id) key.
 -- =======================================================
-ALTER TABLE public.transactions DROP CONSTRAINT IF EXISTS transactions_pkey;
-ALTER TABLE public.transactions ADD CONSTRAINT transactions_pkey PRIMARY KEY (user_id, id);
+DO $$
+DECLARE
+  t TEXT;
+  pk_cols TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['transactions', 'categories', 'financial_accounts', 'investments', 'loans', 'user_settings'] LOOP
+    SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+      INTO pk_cols
+      FROM pg_constraint c
+      JOIN LATERAL unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) ON TRUE
+      JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
+     WHERE c.conrelid = ('public.' || t)::regclass
+       AND c.contype = 'p';
 
-ALTER TABLE public.categories DROP CONSTRAINT IF EXISTS categories_pkey;
-ALTER TABLE public.categories ADD CONSTRAINT categories_pkey PRIMARY KEY (user_id, id);
-
-ALTER TABLE public.financial_accounts DROP CONSTRAINT IF EXISTS financial_accounts_pkey;
-ALTER TABLE public.financial_accounts ADD CONSTRAINT financial_accounts_pkey PRIMARY KEY (user_id, id);
-
-ALTER TABLE public.investments DROP CONSTRAINT IF EXISTS investments_pkey;
-ALTER TABLE public.investments ADD CONSTRAINT investments_pkey PRIMARY KEY (user_id, id);
-
-ALTER TABLE public.loans DROP CONSTRAINT IF EXISTS loans_pkey;
-ALTER TABLE public.loans ADD CONSTRAINT loans_pkey PRIMARY KEY (user_id, id);
-
-ALTER TABLE public.user_settings DROP CONSTRAINT IF EXISTS user_settings_pkey;
-ALTER TABLE public.user_settings ADD CONSTRAINT user_settings_pkey PRIMARY KEY (user_id, id);
+    IF pk_cols IS DISTINCT FROM 'user_id,id' THEN
+      EXECUTE format('ALTER TABLE public.%I DROP CONSTRAINT IF EXISTS %I', t, t || '_pkey');
+      EXECUTE format('ALTER TABLE public.%I ADD CONSTRAINT %I PRIMARY KEY (user_id, id)', t, t || '_pkey');
+    END IF;
+  END LOOP;
+END $$;
 
 -- Add details JSONB column to preserve all rich fields on investments and loans
 ALTER TABLE public.investments ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.loans ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS ref_number TEXT;
+-- Semantic classification + canonical account linkage (see src/utils/transactionKind.ts)
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS kind TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS account_id TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS to_account_id TEXT;
+
+-- =======================================================
+-- SYNC METADATA: updated_at (last-writer timestamp) and deleted_at
+-- (tombstone). Deletes are soft so every device learns about them and
+-- a stale device can never resurrect a deleted row.
+-- =======================================================
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['transactions', 'categories', 'financial_accounts', 'investments', 'loans'] LOOP
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()', t);
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ', t);
+    EXECUTE format('CREATE INDEX IF NOT EXISTS %I ON public.%I (user_id, deleted_at)', t || '_user_deleted_idx', t);
+  END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION public.tmf_set_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  NEW.updated_at := NOW();
+  RETURN NEW;
+END $$;
+
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['transactions', 'categories', 'financial_accounts', 'investments', 'loans'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON public.%I', t || '_set_updated_at', t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE UPDATE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.tmf_set_updated_at()', t || '_set_updated_at', t);
+  END LOOP;
+END $$;
+
+-- The app never stores the PIN in the cloud (it keeps a salted hash on-device
+-- only); remove the legacy plaintext column so it can never be populated.
+ALTER TABLE public.user_settings DROP COLUMN IF EXISTS passcode;
+
+-- Indexes for the per-user reads/orders the client performs
+CREATE INDEX IF NOT EXISTS transactions_user_date_idx ON public.transactions (user_id, date DESC);
+CREATE INDEX IF NOT EXISTS categories_user_idx ON public.categories (user_id);
+CREATE INDEX IF NOT EXISTS financial_accounts_user_idx ON public.financial_accounts (user_id);
+CREATE INDEX IF NOT EXISTS investments_user_idx ON public.investments (user_id);
+CREATE INDEX IF NOT EXISTS loans_user_idx ON public.loans (user_id);
 
 -- Enforce user_id NOT NULL and DEFAULT auth.uid() on all tables
 ALTER TABLE public.transactions ALTER COLUMN user_id SET NOT NULL;

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { prefersReducedMotion } from './useReducedMotion';
 
 export interface UseScrollFocusSectionOptions {
   /**
@@ -91,7 +92,8 @@ export function useScrollFocusSection({
     const target = targetProgressRef.current;
     const diff = target - current;
 
-    if (Math.abs(diff) > 0.002) {
+    // Honour prefers-reduced-motion: jump straight to the target instead of easing.
+    if (Math.abs(diff) > 0.002 && !prefersReducedMotion()) {
       const nextValue = current + diff * 0.16;
       const cleanNext = Math.max(0, Math.min(1, nextValue));
       progressRef.current = cleanNext;

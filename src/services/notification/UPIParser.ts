@@ -1,3 +1,5 @@
+import { sanitizeMerchantCandidate } from './merchantSanitizer';
+
 export interface UPIParseResult {
   appSource: string;
   payeeOrPayer?: string;
@@ -77,8 +79,8 @@ export function parseUPIFormat(text: string): UPIParseResult {
       for (const regex of app.payeeRegexes) {
         const match = text.match(regex);
         if (match && match[1]) {
-          const candidate = match[1].trim();
-          if (candidate.length >= 2 && !/^(upi|gpay|phonepe|paytm|cred|amazon|ref|utr)$/i.test(candidate)) {
+          const candidate = sanitizeMerchantCandidate(match[1]);
+          if (candidate) {
             payeeOrPayer = candidate;
             break;
           }
@@ -103,7 +105,7 @@ export function parseUPIFormat(text: string): UPIParseResult {
     const genericPayee = text.match(/(?:to|sent to|paid to)\s+([A-Za-z0-9\s&_.-]{2,30}?)(?:\s+vpa|\s+via|\.|$)/i);
     return {
       appSource: 'UPI Transaction',
-      payeeOrPayer: genericPayee && genericPayee[1] ? genericPayee[1].trim() : undefined,
+      payeeOrPayer: sanitizeMerchantCandidate(genericPayee && genericPayee[1] ? genericPayee[1] : undefined),
       matched: true,
     };
   }

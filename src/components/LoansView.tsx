@@ -6,7 +6,7 @@ import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, Tre
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
 import { LoanScheduleModal } from './LoanScheduleModal';
-import { generateAmortizationSchedule, roundCurrency } from '../services/financialCalculations';
+import { generateAmortizationSchedule, roundCurrency, MONTHS_PER_PERIOD, type RepaymentFrequency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
 import { todayLocalISO, addMonthsClamped, parseLocalDate } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
@@ -68,7 +68,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [repayModalLoan, setRepayModalLoan] = useState<LoanRecord | null>(null);
   const [settleModalLoan, setSettleModalLoan] = useState<LoanRecord | null>(null);
   const [editModalLoan, setEditModalLoan] = useState<LoanRecord | null>(null);
-  const [selectedScheduleLoan, setSelectedScheduleLoan] = useState<LoanRecord | null>(null);
+  // Only the id is stored so the schedule modal always renders the parent's
+  // authoritative loan record (payments/skips are applied by the parent).
+  const [selectedScheduleLoanId, setSelectedScheduleLoanId] = useState<string | null>(null);
+  const selectedScheduleLoan = selectedScheduleLoanId ? loans.find((l) => l.id === selectedScheduleLoanId) || null : null;
+  const setSelectedScheduleLoan = (loan: LoanRecord | null) => setSelectedScheduleLoanId(loan ? loan.id : null);
 
   // Advanced Add Loan Form State
   const [loanStructure, setLoanStructure] = useState<LoanStructure>('standard_emi');
@@ -80,6 +84,8 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [newTenureMonths, setNewTenureMonths] = useState<string>('12');
   const [newProcessingFees, setNewProcessingFees] = useState<string>('0');
   const [newDiscounts, setNewDiscounts] = useState<string>('0');
+  const [newRepaymentFrequency, setNewRepaymentFrequency] = useState<RepaymentFrequency>('Monthly');
+  const [newLoanError, setNewLoanError] = useState<string>('');
   const [newManualEmi, setNewManualEmi] = useState<string>('');
   const [newLinkedAccountId, setNewLinkedAccountId] = useState<string>(accounts[0]?.id || '');
   const [newRecordInLedger, setNewRecordInLedger] = useState<boolean>(true);
@@ -341,21 +347,57 @@ export const LoansView: React.FC<LoansViewProps> = ({
     if (!editModalLoan) return;
 
     const amt = parseFloat(editTotalAmount);
-    if (isNaN(amt) || amt <= 0) return;
+    if (!Number.isFinite(amt) || amt <= 0) return;
 
     const paid = editModalLoan.totalAmount - editModalLoan.remainingAmount;
-    const newRemaining = Math.max(0, amt - paid);
+    const newRemaining = roundCurrency(Math.max(0, amt - paid));
+    const principalChanged = Math.abs(amt - editModalLoan.totalAmount) > 0.005;
+
+    // If the financed amount changed on a scheduled loan, regenerate the unpaid
+    // part of the schedule so EMI, interest and outstanding balances stay consistent.
+    let schedule = editModalLoan.schedule;
+    let monthlyEmi = editModalLoan.monthlyEmi;
+    let expectedEmi = editModalLoan.expectedEmi;
+    if (principalChanged && schedule && schedule.length > 0 && editModalLoan.tenureMonths) {
+      const settled = schedule.filter((s) => s.status === 'paid' || s.status === 'skipped' || s.status === 'cancelled');
+      const firstOpen = schedule.find((s) => !settled.includes(s));
+      const remainingMonths = Math.max(
+        1,
+        (editModalLoan.tenureMonths || schedule.length) - settled.length * (MONTHS_PER_PERIOD[editModalLoan.repaymentFrequency || 'Monthly'] || 1)
+      );
+      const regenerated = generateAmortizationSchedule({
+        principal: newRemaining,
+        annualInterestRate: editModalLoan.interestRate || 0,
+        tenureMonths: remainingMonths,
+        loanStructure: editModalLoan.loanStructure,
+        emiOverride: editModalLoan.isEmiOverridden ? editModalLoan.monthlyEmi : undefined,
+        firstInstallmentDate: firstOpen?.dueDate || editModalLoan.firstInstallmentDate || editDueDate,
+        processingFees: editModalLoan.processingFees,
+        repaymentFrequency: editModalLoan.repaymentFrequency || 'Monthly',
+      });
+      const offset = settled.length;
+      schedule = [
+        ...settled,
+        ...regenerated.schedule.map((s) => ({ ...s, installmentNumber: s.installmentNumber + offset })),
+      ];
+      monthlyEmi = regenerated.monthlyEmi;
+      expectedEmi = regenerated.calculatedEmi;
+    }
 
     const updated: LoanRecord = {
       ...editModalLoan,
       personOrBank: editPerson.trim(),
       totalAmount: amt,
+      financedPrincipal: editModalLoan.financedPrincipal !== undefined ? amt : editModalLoan.financedPrincipal,
       remainingAmount: newRemaining,
       dueDate: editDueDate,
       notes: editNotes.trim(),
       type: editType,
-      status: newRemaining === 0 ? 'repaid' : 'active',
+      schedule,
+      monthlyEmi,
+      expectedEmi,
     };
+    updated.status = getEffectiveLoanStatus({ ...updated, status: 'active' });
 
     if (onUpdateLoan) {
       onUpdateLoan(updated);
@@ -365,17 +407,16 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
   const isPeer = loanStructure === 'peer_lend' || loanStructure === 'peer_loan';
   const parsedTotal = parseFloat(newTotalAmount) || 0;
-  const parsedDownPayment = parseFloat(newDownPayment) || 0;
+  const parsedDownPayment = loanStructure === 'down_payment_emi' ? (parseFloat(newDownPayment) || 0) : 0;
   const parsedRate = loanStructure === 'no_cost_emi' ? 0 : (parseFloat(newAnnualRate) || 0);
   const parsedTenure = parseInt(newTenureMonths, 10) || 12;
   const parsedOverrideEmi = newManualEmi ? parseFloat(newManualEmi) : undefined;
   const parsedFees = parseFloat(newProcessingFees) || 0;
   const parsedDiscounts = parseFloat(newDiscounts) || 0;
 
-  const financedPrincipal = Math.max(
-    0,
-    parsedTotal - (loanStructure === 'down_payment_emi' ? parsedDownPayment : 0)
-  );
+  // Merchant discount / subvention reduces the price being financed; the down
+  // payment is paid upfront, so the lender finances only the remainder.
+  const financedPrincipal = roundCurrency(Math.max(0, parsedTotal - parsedDiscounts - parsedDownPayment));
 
   const emiPreview = useMemo(() => {
     if (isPeer || financedPrincipal <= 0) return null;
@@ -387,6 +428,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
       emiOverride: parsedOverrideEmi,
       firstInstallmentDate: newFirstInstallmentDate,
       processingFees: parsedFees,
+      repaymentFrequency: newRepaymentFrequency,
     });
   }, [
     isPeer,
@@ -397,11 +439,40 @@ export const LoansView: React.FC<LoansViewProps> = ({
     parsedOverrideEmi,
     newFirstInstallmentDate,
     parsedFees,
+    newRepaymentFrequency,
   ]);
+
+  const validateNewLoan = (): string | null => {
+    if (!newPerson.trim()) return 'Enter the lender / borrower name.';
+    if (!Number.isFinite(parsedTotal) || parsedTotal <= 0) return 'Total amount must be greater than zero.';
+    if (parsedDiscounts < 0 || parsedFees < 0) return 'Fees and discounts cannot be negative.';
+    if (!newDueDate) return 'Choose the loan start date.';
+    if (isPeer) return null;
+    if (parsedDownPayment < 0) return 'Down payment cannot be negative.';
+    if (parsedDownPayment + parsedDiscounts >= parsedTotal) {
+      return 'Down payment plus discount must be less than the total purchase price.';
+    }
+    if (parsedRate < 0 || parsedRate > 100) return 'Annual interest rate must be between 0 and 100%.';
+    if (!Number.isInteger(parsedTenure) || parsedTenure <= 0) return 'Tenure must be at least 1 month.';
+    if (!newFirstInstallmentDate) return 'Choose the first installment due date.';
+    if (newFirstInstallmentDate < newDueDate) return 'First installment date cannot be before the loan start date.';
+    if (parsedOverrideEmi !== undefined && (!Number.isFinite(parsedOverrideEmi) || parsedOverrideEmi <= 0)) {
+      return 'Manual EMI must be a positive amount.';
+    }
+    if (parsedOverrideEmi !== undefined && emiPreview && !emiPreview.isOverridden && Math.abs(parsedOverrideEmi - emiPreview.calculatedEmi) > 0.01) {
+      return 'Manual EMI is too low to cover the interest due each period.';
+    }
+    return null;
+  };
 
   const handleSaveNewLoan = (e: React.FormEvent) => {
     e.preventDefault();
-    if (parsedTotal <= 0 || !newPerson.trim()) return;
+    const validationError = validateNewLoan();
+    if (validationError) {
+      setNewLoanError(validationError);
+      return;
+    }
+    setNewLoanError('');
 
     const effectiveType = loanStructure === 'peer_lend' ? 'lend' : 'loan';
     const effectiveTitle =
@@ -437,7 +508,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
       financedPrincipal: isPeer ? parsedTotal : financedPrincipal,
       interestRate: parsedRate,
       tenureMonths: parsedTenure,
-      repaymentFrequency: 'Monthly',
+      repaymentFrequency: isPeer ? 'Monthly' : newRepaymentFrequency,
       monthlyEmi,
       expectedEmi,
       isEmiOverridden: isOverridden,
@@ -473,7 +544,10 @@ export const LoansView: React.FC<LoansViewProps> = ({
     setNewManualEmi('');
     setNewProcessingFees('0');
     setNewDiscounts('0');
+    setNewRepaymentFrequency('Monthly');
+    setNewLoanError('');
     setNewDueDate(todayLocalISO());
+    setNewFirstInstallmentDate(addMonthsClamped(todayLocalISO(), 1));
     setNewNotes('');
     setLoanStructure('standard_emi');
     setNewRecordInLedger(true);
@@ -515,7 +589,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search person, notes..."
-              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-[#555] focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
+              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-content-3 focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
             />
             <button
               type="button"
@@ -602,7 +676,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                     setIsAddModalOpen(true);
                     setShowThreeDotMenu(false);
                   }}
-                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-surface-3 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-red-500" />
                   <span>Add Loan/Lend</span>
@@ -714,7 +788,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
@@ -731,7 +805,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
           onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
-              ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
+              ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
@@ -916,7 +990,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 {/* Bar Track */}
                 <div className="flex-1 bg-transparent h-4 relative flex items-center">
                   <div
-                    className="h-2.5 bg-[#10b981] rounded-sm transition-all duration-300"
+                    className="h-2.5 bg-surface-2 rounded-sm transition-all duration-300"
                     style={{ width: `${widthPct}%` }}
                   />
                 </div>
@@ -926,7 +1000,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
         </div>
 
         {/* X-Axis Ticks */}
-        <div className="pt-2 border-t border-[#1c1c1c] flex justify-between text-[10px] font-mono text-[#555] pl-28 sm:pl-32">
+        <div className="pt-2 border-t border-line flex justify-between text-[10px] font-mono text-[#555] pl-28 sm:pl-32">
           {ticks.map((t) => (
             <span key={t}>{t}</span>
           ))}
@@ -970,7 +1044,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                     <div>
                       <div className="flex items-center gap-1.5 flex-wrap mb-1">
                         {item.loanStructure && (
-                          <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-[#1a1a24] text-red-400 border border-red-900/60">
+                          <span className="inline-block px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider bg-surface-2 text-red-400 border border-red-900/60">
                             {item.loanStructure === 'no_cost_emi'
                               ? 'No-Cost EMI (0% Int)'
                               : item.loanStructure === 'down_payment_emi'
@@ -1088,7 +1162,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenSettleModal(item)}
-                      className="px-3 py-1 bg-transparent border border-[#333] text-[#aaa] hover:text-white hover:border-[#555] font-mono text-[11px] uppercase rounded transition-colors cursor-pointer"
+                      className="px-3 py-1 bg-transparent border border-[#333] text-[#aaa] hover:text-white hover:border-line-strong font-mono text-[11px] uppercase rounded transition-colors cursor-pointer"
                     >
                       SETTLE
                     </button>
@@ -1096,7 +1170,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(item)}
-                      className="px-3 py-1 bg-transparent border border-[#333] text-[#aaa] hover:text-white hover:border-[#555] font-mono text-[11px] uppercase rounded transition-colors cursor-pointer"
+                      className="px-3 py-1 bg-transparent border border-[#333] text-[#aaa] hover:text-white hover:border-line-strong font-mono text-[11px] uppercase rounded transition-colors cursor-pointer"
                     >
                       EDIT
                     </button>
@@ -1150,7 +1224,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 return (
                   <React.Fragment key={item.id}>
                     {/* Parent Row */}
-                    <div className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#161616] transition-colors">
+                    <div className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-colors">
                       {/* Date with expand toggle */}
                       <div
                         onClick={() => toggleExpand(item.id)}
@@ -1243,7 +1317,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                         {item.repayments && item.repayments.length > 0 ? (
                           <div className="space-y-1 text-xs font-mono">
-                            <div className="grid grid-cols-12 text-[#666] text-[10px] uppercase font-bold border-b border-[#1c1c1c] pb-1">
+                            <div className="grid grid-cols-12 text-[#666] text-[10px] uppercase font-bold border-b border-line pb-1">
                               <div className="col-span-3">DATE</div>
                               <div className="col-span-3">AMOUNT</div>
                               <div className="col-span-3">REFERENCE</div>
@@ -1253,7 +1327,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                             {item.repayments.map((rep) => (
                               <div
                                 key={rep.id}
-                                className="grid grid-cols-12 text-[#aaa] py-1 border-b border-[#151515] items-center"
+                                className="grid grid-cols-12 text-[#aaa] py-1 border-b border-line items-center"
                               >
                                 <div className="col-span-3">{formatDateDisplay(rep.date)}</div>
                                 <div className="col-span-3 font-bold text-emerald-400">
@@ -1389,7 +1463,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
                 >
                   SAVE PAYMENT
                 </button>
@@ -1463,14 +1537,14 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSettleModalLoan(null)}
-                  className="px-4 py-2.5 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2.5 bg-surface-1 hover:bg-surface-3 border border-line text-xs text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={handleConfirmSettle}
-                  className="px-5 py-2.5 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
+                  className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
                 >
                   CONFIRM SETTLE
                 </button>
@@ -1566,7 +1640,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer"
                 >
                   SAVE CHANGES
                 </button>
@@ -1579,7 +1653,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
       {/* ==================== ADD NEW LOAN RECORD MODAL ==================== */}
       {isAddModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-[#121217] border border-[#2a2a34] p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
+          <div className="bg-[#121217] border border-line p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
             <div className="flex justify-between items-center pb-3 border-b border-[#222]">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-700/60 flex items-center justify-center text-red-400">
@@ -1724,7 +1798,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                           type="text"
                           disabled
                           value="0% (No-Cost)"
-                          className="w-full px-3 py-2 bg-[#14141a] border border-[#262630] rounded-xl text-xs text-emerald-400 font-bold"
+                          className="w-full px-3 py-2 bg-surface-1 border border-line rounded-xl text-xs text-emerald-400 font-bold"
                         />
                       </div>
                     )}
@@ -1753,6 +1827,22 @@ export const LoansView: React.FC<LoansViewProps> = ({
                         onChange={(e) => setNewFirstInstallmentDate(e.target.value)}
                         className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                       />
+                    </div>
+
+                    <div>
+                      <label htmlFor="new-loan-frequency" className="block text-[9px] font-bold text-[#aaa] uppercase tracking-wider mb-1">
+                        REPAYMENT FREQUENCY
+                      </label>
+                      <select
+                        id="new-loan-frequency"
+                        value={newRepaymentFrequency}
+                        onChange={(e) => setNewRepaymentFrequency(e.target.value as RepaymentFrequency)}
+                        className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
+                      >
+                        <option value="Monthly">Monthly</option>
+                        <option value="Quarterly">Quarterly (every 3 months)</option>
+                        <option value="Yearly">Yearly</option>
+                      </select>
                     </div>
                   </div>
 
@@ -1803,7 +1893,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                   {/* Real-time EMI Calculation Preview Banner */}
                   {emiPreview && (
-                    <div className="p-3 bg-[#16161f] border border-[#282836] rounded-2xl space-y-2 text-xs">
+                    <div className="p-3 bg-surface-1 border border-line rounded-2xl space-y-2 text-xs">
                       <div className="flex items-center justify-between pb-1 border-b border-[#222]">
                         <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">
                           EMI Calculation Summary
@@ -1812,9 +1902,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
                           Financed: {currencySymbol}{formatAmount(emiPreview.financedPrincipal)}
                         </span>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                         <div>
-                          <span className="text-[#666] block text-[9px] uppercase">Expected Monthly EMI</span>
+                          <span className="text-[#666] block text-[9px] uppercase">
+                            Expected {newRepaymentFrequency} EMI × {emiPreview.periods}
+                          </span>
                           <span className="font-bold text-white text-sm">
                             {currencySymbol}{formatAmount(emiPreview.calculatedEmi)}
                           </span>
@@ -1826,12 +1918,24 @@ export const LoansView: React.FC<LoansViewProps> = ({
                           </span>
                         </div>
                         <div>
-                          <span className="text-[#666] block text-[9px] uppercase">Total Repayment</span>
+                          <span className="text-[#666] block text-[9px] uppercase">Processing Fees</span>
+                          <span className="font-bold text-[#ccc]">
+                            {currencySymbol}{formatAmount(emiPreview.processingFees)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-[#666] block text-[9px] uppercase">Total Cost</span>
                           <span className="font-bold text-cyan-400">
                             {currencySymbol}{formatAmount(emiPreview.totalRepaymentAmount)}
                           </span>
                         </div>
                       </div>
+                      {parsedDiscounts > 0 && (
+                        <p className="text-[10px] text-emerald-400">
+                          Discount of {currencySymbol}{formatAmount(parsedDiscounts)} applied before financing
+                          {parsedDownPayment > 0 ? `; down payment ${currencySymbol}${formatAmount(parsedDownPayment)} paid upfront` : ''}.
+                        </p>
+                      )}
 
                       {/* Discrepancy Callout if Overridden */}
                       {emiPreview.isOverridden && (
@@ -1892,6 +1996,12 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 />
               </div>
 
+              {newLoanError && (
+                <p role="alert" className="text-xs text-red-400 bg-red-950/40 border border-red-800/60 rounded-xl px-3 py-2">
+                  {newLoanError}
+                </p>
+              )}
+
               <div className="pt-2">
                 <button
                   type="submit"
@@ -1914,33 +2024,9 @@ export const LoansView: React.FC<LoansViewProps> = ({
           onClose={() => setSelectedScheduleLoan(null)}
           onConfirmInstallmentPayment={(loanId, instNum, accountId, amt, date, memo) => {
             onConfirmInstallmentPayment?.(loanId, instNum, accountId, amt, date, memo);
-            setSelectedScheduleLoan((prev) => {
-              if (!prev || prev.id !== loanId) return null;
-              const updatedSchedule = (prev.schedule || []).map((s) =>
-                s.installmentNumber === instNum
-                  ? { ...s, status: 'paid' as const, paidDate: date }
-                  : s
-              );
-              const newRemaining = Math.max(0, prev.remainingAmount - amt);
-              return {
-                ...prev,
-                remainingAmount: newRemaining,
-                schedule: updatedSchedule,
-                status: newRemaining === 0 ? 'repaid' : 'active',
-              };
-            });
           }}
           onSkipInstallment={(loanId, instNum) => {
             onSkipInstallment?.(loanId, instNum);
-            setSelectedScheduleLoan((prev) => {
-              if (!prev || prev.id !== loanId) return null;
-              const updatedSchedule = (prev.schedule || []).map((s) =>
-                s.installmentNumber === instNum
-                  ? { ...s, status: 'skipped' as const, skippedAt: new Date().toISOString() }
-                  : s
-              );
-              return { ...prev, schedule: updatedSchedule };
-            });
           }}
         />
       )}
@@ -1969,7 +2055,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-surface-1 border border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
@@ -2022,7 +2108,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               </p>
 
               {/* Checkbox */}
-              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+              <label className="flex items-center gap-3 p-3 bg-surface-1 border border-line hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
                 <input
                   type="checkbox"
                   checked={doNotAskAgainChecked}
@@ -2037,7 +2123,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setLoanToDelete(null)}
-                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-1 hover:bg-surface-3 border border-line text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

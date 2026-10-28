@@ -5,6 +5,16 @@ import { formatMoney } from '../utils/money';
 
 let permissionRequested = false;
 
+// Android notification ids are int32. `Date.now() % 2^31` collides when two
+// notifications are posted in the same millisecond, so combine a coarse time
+// component with a per-session counter.
+let notificationSequence = Math.floor(Math.random() * 1000);
+export function nextNotificationId(): number {
+  notificationSequence = (notificationSequence + 1) % 100_000;
+  const timePart = Math.floor(Date.now() / 1000) % 20_000; // ~5.5h window of seconds
+  return (timePart * 100_000 + notificationSequence) % 2_147_483_647;
+}
+
 export async function requestPushNotificationPermission(): Promise<boolean> {
   if (Capacitor.getPlatform() !== 'web') {
     const { display } = await LocalNotifications.requestPermissions();
@@ -46,7 +56,7 @@ export async function notifyTransactionDetected(notif: ParsedNotification, curre
     await LocalNotifications.schedule({
       notifications: [
         {
-          id: Math.floor(Date.now() % 2147483647),
+          id: nextNotificationId(),
           title: 'New transaction detected',
           body: `${amountLabel} ${verb} ${notif.payeeOrPayer}. Tap to review & add.`,
           smallIcon: 'ic_stat_tmf',
@@ -89,7 +99,7 @@ export async function notifyBudgetThresholdReached(
         await LocalNotifications.schedule({
           notifications: [
             {
-              id: Math.floor(Date.now() % 2147483647),
+              id: nextNotificationId(),
               title,
               body,
               smallIcon: 'ic_stat_tmf',

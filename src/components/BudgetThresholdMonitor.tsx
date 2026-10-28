@@ -1,4 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { computeBudgetUsage } from '../utils/budgetUsage';
 import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
@@ -130,46 +131,16 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
     return `${monthNames[monthIdx] || month} ${year}`;
   };
 
-  // Filter debit transactions for selected month
-  const monthlyDebitTxs = useMemo(() => {
-    return transactions.filter(
-      (tx) => tx.type === 'debit' && tx.date && tx.date.startsWith(selectedMonth)
-    );
-  }, [transactions, selectedMonth]);
-
-  // Compute category threshold status
+  // Compute category threshold status via the shared budget engine so the
+  // numbers shown here always equal the ones that trigger push alerts.
   const categoryThresholds = useMemo(() => {
-    const expenseCategoriesWithBudgets = categories.filter(
-      (cat) => cat.type === 'expense' && cat.budgetLimit && cat.budgetLimit > 0
-    );
-
-    return expenseCategoriesWithBudgets.map((cat) => {
-      const budget = cat.budgetLimit || 0;
-      const catTxs = monthlyDebitTxs.filter((tx) => tx.category === cat.name);
-      const spent = catTxs.reduce((sum, tx) => sum + tx.amount, 0);
-      const percent = budget > 0 ? (spent / budget) * 100 : 0;
-      const remaining = Math.max(0, budget - spent);
-      const overBudget = Math.max(0, spent - budget);
-      
-      const isCritical = percent >= 100;
-      const isWarning = percent >= 80 && percent < 100;
-      const isSafe = percent < 80;
-
-      return {
-        category: cat,
-        budget,
-        spent,
-        percent,
-        remaining,
-        overBudget,
-        txCount: catTxs.length,
-        isCritical,
-        isWarning,
-        isSafe,
-        status: isCritical ? 'critical' : isWarning ? 'warning' : 'safe',
-      };
-    }).sort((a, b) => b.percent - a.percent); // Highest % spent at top
-  }, [categories, monthlyDebitTxs]);
+    return computeBudgetUsage(transactions, categories, selectedMonth).map((usage) => ({
+      ...usage,
+      isCritical: usage.status === 'critical',
+      isWarning: usage.status === 'warning',
+      isSafe: usage.status === 'safe',
+    }));
+  }, [categories, transactions, selectedMonth]);
 
   const alertCategories = useMemo(() => {
     return categoryThresholds.filter((item) => item.isCritical || item.isWarning);
@@ -202,7 +173,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
             ? 'bg-gradient-to-br from-[#1c1214] via-[#141215] to-[#121214] border-red-500 shadow-[0_10px_30px_rgba(220,38,38,0.2)] ring-1 ring-red-500/30'
             : 'bg-[#141418] border-red-500/60 shadow-lg ring-1 ring-red-500/20'
           : hasAlerts
-          ? 'bg-[#181113] border-red-500/40 shadow-sm'
+          ? 'bg-surface-1 border-red-500/40 shadow-sm'
           : 'bg-[#111113] border-[#242428] shadow-md'
       }`}
     >
@@ -284,7 +255,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
             <button
               type="button"
               onClick={onNavigateToCustomisations}
-              className="p-1.5 px-2.5 bg-[#18181c] hover:bg-[#222226] border border-[#333] hover:border-red-500 rounded-xl text-white text-[10px] font-bold uppercase transition-all nav-lift flex items-center gap-1 cursor-pointer shrink-0"
+              className="p-1.5 px-2.5 bg-[#18181c] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-xl text-white text-[10px] font-bold uppercase transition-all nav-lift flex items-center gap-1 cursor-pointer shrink-0"
               title="Configure Categories & Budget Limits"
             >
               <Sliders className="w-3 h-3 text-[#aaa]" />
@@ -296,7 +267,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
           <button
             type="button"
             onClick={handleToggleExpand}
-            className={`p-1.5 bg-[#18181c] hover:bg-[#222226] border rounded-xl hover:text-white transition-all cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
+            className={`p-1.5 bg-[#18181c] hover:bg-surface-3 border rounded-xl hover:text-white transition-all cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
               effectiveState.isFocused ? 'border-red-500 text-white' : 'border-[#333] text-[#aaa]'
             }`}
             title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse Details" : "Expand Details"}
@@ -421,9 +392,9 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                     key={item.category.id}
                     className={`p-3.5 sm:p-4 rounded-xl border transition-all duration-200 ${
                       isOverBudget
-                        ? 'bg-[#181113] border-red-600/70 hover:border-red-500 shadow-md'
+                        ? 'bg-surface-1 border-red-600/70 hover:border-red-500 shadow-md'
                         : isOverThreshold
-                        ? 'bg-[#181510] border-amber-500/70 hover:border-amber-400 shadow-md'
+                        ? 'bg-surface-1 border-amber-500/70 hover:border-amber-400 shadow-md'
                         : 'bg-[#121215] border-[#242428] hover:border-[#333]'
                     }`}
                   >
@@ -528,7 +499,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                     </div>
 
                     {/* Footer Actions for this category */}
-                    <div className="flex items-center justify-between pt-2 mt-2 border-t border-[#222]/80 text-[10px]">
+                    <div className="flex items-center justify-between pt-2 mt-2 border-t border-line text-[10px]">
                       <span className="text-[#666]">
                         {isOverThreshold || isOverBudget ? (
                           <span className="text-amber-400/90 font-bold">
@@ -544,7 +515,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                           <button
                             type="button"
                             onClick={onNavigateToTransactions}
-                            className="px-2 py-0.5 bg-[#1a1a1e] hover:bg-[#26262c] text-[#bbb] hover:text-white border border-[#333] hover:border-red-500 rounded transition-all nav-lift cursor-pointer flex items-center gap-1"
+                            className="px-2 py-0.5 bg-[#1a1a1e] hover:bg-surface-3 text-[#bbb] hover:text-white border border-[#333] hover:border-red-500 rounded transition-all nav-lift cursor-pointer flex items-center gap-1"
                           >
                             <ReceiptText className="w-2.5 h-2.5" />
                             <span>View Txns</span>
@@ -555,7 +526,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                           <button
                             type="button"
                             onClick={onNavigateToCustomisations}
-                            className="px-2 py-0.5 bg-[#1a1a1e] hover:bg-[#26262c] text-[#bbb] hover:text-white border border-[#333] hover:border-amber-500 rounded transition-all nav-lift cursor-pointer flex items-center gap-1"
+                            className="px-2 py-0.5 bg-[#1a1a1e] hover:bg-surface-3 text-[#bbb] hover:text-white border border-[#333] hover:border-amber-500 rounded transition-all nav-lift cursor-pointer flex items-center gap-1"
                           >
                             <Sliders className="w-2.5 h-2.5" />
                             <span>Edit Budget</span>

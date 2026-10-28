@@ -1,5 +1,6 @@
-import { Transaction, PaymentSource } from '../types/finance';
+import { Transaction, PaymentSource, TransactionKind } from '../types/finance';
 import { normalizeTransactionType } from './transactionType';
+import { inferTransactionKind } from './transactionKind';
 import { newId } from './ids';
 
 const CSV_HEADERS = [
@@ -17,11 +18,54 @@ const CSV_HEADERS = [
   'Reference / UTR',
   'Location Latitude',
   'Location Longitude',
+  'Kind',
+  'Account ID',
+  'Payment Method',
+  'Note',
 ];
+
+const TRANSACTION_KINDS: ReadonlySet<string> = new Set<TransactionKind>([
+  'income',
+  'expense',
+  'refund',
+  'transfer',
+  'investment',
+  'loan_disbursal',
+  'loan_repayment',
+]);
 
 export interface TransactionCsvParseResult {
   transactions: Transaction[];
   errors: string[];
+}
+
+/**
+ * Parses spreadsheet-style amounts: currency symbols, thousands separators and
+ * either `.` or `,` as the decimal mark (`₹1,234.50`, `1.234,50`, `(500)`).
+ * Returns NaN when the text is not a number.
+ */
+export function parseCsvAmount(raw: string): number {
+  let text = raw.trim();
+  if (!text) return Number.NaN;
+  const negativeByParens = /^\(.*\)$/.test(text);
+  text = text.replace(/[()]/g, '');
+  const negative = negativeByParens || /^-/.test(text) || /-$/.test(text);
+  text = text.replace(/[^0-9.,]/g, '');
+  if (!text) return Number.NaN;
+
+  const lastComma = text.lastIndexOf(',');
+  const lastDot = text.lastIndexOf('.');
+  if (lastComma !== -1 && lastDot !== -1) {
+    // Both present: the later one is the decimal separator.
+    text = lastComma > lastDot ? text.replace(/\./g, '').replace(',', '.') : text.replace(/,/g, '');
+  } else if (lastComma !== -1) {
+    const decimals = text.length - lastComma - 1;
+    // A single trailing group of 1–2 digits reads as a decimal mark; otherwise commas are thousands separators.
+    text = (text.match(/,/g) || []).length === 1 && decimals > 0 && decimals <= 2 ? text.replace(',', '.') : text.replace(/,/g, '');
+  }
+  const value = Number(text);
+  if (!Number.isFinite(value)) return Number.NaN;
+  return negative ? -value : value;
 }
 
 function encodeCsvCell(value: string | number): string {
@@ -111,6 +155,10 @@ export function stringifyTransactionsCsv(transactions: readonly Transaction[]): 
     transaction.refNumber || '',
     transaction.location?.lat ?? '',
     transaction.location?.lng ?? '',
+    transaction.kind || '',
+    transaction.accountId || '',
+    transaction.paymentMethod || '',
+    transaction.note || '',
   ]);
   return [CSV_HEADERS, ...rows].map((row) => row.map(encodeCsvCell).join(',')).join('\r\n');
 }
@@ -136,14 +184,18 @@ export function parseTransactionsCsv(
   const value = (cells: string[], name: string) => cells[column(name)]?.trim() || '';
   const transactions: Transaction[] = [];
   const errors: string[] = [];
+  const seenIds = new Set<string>();
+  const seenFingerprints = new Set<string>();
 
   rows.slice(1).forEach((cells, rowIndex) => {
     const rowNumber = rowIndex + 2;
     const title = value(cells, 'Title');
     const rawType = value(cells, 'Type');
-    const type = normalizeTransactionType(rawType);
     const amountText = value(cells, 'Amount');
-    const amount = Number(amountText);
+    const signedAmount = parseCsvAmount(amountText);
+    // A blank type can be inferred from a signed amount (negative = money out).
+    const type = normalizeTransactionType(rawType) ?? (!rawType && Number.isFinite(signedAmount) && signedAmount !== 0 ? (signedAmount < 0 ? 'debit' : 'credit') : null);
+    const amount = Math.abs(signedAmount);
     const category = value(cells, 'Category');
     const date = value(cells, 'Date');
     const source = value(cells, 'Source');
@@ -156,8 +208,8 @@ export function parseTransactionsCsv(
       errors.push(`Row ${rowNumber}: type must be credit or debit.`);
       return;
     }
-    if (!amountText || !Number.isFinite(amount) || amount < 0) {
-      errors.push(`Row ${rowNumber}: amount must be a non-negative number.`);
+    if (!amountText || !Number.isFinite(amount)) {
+      errors.push(`Row ${rowNumber}: amount must be a number.`);
       return;
     }
     if (!category) {
@@ -193,19 +245,48 @@ export function parseTransactionsCsv(
       return;
     }
 
-    transactions.push({
-      id: value(cells, 'ID') || createId(),
+    const rawKind = value(cells, 'Kind').toLowerCase();
+    if (rawKind && !TRANSACTION_KINDS.has(rawKind)) {
+      errors.push(`Row ${rowNumber}: kind must be one of ${Array.from(TRANSACTION_KINDS).join(', ')}.`);
+      return;
+    }
+
+    const suppliedId = value(cells, 'ID');
+    const id = suppliedId || createId();
+    if (suppliedId && seenIds.has(suppliedId)) {
+      errors.push(`Row ${rowNumber}: duplicate ID "${id}" in this file.`);
+      return;
+    }
+    const subcategory = value(cells, 'Subcategory');
+    const fingerprint = [title.toLowerCase(), type, amount, date, time || '00:00', (value(cells, 'Reference / UTR') || '').toLowerCase()].join('|');
+    if (!suppliedId && seenFingerprints.has(fingerprint)) {
+      errors.push(`Row ${rowNumber}: duplicate of an earlier row (same title, amount, date and time).`);
+      return;
+    }
+    if (suppliedId) seenIds.add(suppliedId);
+    seenFingerprints.add(fingerprint);
+
+    const note = value(cells, 'Note') || undefined;
+    const draft = {
+      id,
       title,
       amount,
       type,
       category,
-      subcategory: value(cells, 'Subcategory'),
+      subcategory,
       date,
       time: time || '00:00',
       source: parsePaymentSource(value(cells, 'Source')),
       payeeOrPayer: value(cells, 'Payee') || undefined,
       location,
       refNumber: value(cells, 'Reference / UTR') || undefined,
+    };
+    transactions.push({
+      ...draft,
+      ...(rawKind ? { kind: rawKind as TransactionKind } : { kind: inferTransactionKind({ ...draft, note }) }),
+      ...(value(cells, 'Account ID') ? { accountId: value(cells, 'Account ID') } : {}),
+      ...(value(cells, 'Payment Method') ? { paymentMethod: value(cells, 'Payment Method') } : {}),
+      ...(note ? { note } : {}),
     });
   });
 

@@ -1,3 +1,5 @@
+import { sanitizeMerchantCandidate } from './merchantSanitizer';
+
 export interface BankTemplateResult {
   bankName: string;
   payeeOrPayer?: string;
@@ -81,8 +83,8 @@ export function parseBankTemplate(text: string): BankTemplateResult {
       for (const regex of bank.payeeRegexes) {
         const match = text.match(regex);
         if (match && match[1]) {
-          const candidate = match[1].trim();
-          if (candidate.length >= 2 && !/^(a\/c|account|ref|upi|bank|your|the)$/i.test(candidate)) {
+          const candidate = sanitizeMerchantCandidate(match[1]);
+          if (candidate) {
             payeeOrPayer = candidate;
             break;
           }

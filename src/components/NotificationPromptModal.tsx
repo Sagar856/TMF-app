@@ -28,7 +28,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
         <div className="fixed inset-0 bg-black/30 backdrop-blur-xs transition-opacity" onClick={onClose} />
-        <div className="relative z-10 bg-[#0d0e12]/85 border border-white/20 backdrop-blur-xl p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl text-white my-auto animate-in zoom-in-95 duration-150">
+        <div className="relative z-10 bg-surface-1/85 border border-white/20 backdrop-blur-xl p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl text-white my-auto animate-in zoom-in-95 duration-150">
           <div className="w-12 h-12 bg-black/50 border border-white/15 rounded-full flex items-center justify-center mx-auto mb-3 text-red-400">
             <Smartphone className="w-6 h-6" />
           </div>
@@ -90,7 +90,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           </div>
 
           {/* Time & Geolocation */}
-          <div className="flex items-center gap-2 text-[10px] text-[#777] font-mono mt-2 pt-2 border-t border-[#181818]">
+          <div className="flex items-center gap-2 text-[10px] text-[#777] font-mono mt-2 pt-2 border-t border-line">
             <span className="text-white">{activeNotif.date} · {activeNotif.time}</span>
             <span>•</span>
             <span className="flex items-center gap-1 text-[#aaa]">
@@ -138,7 +138,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
 
           <button
             onClick={() => onConfirmEdit(activeNotif)}
-            className="py-2.5 border border-[#444] text-white text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-[#1f1f1f] transition-colors flex items-center justify-center gap-1.5"
+            className="py-2.5 border border-[#444] text-white text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-surface-3 transition-colors flex items-center justify-center gap-1.5"
           >
             <Edit3 className="w-3.5 h-3.5 text-red-400" />
             EDIT
@@ -146,7 +146,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
 
           <button
             onClick={() => onIgnore(activeNotif.id)}
-            className="py-2.5 border border-[#333] text-[#777] text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-[#151515] hover:text-white transition-colors flex items-center justify-center gap-1.5"
+            className="py-2.5 border border-[#333] text-[#777] text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-surface-3 hover:text-white transition-colors flex items-center justify-center gap-1.5"
           >
             <X className="w-3.5 h-3.5 text-[#555]" />
             IGNORE
@@ -155,7 +155,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
 
         {/* Multi notification pagination indicator */}
         {notifications.length > 1 && (
-          <div className="flex justify-between items-center mt-4 pt-3 border-t border-[#1e1e1e] text-[10px] font-mono text-[#666]">
+          <div className="flex justify-between items-center mt-4 pt-3 border-t border-line text-[10px] font-mono text-[#666]">
             <button
               onClick={() => setCurrentIndex((prev) => (prev > 0 ? prev - 1 : notifications.length - 1))}
               className="hover:text-white transition-colors"

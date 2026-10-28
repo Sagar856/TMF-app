@@ -203,7 +203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-[#252525] transition-colors"
+              className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-surface-3 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { prefersReducedMotion } from './useReducedMotion';
 
 export interface CarouselSectionState {
   progress: number;
@@ -138,13 +139,14 @@ export function useScrollCarouselGroup<T extends string>(
     let needsAnotherTick = false;
     const currentProgresses = { ...progressesRef.current };
     const targets = targetProgressesRef.current;
+    const reduceMotion = prefersReducedMotion();
 
     sectionKeys.forEach((key) => {
       const current = currentProgresses[key] ?? 0;
       const target = targets[key] ?? 0;
       const diff = target - current;
 
-      if (Math.abs(diff) > 0.002) {
+      if (Math.abs(diff) > 0.002 && !reduceMotion) {
         // Smooth LERP factor (0.16 gives a responsive 180ms ease)
         const nextValue = current + diff * 0.16;
         currentProgresses[key] = Math.max(0, Math.min(1, nextValue));

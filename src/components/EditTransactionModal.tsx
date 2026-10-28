@@ -16,8 +16,18 @@ import { getCurrentDeviceLocation } from '../services/locationService';
 import { newId } from '../utils/ids';
 import { todayLocalISO, currentMonthLocal, addDays, nowLocalTimeHHMM } from '../utils/dates';
 import { resolveAccountId } from '../utils/accountResolver';
+import { useDialog } from '../hooks/useDialog';
 
-export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend';
+export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend' | 'Transfer';
+
+export interface TransferRequest {
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  date: string;
+  time: string;
+  note?: string;
+}
 
 function parseNoteAndTags(rawNote?: string): { cleanNote: string; extractedTags: string[] } {
   if (!rawNote) return { cleanNote: '', extractedTags: [] };
@@ -43,6 +53,7 @@ interface EditTransactionModalProps {
   onSave: (tx: Transaction) => void;
   onAddInvestment?: (inv: InvestmentRecord, accountId?: string, recordInLedger?: boolean) => void;
   onAddLoan?: (loan: LoanRecord, accountId?: string, recordInLedger?: boolean) => void;
+  onAddTransfer?: (transfer: TransferRequest) => void;
   onClose: () => void;
   currencySymbol: string;
   locationTracking?: boolean;
@@ -56,6 +67,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   onSave,
   onAddInvestment,
   onAddLoan,
+  onAddTransfer,
   onClose,
   currencySymbol,
   locationTracking = false,
@@ -175,6 +187,54 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [loanRefNum, setLoanRefNum] = useState<string>('NA');
 
   const [autoMatchedCategory, setAutoMatchedCategory] = useState<string | null>(null);
+  const [txTime, setTxTime] = useState<string>(transaction?.time || nowLocalTimeHHMM());
+  const [formError, setFormError] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const dialogRef = useDialog<HTMLDivElement>({ isOpen: true, onClose });
+
+  // --- Transfer State ---
+  const cashAccounts = accounts.filter((a) => a.type !== 'Credit Card');
+  const [transferFrom, setTransferFrom] = useState<string>(() => accounts.find((a) => a.isDefault)?.id || cashAccounts[0]?.id || '');
+  const [transferTo, setTransferTo] = useState<string>(() => {
+    const first = accounts.find((a) => a.isDefault)?.id || cashAccounts[0]?.id || '';
+    return accounts.find((a) => a.id !== first)?.id || '';
+  });
+  const [transferAmount, setTransferAmount] = useState<string>('');
+  const [transferDate, setTransferDate] = useState<string>(todayLocalISO());
+  const [transferNote, setTransferNote] = useState<string>('');
+
+  const handleSaveTransfer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isSubmitting) return;
+    setFormError('');
+    const amount = Number(transferAmount.trim().replace(/,/g, ''));
+    if (!transferAmount.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setFormError('Enter a transfer amount greater than zero.');
+      return;
+    }
+    if (!transferFrom || !transferTo) {
+      setFormError('Choose both the source and destination accounts.');
+      return;
+    }
+    if (transferFrom === transferTo) {
+      setFormError('Source and destination must be different accounts.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(transferDate)) {
+      setFormError('Choose a valid date.');
+      return;
+    }
+    setIsSubmitting(true);
+    onAddTransfer?.({
+      fromAccountId: transferFrom,
+      toAccountId: transferTo,
+      amount,
+      date: transferDate,
+      time: nowLocalTimeHHMM(),
+      note: transferNote.trim() || undefined,
+    });
+    onClose();
+  };
 
   // Retrieve current user location on modal open for new transaction only if locationTracking is enabled
   useEffect(() => {
@@ -235,10 +295,16 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     setAutoMatchedCategory(null);
   };
 
+  // Category lookups are scoped to the active type so an Income and an Expense
+  // category sharing a name never supply each other's subcategories.
+  const findCategoryInType = (catName: string) =>
+    filteredCategories.find((c) => c.name.toLowerCase() === catName.toLowerCase()) ||
+    categories.find((c) => c.name.toLowerCase() === catName.toLowerCase());
+
   const handleCategoryChange = (catName: string) => {
     setSelectedCategory(catName);
     setAutoMatchedCategory(null);
-    const cat = categories.find((c) => c.name.toLowerCase() === catName.toLowerCase());
+    const cat = findCategoryInType(catName);
     const subs = cat?.subcategories || [];
     if (subs.length > 0 && !subs.includes(selectedSubcategory)) {
       setSelectedSubcategory(subs[0]);
@@ -248,8 +314,11 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   const currentCategoryObj = useMemo(() => {
-    return categories.find((c) => c.name.toLowerCase() === selectedCategory.toLowerCase());
-  }, [categories, selectedCategory]);
+    return (
+      filteredCategories.find((c) => c.name.toLowerCase() === selectedCategory.toLowerCase()) ||
+      categories.find((c) => c.name.toLowerCase() === selectedCategory.toLowerCase())
+    );
+  }, [categories, filteredCategories, selectedCategory]);
 
   const subcategoryOptions = useMemo(() => {
     const list = currentCategoryObj?.subcategories?.length
@@ -334,8 +403,31 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   // Save Handlers
   const handleSaveTransaction = (e: React.FormEvent) => {
     e.preventDefault();
-    const numAmount = parseFloat(txAmount);
-    if (isNaN(numAmount) || numAmount <= 0) return;
+    if (isSubmitting) return;
+    setFormError('');
+
+    const numAmount = Number(txAmount.trim().replace(/,/g, ''));
+    if (!txAmount.trim() || !Number.isFinite(numAmount)) {
+      setFormError('Enter a valid amount.');
+      return;
+    }
+    if (numAmount <= 0) {
+      setFormError('Amount must be greater than zero.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(txDate) || Number.isNaN(new Date(`${txDate}T00:00:00`).getTime())) {
+      setFormError('Choose a valid date.');
+      return;
+    }
+    if (txTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(txTime)) {
+      setFormError('Time must be in HH:MM format.');
+      return;
+    }
+    if (filteredCategories.length === 0) {
+      setFormError(`Create a${categoryType === 'Income' ? 'n income' : 'n expense'} category first.`);
+      return;
+    }
+    setIsSubmitting(true);
 
     const savedCategory =
       selectedCategory || (filteredCategories.length > 0 ? filteredCategories[0].name : 'General');
@@ -362,7 +454,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       category: savedCategory,
       subcategory: selectedSubcategory || 'General',
       date: txDate,
-      time: transaction?.time ?? nowLocalTimeHHMM(),
+      time: txTime || transaction?.time || nowLocalTimeHHMM(),
       source: savedSource,
       payeeOrPayer: finalPayee,
       paymentMethod: account,
@@ -445,8 +537,15 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <div className="bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative my-auto">
+    <div className="fixed inset-0 bg-backdrop backdrop-blur-md z-modal flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEditingExisting ? 'Edit transaction' : 'Add record'}
+        tabIndex={-1}
+        className="bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative my-auto outline-none"
+      >
         {/* ==================== FORM FOR EXPENSE & INCOME ==================== */}
         {(categoryType === 'Expense' || categoryType === 'Income') && (
           <div className="space-y-4">
@@ -456,41 +555,63 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 {isEditingExisting ? 'EDIT TRANSACTION' : 'ADD TRANSACTION'}
               </h3>
               <button
+                type="button"
                 onClick={onClose}
-                className="text-[#666] hover:text-white transition-colors p-1"
+                aria-label="Close"
+                className="text-[#666] hover:text-white transition-colors p-1 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveTransaction} className="space-y-3.5 font-mono">
-              {/* Row 1: DATE & AMOUNT */}
+            <form onSubmit={handleSaveTransaction} className="space-y-3.5 font-mono" noValidate>
+              {/* Row 1: DATE, TIME & AMOUNT */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  <label htmlFor="tx-date" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                     DATE
                   </label>
                   <input
+                    id="tx-date"
                     type="date"
                     required
                     value={txDate}
-                    onChange={(e) => setTxDate(e.target.value)}
+                    onChange={(e) => { setTxDate(e.target.value); setFormError(''); }}
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  <label htmlFor="tx-time" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                    TIME
+                  </label>
+                  <input
+                    id="tx-time"
+                    type="time"
+                    value={txTime}
+                    onChange={(e) => { setTxTime(e.target.value); setFormError(''); }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <label htmlFor="tx-amount" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                     AMOUNT ({currencySymbol})
                   </label>
                   <input
+                    id="tx-amount"
                     type="number"
+                    inputMode="decimal"
                     step="0.01"
+                    min="0.01"
                     required
+                    data-autofocus={isEditingExisting ? undefined : true}
                     value={txAmount}
-                    onChange={(e) => setTxAmount(e.target.value)}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onChange={(e) => { setTxAmount(e.target.value); setFormError(''); }}
                     placeholder="0.00"
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                    aria-invalid={formError ? true : undefined}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-sm font-mono font-bold text-white focus:outline-none focus:border-red-600"
                   />
                 </div>
               </div>
@@ -509,6 +630,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <option value="Income">Income</option>
                   <option value="Investment">Investment</option>
                   <option value="Loan & Lend">Loan & Lend</option>
+                  {onAddTransfer && !isEditingExisting && <option value="Transfer">Transfer between accounts</option>}
                 </select>
               </div>
 
@@ -759,7 +881,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <button
                     type="button"
                     onClick={handleAddTag}
-                    className="px-3 bg-[#181818] border border-[#222] text-white rounded-xl hover:bg-[#252525] transition-colors flex items-center justify-center cursor-pointer"
+                    className="px-3 bg-[#181818] border border-[#222] text-white rounded-xl hover:bg-surface-3 transition-colors flex items-center justify-center cursor-pointer"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -770,7 +892,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     {tags.map((tg, idx) => (
                       <span
                         key={idx}
-                        className="px-2 py-0.5 bg-[#181818] border border-[#282828] text-[10px] font-mono text-[#aaa] rounded-lg flex items-center gap-1"
+                        className="px-2 py-0.5 bg-[#181818] border border-line text-[10px] font-mono text-[#aaa] rounded-lg flex items-center gap-1"
                       >
                         #{tg}
                         <button
@@ -786,13 +908,20 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 )}
               </div>
 
+              {formError && (
+                <p role="alert" className="text-[11px] text-red-400 bg-red-950/40 border border-red-800/60 rounded-xl px-3 py-2">
+                  {formError}
+                </p>
+              )}
+
               {/* SAVE TRANSACTION Button */}
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
+                  disabled={isSubmitting}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
                 >
-                  SAVE TRANSACTION
+                  {isSubmitting ? 'SAVING…' : isEditingExisting ? 'SAVE CHANGES' : 'SAVE TRANSACTION'}
                 </button>
               </div>
             </form>
@@ -830,6 +959,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <option value="Income">Income</option>
                   <option value="Investment">Investment</option>
                   <option value="Loan & Lend">Loan & Lend</option>
+                  {onAddTransfer && !isEditingExisting && <option value="Transfer">Transfer between accounts</option>}
                 </select>
               </div>
 
@@ -963,13 +1093,13 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-3 bg-[#1a1a1a] border border-[#333] hover:bg-[#252525] text-white font-mono text-xs uppercase rounded-xl transition-colors cursor-pointer"
+                  className="px-4 py-3 bg-[#1a1a1a] border border-[#333] hover:bg-surface-3 text-white font-mono text-xs uppercase rounded-xl transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-3 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-mono font-bold text-xs uppercase tracking-[0.1em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
+                  className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs uppercase tracking-[0.1em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
                 >
                   SAVE INVESTMENT
                 </button>
@@ -979,6 +1109,126 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         )}
 
         {/* ==================== FORM FOR LOAN & LEND ==================== */}
+        {/* ==================== FORM FOR ACCOUNT TRANSFER ==================== */}
+        {categoryType === 'Transfer' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-[#222]">
+              <h3 className="text-xs font-mono font-bold text-white uppercase tracking-[0.25em]">TRANSFER BETWEEN ACCOUNTS</h3>
+              <button type="button" onClick={onClose} aria-label="Close" className="text-[#666] hover:text-white transition-colors p-1 cursor-pointer">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveTransfer} className="space-y-3.5 font-mono" noValidate>
+              <div>
+                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">CATEGORY TYPE</label>
+                <select
+                  value={categoryType}
+                  onChange={(e) => handleCategoryTypeChange(e.target.value as CategoryType)}
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 font-bold"
+                >
+                  <option value="Expense">Expense</option>
+                  <option value="Income">Income</option>
+                  <option value="Investment">Investment</option>
+                  <option value="Loan & Lend">Loan & Lend</option>
+                  <option value="Transfer">Transfer between accounts</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="transfer-from" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">FROM</label>
+                  <select
+                    id="transfer-from"
+                    value={transferFrom}
+                    onChange={(e) => { setTransferFrom(e.target.value); setFormError(''); }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id}>{a.name} · {currencySymbol}{a.balance.toLocaleString()}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="transfer-to" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">TO</label>
+                  <select
+                    id="transfer-to"
+                    value={transferTo}
+                    onChange={(e) => { setTransferTo(e.target.value); setFormError(''); }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                  >
+                    {accounts.map((a) => (
+                      <option key={a.id} value={a.id} disabled={a.id === transferFrom}>
+                        {a.name}{a.type === 'Credit Card' ? ' (card bill payment)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="transfer-amount" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">AMOUNT ({currencySymbol})</label>
+                  <input
+                    id="transfer-amount"
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0.01"
+                    data-autofocus
+                    value={transferAmount}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onChange={(e) => { setTransferAmount(e.target.value); setFormError(''); }}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-sm font-mono font-bold text-white focus:outline-none focus:border-red-600"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="transfer-date" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">DATE</label>
+                  <input
+                    id="transfer-date"
+                    type="date"
+                    value={transferDate}
+                    onChange={(e) => { setTransferDate(e.target.value); setFormError(''); }}
+                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="transfer-note" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">NOTE (OPTIONAL)</label>
+                <input
+                  id="transfer-note"
+                  type="text"
+                  value={transferNote}
+                  onChange={(e) => setTransferNote(e.target.value)}
+                  placeholder="e.g. Credit card bill, moving to savings"
+                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                />
+              </div>
+
+              <p className="text-[10px] text-[#777] leading-relaxed">
+                Transfers move money between your own accounts. They adjust both balances but are <span className="text-white">not</span> counted as income or spending.
+                Transferring to a credit card records a bill payment that reduces the card's outstanding balance.
+              </p>
+
+              {formError && (
+                <p role="alert" className="text-[11px] text-red-400 bg-red-950/40 border border-red-800/60 rounded-xl px-3 py-2">{formError}</p>
+              )}
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isSubmitting || accounts.length < 2}
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
+                >
+                  {accounts.length < 2 ? 'ADD A SECOND ACCOUNT FIRST' : isSubmitting ? 'SAVING…' : 'RECORD TRANSFER'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
         {categoryType === 'Loan & Lend' && (
           <div className="space-y-4">
             {/* Header */}
@@ -1009,6 +1259,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   <option value="Income">Income</option>
                   <option value="Investment">Investment</option>
                   <option value="Loan & Lend">Loan & Lend</option>
+                  {onAddTransfer && !isEditingExisting && <option value="Transfer">Transfer between accounts</option>}
                 </select>
               </div>
 
@@ -1152,7 +1403,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  className="w-full py-3 bg-[#dc2626] hover:bg-[#b91c1c] text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
+                  className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
                 >
                   SAVE LOAN/LEND
                 </button>

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarClock, Wallet } from 'lucide-react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { calculateCashflowForecast } from '../utils/cashflowForecast';
@@ -24,9 +24,24 @@ export const CashflowForecastCard: React.FC<CashflowForecastCardProps> = ({
   currencySymbol,
 }) => {
   const formatAmount = useMoneyFormatter();
+  // Re-evaluate at least once per day so an app left open overnight doesn't
+  // keep showing yesterday's forecast window.
+  const [asOfDate, setAsOfDate] = useState<string>(() => todayLocalISO());
+  useEffect(() => {
+    const tick = () => {
+      const today = todayLocalISO();
+      setAsOfDate((prev) => (prev === today ? prev : today));
+    };
+    const interval = setInterval(tick, 60_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
   const forecast = useMemo(
-    () => calculateCashflowForecast(transactions, accounts, categories, todayLocalISO()),
-    [transactions, accounts, categories]
+    () => calculateCashflowForecast(transactions, accounts, categories, asOfDate),
+    [transactions, accounts, categories, asOfDate]
   );
 
   if (!forecast) return null;

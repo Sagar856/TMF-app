@@ -1,7 +1,13 @@
 import { Category, FinancialAccount, Transaction } from '../types/finance';
+import { getTransactionKind, isOperatingExpense, isRefund } from './transactionKind';
 
 const LOOKBACK_DAYS = 90;
 const FORECAST_DAYS = 30;
+
+/** Transfers between the user's own accounts are cash-neutral and must not be forecast as income or spend. */
+function isCashMovement(transaction: Transaction): boolean {
+  return getTransactionKind(transaction) !== 'transfer';
+}
 
 export interface ForecastRecurringPayment {
   key: string;
@@ -87,7 +93,8 @@ function detectRecurringGroups(transactions: readonly Transaction[], asOfOrdinal
       ordinal < earliest ||
       ordinal > asOfOrdinal ||
       !Number.isFinite(transaction.amount) ||
-      transaction.amount < 0
+      transaction.amount < 0 ||
+      !isCashMovement(transaction)
     ) {
       continue;
     }
@@ -181,7 +188,8 @@ export function calculateCashflowForecast(
         ordinal > asOfOrdinal ||
         recurringKeys.has(key) ||
         !Number.isFinite(transaction.amount) ||
-        transaction.amount < 0
+        transaction.amount < 0 ||
+        !isCashMovement(transaction)
       ) {
         return totals;
       }
@@ -204,13 +212,17 @@ export function calculateCashflowForecast(
 
   const recentStart = asOfOrdinal - 29;
   const previousStart = asOfOrdinal - 59;
+  // Spending trend compares *operating* spend only (refunds net off); SIPs,
+  // EMIs and transfers are not "spending more".
   const spendingByWindow = transactions.reduce(
     (totals, transaction) => {
-      if (transaction.type !== 'debit' || !Number.isFinite(transaction.amount) || transaction.amount < 0) return totals;
+      const refund = isRefund(transaction);
+      if ((!isOperatingExpense(transaction) && !refund) || !Number.isFinite(transaction.amount) || transaction.amount < 0) return totals;
       const ordinal = dateToOrdinal(transaction.date);
       if (ordinal === null || ordinal > asOfOrdinal) return totals;
-      if (ordinal >= recentStart) totals.recent += transaction.amount;
-      else if (ordinal >= previousStart) totals.previous += transaction.amount;
+      const signed = refund ? -transaction.amount : transaction.amount;
+      if (ordinal >= recentStart) totals.recent += signed;
+      else if (ordinal >= previousStart) totals.previous += signed;
       return totals;
     },
     { recent: 0, previous: 0 }
@@ -227,7 +239,7 @@ export function calculateCashflowForecast(
   const currentMonth = ordinalToDate(monthStartOrdinal).slice(0, 7);
   const monthExpenses = transactions.reduce<Record<string, number>>((totals, transaction) => {
     if (
-      transaction.type === 'debit' &&
+      isOperatingExpense(transaction) &&
       transaction.date.startsWith(currentMonth) &&
       (dateToOrdinal(transaction.date) ?? Number.POSITIVE_INFINITY) <= asOfOrdinal &&
       Number.isFinite(transaction.amount) &&

@@ -90,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onToggleTheme}
             aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
-            className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift flex items-center justify-center min-w-[38px] min-h-[38px] cursor-pointer"
+            className="p-2 sm:p-2.5 bg-graphite hover:bg-surface-3 border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift flex items-center justify-center min-w-[38px] min-h-[38px] cursor-pointer"
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
             {theme === 'dark' ? (
@@ -105,7 +105,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           onClick={onOpenSimulator}
           aria-label="Simulate SMS or UPI payment"
-          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
+          className="p-2 sm:p-2.5 bg-graphite hover:bg-surface-3 border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Simulate SMS / UPI Payment"
         >
           <Smartphone className="w-4 h-4 text-red-400" />
@@ -133,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
           aria-label={pendingNotificationsCount > 0
             ? `Pending payment confirmations, ${pendingNotificationsCount} notifications`
             : 'Pending payment confirmations'}
-          className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
+          className="p-2 sm:p-2.5 bg-graphite hover:bg-surface-3 border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Pending Payment Confirmations"
         >
           <Bell className="w-4 h-4 text-white" />

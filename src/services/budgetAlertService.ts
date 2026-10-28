@@ -1,4 +1,5 @@
 import { safeSetItem } from '../utils/storage';
+import { computeBudgetUsage } from '../utils/budgetUsage';
 import { Category, Transaction } from '../types/finance';
 import { notifyBudgetThresholdReached } from './localNotifications';
 import { currentMonthLocal } from '../utils/dates';
@@ -41,6 +42,20 @@ function saveTriggeredAlerts(records: Record<string, number>): void {
   }
 }
 
+/** Keeps only the current and previous month so the dedupe map can't grow forever. */
+function pruneTriggeredAlerts(records: Record<string, number>, currentMonth: string): Record<string, number> {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const prev = new Date(y, m - 2, 1);
+  const prevMonth = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+  const kept: Record<string, number> = {};
+  for (const [key, ts] of Object.entries(records)) {
+    const month = key.split(':')[2];
+    if (month === currentMonth || month === prevMonth) kept[key] = ts;
+  }
+  if (Object.keys(kept).length !== Object.keys(records).length) saveTriggeredAlerts(kept);
+  return kept;
+}
+
 export function formatMonthString(ym: string): string {
   if (!ym || ym.length < 7) return ym;
   const [year, month] = ym.split('-');
@@ -64,24 +79,15 @@ export function checkBudgetThresholds(
   locale?: string
 ): BudgetAlertPayload[] {
   const currentMonth = targetMonth || currentMonthLocal();
+  const usages = computeBudgetUsage(transactions, categories, currentMonth);
 
-  const monthTxs = transactions.filter(
-    (t) => t.type === 'debit' && t.date && t.date.startsWith(currentMonth)
-  );
-
-  const expenseCategoriesWithBudgets = categories.filter(
-    (c) => c.type === 'expense' && c.budgetLimit && c.budgetLimit > 0
-  );
-
-  const triggeredAlerts = getTriggeredAlerts();
+  const triggeredAlerts = pruneTriggeredAlerts(getTriggeredAlerts(), currentMonth);
   const newAlerts: BudgetAlertPayload[] = [];
   let updatedRecord = false;
 
-  for (const cat of expenseCategoriesWithBudgets) {
-    const limit = cat.budgetLimit!;
-    const catTxs = monthTxs.filter((t) => t.category === cat.name);
-    const spent = catTxs.reduce((sum, t) => sum + t.amount, 0);
-    const percent = (spent / limit) * 100;
+  for (const usage of usages) {
+    const cat = usage.category;
+    const { budget: limit, spent, percent } = usage;
 
     // Check 100% threshold
     if (percent >= 100) {

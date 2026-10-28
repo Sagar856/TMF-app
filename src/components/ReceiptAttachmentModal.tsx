@@ -141,7 +141,7 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 p-3 sm:p-5"
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-backdrop p-3 sm:p-5"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
       }}
@@ -150,21 +150,21 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="receipt-modal-title"
-        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-[#333] bg-[#111113] p-4 shadow-2xl sm:p-5"
+        className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-line bg-surface-1 p-4 shadow-2xl sm:p-5"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 id="receipt-modal-title" className="text-sm font-bold text-white">Receipt capture & matching</h2>
-            <p className="mt-1 text-[10px] leading-relaxed text-[#999]">
+            <h2 id="receipt-modal-title" className="text-sm font-bold text-content-1">Receipt capture & matching</h2>
+            <p className="mt-1 text-[10px] leading-relaxed text-content-2">
               Images stay in this browser on this device. They are not uploaded to cloud sync or included in JSON backups.
             </p>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close receipt manager" className="rounded-lg p-1.5 text-[#999] hover:bg-[#222] hover:text-white">
+          <button type="button" onClick={onClose} aria-label="Close receipt manager" className="rounded-lg p-1.5 text-content-2 hover:bg-surface-3 hover:text-content-1">
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
 
-        <label className="mt-4 block text-[10px] font-bold text-[#aaa]">
+        <label className="mt-4 block text-[10px] font-bold text-content-2">
           Match receipt to transaction
           <select
             value={selectedTransactionId}
@@ -173,7 +173,7 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
               setNotice('');
               setError('');
             }}
-            className="mt-1.5 w-full rounded-lg border border-[#333] bg-black px-3 py-2.5 text-xs text-white"
+            className="mt-1.5 w-full rounded-lg border border-line bg-black px-3 py-2.5 text-xs text-content-1"
           >
             {transactions.map((transaction) => (
               <option key={transaction.id} value={transaction.id}>
@@ -200,20 +200,20 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={transactions.length === 0}
-            className="flex min-h-10 items-center gap-2 rounded-lg border border-emerald-800/60 bg-emerald-950/30 px-3 py-2 text-[10px] font-bold text-emerald-300 hover:bg-emerald-950/60 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex min-h-10 items-center gap-2 rounded-lg border border-emerald-300 dark:border-emerald-800/60 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-950/60 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <ImagePlus className="h-3.5 w-3.5" aria-hidden="true" />
             Choose or capture image
           </button>
           {selectedFile && (
-            <span className="max-w-full truncate text-[10px] text-[#aaa]">
+            <span className="max-w-full truncate text-[10px] text-content-2">
               {selectedFile.name} · {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
             </span>
           )}
         </div>
 
         {previewUrl && (
-          <div className="mt-3 overflow-hidden rounded-xl border border-[#333] bg-black">
+          <div className="mt-3 overflow-hidden rounded-xl border border-line bg-black">
             <img src={previewUrl} alt={`Preview of ${selectedFile?.name || 'selected receipt'}`} className="max-h-60 w-full object-contain" />
           </div>
         )}
@@ -230,31 +230,31 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
         )}
 
         {error && (
-          <p role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-900/60 bg-red-950/30 p-2.5 text-[10px] text-red-300">
+          <p role="alert" className="mt-3 flex items-start gap-2 rounded-lg border border-red-300 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-2.5 text-[10px] text-red-700 dark:text-red-300">
             <AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{error}
           </p>
         )}
-        {notice && <p role="status" className="mt-3 text-[10px] text-emerald-300">{notice}</p>}
+        {notice && <p role="status" className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-300">{notice}</p>}
 
-        <div className="mt-5 border-t border-[#29292d] pt-4">
-          <h3 className="text-[10px] font-bold uppercase tracking-wide text-[#aaa]">
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-[10px] font-bold uppercase tracking-wide text-content-2">
             Matched receipts {isLoading ? '(loading)' : `(${selectedAttachments.length})`}
           </h3>
           {!isLoading && selectedAttachments.length === 0 && (
-            <p className="mt-2 text-[10px] text-[#777]">No receipts are matched to this transaction.</p>
+            <p className="mt-2 text-[10px] text-content-3">No receipts are matched to this transaction.</p>
           )}
           <div className="mt-2 space-y-2">
             {selectedAttachments.map((attachment) => (
-              <div key={attachment.id} className="flex items-center justify-between gap-3 rounded-lg border border-[#29292d] bg-black/40 p-2.5">
+              <div key={attachment.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-backdrop p-2.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <FileImage className="h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
                   <div className="min-w-0">
-                    <div className="truncate text-[10px] font-bold text-white">{attachment.name}</div>
-                    <div className="text-[9px] text-[#777]">{(attachment.size / 1024).toFixed(0)} KB · {new Date(attachment.createdAt).toLocaleDateString()}</div>
+                    <div className="truncate text-[10px] font-bold text-content-1">{attachment.name}</div>
+                    <div className="text-[9px] text-content-3">{(attachment.size / 1024).toFixed(0)} KB · {new Date(attachment.createdAt).toLocaleDateString()}</div>
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
-                  <button type="button" onClick={() => setViewingAttachmentId(attachment.id)} className="rounded border border-[#333] px-2 py-1 text-[9px] text-[#ccc] hover:text-white">
+                  <button type="button" onClick={() => setViewingAttachmentId(attachment.id)} className="rounded border border-line px-2 py-1 text-[9px] text-content-2 hover:text-content-1">
                     View
                   </button>
                   <button type="button" onClick={() => handleDelete(attachment)} aria-label={`Delete receipt ${attachment.name}`} className="rounded p-1.5 text-red-400 hover:bg-red-950/40">
@@ -267,8 +267,8 @@ export const ReceiptAttachmentModal: React.FC<ReceiptAttachmentModalProps> = ({
         </div>
 
         {viewingAttachment && (
-          <div role="dialog" aria-modal="true" aria-label={`Receipt image ${viewingAttachment.name}`} className="fixed inset-0 z-[130] flex items-center justify-center bg-black/90 p-3" onClick={() => setViewingAttachmentId(null)}>
-            <button type="button" onClick={() => setViewingAttachmentId(null)} aria-label="Close receipt image" className="absolute right-4 top-4 rounded-lg bg-[#222] p-2 text-white">
+          <div role="dialog" aria-modal="true" aria-label={`Receipt image ${viewingAttachment.name}`} className="fixed inset-0 z-[130] flex items-center justify-center bg-backdrop p-3" onClick={() => setViewingAttachmentId(null)}>
+            <button type="button" onClick={() => setViewingAttachmentId(null)} aria-label="Close receipt image" className="absolute right-4 top-4 rounded-lg bg-surface-2 p-2 text-content-1">
               <X className="h-4 w-4" aria-hidden="true" />
             </button>
             <img

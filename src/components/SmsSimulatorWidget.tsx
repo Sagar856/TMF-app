@@ -165,7 +165,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
               if (duplicateWarning) setDuplicateWarning(null);
             }}
             placeholder="e.g. Sent Rs 1,450.00 via Google Pay to Uber India on 28-Jul-26..."
-            className="w-full h-24 p-3 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white placeholder-[#444] focus:outline-none focus:border-red-600 transition-colors"
+            className="w-full h-24 p-3 bg-obsidian border border-nothing rounded-xl text-xs font-mono text-white placeholder-content-3 focus:outline-none focus:border-red-600 transition-colors"
           />
         </div>
 
@@ -187,7 +187,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
             value={customLocationName}
             placeholder={useCurrentLocation ? 'Real device location' : 'No location (disabled)'}
             onChange={(e) => setCustomLocationName(e.target.value)}
-            className="bg-carbon border border-nothing px-2.5 py-1 rounded text-[11px] text-white focus:outline-none focus:border-red-500 font-mono w-48 text-right placeholder-[#555]"
+            className="bg-carbon border border-nothing px-2.5 py-1 rounded text-[11px] text-white focus:outline-none focus:border-red-500 font-mono w-48 text-right placeholder-content-3"
           />
         </div>
 

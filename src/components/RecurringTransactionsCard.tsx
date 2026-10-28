@@ -37,6 +37,7 @@ import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 
 import { Transaction, Category, LoanRecord } from '../types/finance';
 import { newId } from '../utils/ids';
+import { parseNumberInput, parsePositiveAmount } from '../utils/numberInput';
 import { todayLocalISO, toLocalISODate, nowLocalTimeHHMM, parseLocalDate } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
 
@@ -143,8 +144,34 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   const [filter, setFilter] = useState<'ALL' | 'DUE_SOON' | 'EXPENSE' | 'INCOME'>('ALL');
   const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
-  const [markedPaidIds, setMarkedPaidIds] = useState<Set<string>>(new Set());
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<number | null>(null);
+
+  // Paid occurrences are keyed by `${itemId}|${YYYY-MM}` and persisted so a
+  // reload (or a second tap) can never log the same bill twice for a month.
+  const PAID_OCCURRENCES_KEY = 'tmf_recurring_paid_occurrences';
+  const [paidOccurrences, setPaidOccurrences] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem(PAID_OCCURRENCES_KEY);
+      const parsed = saved ? JSON.parse(saved) : {};
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  });
+  const occurrenceKey = (itemId: string, month: string) => `${itemId}|${month}`;
+  const occurrenceTag = (itemId: string, month: string) => `[Recurring: ${itemId} ${month}]`;
+  const markOccurrencePaid = (itemId: string, month: string, transactionId: string) => {
+    setPaidOccurrences((prev) => {
+      const next = { ...prev, [occurrenceKey(itemId, month)]: transactionId };
+      safeSetItem(PAID_OCCURRENCES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+  // Ledger is the source of truth: a transaction carrying the occurrence tag
+  // also counts as paid (covers restores/other devices where localStorage is empty).
+  const isOccurrencePaid = (itemId: string, month: string) =>
+    Boolean(paidOccurrences[occurrenceKey(itemId, month)]) ||
+    transactions.some((t) => t.note?.includes(occurrenceTag(itemId, month)) || t.rawText?.includes(occurrenceTag(itemId, month)));
 
   // Custom User Recurring Bills state from localStorage
   const [customBills, setCustomBills] = useState<CustomRecurringBill[]>(() => {
@@ -165,18 +192,13 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   const [newType, setNewType] = useState<'debit' | 'credit'>('debit');
   const [newAutoDebit, setNewAutoDebit] = useState(true);
 
-  // Helper to calculate Reference Today Date (latest tx date or real today)
+  // Reference "today" is the real current date; statuses (due soon / overdue)
+  // must not drift because a future-dated or imported transaction exists.
   const referenceDateObj = useMemo(() => {
-    let latestDateStr = todayLocalISO();
-    if (transactions.length > 0) {
-      const sorted = [...transactions].sort((a, b) => b.date.localeCompare(a.date));
-      if (sorted[0].date > latestDateStr) {
-        latestDateStr = sorted[0].date;
-      }
-    }
-    const [y, m, d] = latestDateStr.split('-').map(Number);
+    const [y, m, d] = todayLocalISO().split('-').map(Number);
     return new Date(y, m - 1, d || 1);
-  }, [transactions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayLocalISO()]);
 
   const currentMonthStr = useMemo(() => toLocalISODate(referenceDateObj).substring(0, 7), [referenceDateObj]); // e.g. '2026-08'
 
@@ -258,7 +280,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
         const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
         let status: DetectedRecurringItem['status'] = 'SCHEDULED';
-        if (paidInSelectedMonth || markedPaidIds.has(`detected_${key}`)) {
+        if (paidInSelectedMonth || isOccurrencePaid(`detected_${key}`, selectedMonth)) {
           status = 'PAID';
         } else if (daysRemaining < 0) {
           status = 'OVERDUE';
@@ -310,7 +332,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
       let status: DetectedRecurringItem['status'] = 'SCHEDULED';
-      if (paidInSelectedMonth || markedPaidIds.has(bill.id)) {
+      if (paidInSelectedMonth || isOccurrencePaid(bill.id, selectedMonth)) {
         status = 'PAID';
       } else if (daysRemaining < 0) {
         status = 'OVERDUE';
@@ -354,7 +376,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
             let status: DetectedRecurringItem['status'] = 'SCHEDULED';
-            if (inst.status === 'paid' || markedPaidIds.has(`loan_emi_${loan.id}_${inst.installmentNumber}`)) {
+            if (inst.status === 'paid' || isOccurrencePaid(`loan_emi_${loan.id}_${inst.installmentNumber}`, selectedMonth)) {
               status = 'PAID';
             } else if (daysRemaining < 0) {
               status = 'OVERDUE';
@@ -391,7 +413,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
           const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
           let status: DetectedRecurringItem['status'] = 'SCHEDULED';
-          if (markedPaidIds.has(`loan_emi_${loan.id}`)) {
+          if (isOccurrencePaid(`loan_emi_${loan.id}`, selectedMonth)) {
             status = 'PAID';
           } else if (daysRemaining < 0) {
             status = 'OVERDUE';
@@ -424,7 +446,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     // Sort items: OVERDUE / DUE_TODAY / DUE_SOON first, then SCHEDULED, then PAID
     const statusPriority = { OVERDUE: 1, DUE_TODAY: 2, DUE_SOON: 3, SCHEDULED: 4, PAID: 5 };
     return items.sort((a, b) => statusPriority[a.status] - statusPriority[b.status]);
-  }, [transactions, customBills, loans, referenceDateObj, selectedMonth, markedPaidIds]);
+  }, [transactions, customBills, loans, referenceDateObj, selectedMonth, paidOccurrences]);
 
   // Projected Outflows & Financial Metrics for Selected Month
   const monthlyMetrics = useMemo(() => {
@@ -497,27 +519,33 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     return result;
   }, [recurringItems, filter, selectedCalendarDay]);
 
-  // Handle Quick Log Payment
+  // Handle Quick Log Payment (idempotent per item + month)
   const handleQuickLog = (item: DetectedRecurringItem) => {
+    if (isOccurrencePaid(item.id, selectedMonth)) return;
+
+    // Log on today when viewing the current month; for a past month, log on that month's due date.
     const todayStr = toLocalISODate(referenceDateObj);
+    const logDate = selectedMonth === todayStr.slice(0, 7) || !item.nextDueDate ? todayStr : item.nextDueDate;
     const timeStr = nowLocalTimeHHMM();
+    const txId = newId('recurring_log');
 
     const newTx: Transaction = {
-      id: newId('recurring_log'),
+      id: txId,
       title: `${item.title} (${item.type === 'debit' ? 'Bill Payment' : 'Received'})`,
       amount: item.amount,
       type: item.type,
       category: item.category,
       subcategory: item.category || 'Recurring',
-      date: todayStr,
+      date: logDate,
       time: timeStr,
       payeeOrPayer: item.payeeOrPayer || item.title,
       paymentMethod: item.autoDebit ? 'AutoDebit' : 'UPI',
       source: 'UPI',
-      rawText: `Recurring payment recorded for ${item.title} on ${todayStr}`,
+      note: occurrenceTag(item.id, selectedMonth),
+      rawText: `Recurring payment recorded for ${item.title} on ${logDate}`,
     };
 
-    setMarkedPaidIds((prev) => new Set([...prev, item.id]));
+    markOccurrencePaid(item.id, selectedMonth, txId);
 
     if (onQuickLogTransaction) {
       onQuickLogTransaction(newTx);
@@ -525,18 +553,33 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   };
 
   // Add Custom Bill Handler
+  const [newBillError, setNewBillError] = useState<string>('');
   const handleAddCustomBillSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newTitle || !newAmount) return;
+    setNewBillError('');
+    if (!newTitle.trim()) {
+      setNewBillError('Enter a name for the bill.');
+      return;
+    }
+    const amountResult = parsePositiveAmount(newAmount, 'Amount');
+    if (amountResult.ok === false) {
+      setNewBillError(amountResult.error);
+      return;
+    }
+    const dayResult = parseNumberInput(newDay, { label: 'Day of month', min: 1, max: 31, integer: true });
+    if (dayResult.ok === false) {
+      setNewBillError(dayResult.error);
+      return;
+    }
 
     const newBill: CustomRecurringBill = {
       id: newId('custom_bill'),
       title: newTitle.trim(),
-      amount: parseFloat(newAmount) || 0,
+      amount: amountResult.value as number,
       category: newCategory,
       payeeOrPayer: newPayee.trim() || newTitle.trim(),
       frequency: 'Monthly',
-      expectedDayOfMonth: Math.min(31, Math.max(1, parseInt(newDay, 10) || 1)),
+      expectedDayOfMonth: dayResult.value as number,
       type: newType,
       autoDebit: newAutoDebit,
     };
@@ -545,10 +588,13 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     setCustomBills(updated);
     safeSetItem('tmf_custom_recurring_bills', JSON.stringify(updated));
 
-    // Reset Form
+    // Reset Form (all fields, so the next bill doesn't inherit prior settings)
     setNewTitle('');
     setNewAmount('');
     setNewPayee('');
+    setNewDay('1');
+    setNewType('debit');
+    setNewAutoDebit(false);
     setShowAddModal(false);
   };
 
@@ -592,7 +638,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       {/* Header Bar - Collapsible Trigger */}
       <div 
         onClick={handleToggleExpand}
-        className="p-3.5 sm:p-4 flex items-center justify-between flex-wrap gap-2.5 cursor-pointer hover:bg-[#1a1a1a] transition-colors select-none"
+        className="p-3.5 sm:p-4 flex items-center justify-between flex-wrap gap-2.5 cursor-pointer hover:bg-surface-3 transition-colors select-none"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-inner transition-colors ${
@@ -637,7 +683,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               e.stopPropagation();
               setShowAddModal(true);
             }}
-            className="px-2.5 py-1.5 bg-obsidian hover:bg-[#222] border border-nothing hover:border-red-500 rounded-xl text-[10px] font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+            className="px-2.5 py-1.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-xl text-[10px] font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
           >
             <Plus className="w-3 h-3 text-red-500" />
             <span className="hidden sm:inline">Add Recurring</span>
@@ -755,7 +801,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                 </div>
 
                 {/* Projected Outflows Metric Bar */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#1e1e1e]">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-line">
                   <div className="p-2.5 bg-carbon border border-red-900/40 rounded-xl space-y-0.5">
                     <div className="text-[9px] uppercase font-bold text-[#888]">Total Projected Outflow</div>
                     <div className="text-sm sm:text-base font-bold text-red-400">
@@ -916,7 +962,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               </div>
 
               {/* Legend Bar */}
-              <div className="flex items-center justify-between flex-wrap gap-2 text-[10px] text-[#888] pt-2 border-t border-[#1e1e1e]">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-[10px] text-[#888] pt-2 border-t border-line">
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="flex items-center gap-1">
                     <span className="w-2 h-2 rounded-full bg-red-500" /> Overdue / Due Today
@@ -963,7 +1009,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase transition-colors shrink-0 cursor-pointer ${
                     filter === tabKey
                       ? 'bg-red-600 text-white shadow-sm'
-                      : 'bg-carbon text-[#888] hover:text-white hover:bg-[#222]'
+                      : 'bg-carbon text-[#888] hover:text-white hover:bg-surface-3'
                   }`}
                 >
                   {tabKey === 'ALL'
@@ -1098,7 +1144,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                               ? 'bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-950/50'
                               : isDueSoon
                               ? 'bg-amber-600 hover:bg-amber-700 text-white'
-                              : 'bg-[#222] hover:bg-[#333] border border-[#444] text-white'
+                              : 'bg-[#222] hover:bg-surface-3 border border-[#444] text-white'
                           }`}
                           title={`Click to record ${item.title} transaction`}
                         >
@@ -1150,7 +1196,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               </button>
             </div>
 
-            <form onSubmit={handleAddCustomBillSubmit} className="space-y-3.5 text-xs">
+            <form onSubmit={handleAddCustomBillSubmit} className="space-y-3.5 text-xs" noValidate>{newBillError && (<p role="alert" className="text-[11px] text-red-400 bg-red-950/40 border border-red-800/60 rounded-xl px-3 py-2">{newBillError}</p>)}
               <div>
                 <label className="block text-[10px] uppercase font-bold text-[#aaa] mb-1">Bill / Subscription Title *</label>
                 <input
@@ -1159,7 +1205,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                   placeholder="e.g. Gym Membership, WiFi Bill"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
-                  className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-[#555] focus:outline-none focus:border-red-500"
+                  className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-content-3 focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1173,7 +1219,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                     placeholder="1500"
                     value={newAmount}
                     onChange={(e) => setNewAmount(e.target.value)}
-                    className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-[#555] focus:outline-none focus:border-red-500"
+                    className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-content-3 focus:outline-none focus:border-red-500"
                   />
                 </div>
 
@@ -1229,7 +1275,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                   placeholder="e.g. Gold's Gym"
                   value={newPayee}
                   onChange={(e) => setNewPayee(e.target.value)}
-                  className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-[#555] focus:outline-none focus:border-red-500"
+                  className="w-full bg-obsidian border border-nothing rounded-xl px-3 py-2 text-white placeholder-content-3 focus:outline-none focus:border-red-500"
                 />
               </div>
 

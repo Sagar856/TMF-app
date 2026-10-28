@@ -1,45 +1,47 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord, ConnectedDematAccount } from '../types/finance';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord } from '../types/finance';
 import { BackupRestoreData, parseBackupJson } from '../utils/backup';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
-import { 
-  Shield, 
-  Download, 
-  RefreshCw, 
-  Palette, 
-  Sliders, 
-  Eye, 
-  EyeOff, 
-  Smartphone, 
-  BellRing, 
-  ChevronsUpDown, 
-  MousePointerClick, 
-  Sun, 
-  Moon, 
+import { requestPushNotificationPermission } from '../services/localNotifications';
+import { clearBiometricEnrollment, enrollBiometric, isBiometricAvailable, isBiometricEnrolled } from '../services/biometric';
+import {
+  Shield,
+  Download,
+  RefreshCw,
+  Palette,
+  Sliders,
+  Smartphone,
+  BellRing,
+  Sun,
+  Moon,
   Trash2,
   Coins,
   Lock,
   Database,
   Building2,
-  Link2,
-  CheckCircle2,
-  AlertCircle,
+  UserCircle2,
+  LogOut,
+  Cloud,
+  CloudOff,
+  Info,
   ExternalLink,
-  PlusCircle,
-  Sparkles,
-  TrendingUp,
-  Unlink,
-  Layers,
-  ArrowUpRight,
-  Check,
-  X
+  Tags,
+  Landmark,
+  ChevronRight,
+  KeyRound,
+  Upload,
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
-import { InfoButton } from './InfoButton';
-import { newId } from '../utils/ids';
-import { formatMoney } from '../utils/money';
 import { PasscodeSetupModal } from './PasscodeSetupModal';
-import { requestPushNotificationPermission } from '../services/localNotifications';
+import { BrokerPortfoliosSection } from './settings/BrokerPortfoliosSection';
+import {
+  SettingSection,
+  SettingRow,
+  SettingSwitch,
+  SegmentedControl,
+  SettingButton,
+  StatusPill,
+} from './settings/SettingsPrimitives';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -59,11 +61,34 @@ interface SettingsViewProps {
   onResetAllData: () => void;
   onLoadSampleData?: () => void;
   onRemoveSampleData?: () => void;
-  syncStatus?: { collection: string; success: boolean; error?: string; timestamp: number } | null;
-  onForceSyncNow?: () => Promise<{ success: boolean; error?: string }>;
+  syncStatus?: { collection: string; success: boolean; error?: string; warning?: string; schemaOutdated?: boolean; timestamp: number } | null;
+  onForceSyncNow?: () => Promise<{ success: boolean; error?: string; warning?: string }>;
   isAuthenticated?: boolean;
   authUserEmail?: string | null;
+  onSignOut?: () => void;
+  onOpenProfile?: () => void;
+  onNavigateToTab?: (tab: string) => void;
 }
+
+type SettingsMode = 'preferences' | 'personalisation';
+
+const SECTION_LINKS: { id: string; label: string }[] = [
+  { id: 'settings-profile', label: 'Account' },
+  { id: 'settings-appearance', label: 'Appearance' },
+  { id: 'settings-region', label: 'Currency' },
+  { id: 'settings-automation', label: 'Automation' },
+  { id: 'settings-security', label: 'Security' },
+  { id: 'settings-brokers', label: 'Brokers' },
+  { id: 'settings-data', label: 'Data & Backup' },
+  { id: 'settings-about', label: 'About' },
+];
+
+const CURRENCIES = [
+  { symbol: '₹', code: 'INR', locale: 'en-IN', name: '₹ INR' },
+  { symbol: '$', code: 'USD', locale: 'en-US', name: '$ USD' },
+  { symbol: '€', code: 'EUR', locale: 'de-DE', name: '€ EUR' },
+  { symbol: '£', code: 'GBP', locale: 'en-GB', name: '£ GBP' },
+];
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
@@ -87,53 +112,98 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onForceSyncNow,
   isAuthenticated = false,
   authUserEmail = null,
+  onSignOut,
+  onOpenProfile,
+  onNavigateToTab,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState<'system' | 'personalisation'>('system');
-  const [activeSystemSection, setActiveSystemSection] = useState<'general' | 'connections' | 'security' | 'data'>('general');
-  const currencySymbol = settings.currencySymbol;
+  const [mode, setMode] = useState<SettingsMode>('preferences');
+  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_LINKS[0].id);
+  const sectionsRootRef = useRef<HTMLDivElement>(null);
 
-  // Security
-  const passcodeEnabled = settings.passcodeEnabled;
-  const [showPasscodeSetup, setShowPasscodeSetup] = useState(false);
+  const update = (patch: Partial<UserSettings>) => onUpdateSettings({ ...settings, ...patch });
 
-  // UPI/SMS Interceptor & Notifications
-  const { autoExtractSms, notificationsEnabled, locationTracking } = settings;
+  /* ---------------- Android notification access ---------------- */
+  const isAndroid = isNativeAndroid();
+  const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
+  useEffect(() => {
+    if (!isAndroid) return;
+    isNotificationAccessGranted().then(setNotifAccessGranted);
+  }, [isAndroid]);
+
+  /* ---------------- Push permission ---------------- */
   const [notificationPermissionError, setNotificationPermissionError] = useState('');
   const [requestingNotificationPermission, setRequestingNotificationPermission] = useState(false);
-  const latestSettingsRef = React.useRef(settings);
+  const latestSettingsRef = useRef(settings);
   latestSettingsRef.current = settings;
-  const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
 
-  // Demat & Connected Accounts State
-  const [syncingBrokerId, setSyncingBrokerId] = useState<string | null>(null);
-  const [isSyncingAll, setIsSyncingAll] = useState<boolean>(false);
-  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
-  const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
-  const [editingDemat, setEditingDemat] = useState<ConnectedDematAccount | null>(null);
-
-  // Manual portfolio form fields
-  const [modalBrokerCode, setModalBrokerCode] = useState<string>('Zerodha');
-  const [modalBrokerName, setModalBrokerName] = useState<string>('Zerodha Kite');
-  const [modalPortfolioValue, setModalPortfolioValue] = useState<string>('0');
-  const [modalPortfolioReturns, setModalPortfolioReturns] = useState<string>('0');
-  const [modalHoldingCount, setModalHoldingCount] = useState<string>('0');
-  const [modalValidationError, setModalValidationError] = useState<string>('');
-  const backupFileInputRef = React.useRef<HTMLInputElement>(null);
-  const [backupRestoreMessage, setBackupRestoreMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isNativeAndroid()) return;
-    isNotificationAccessGranted().then(setNotifAccessGranted);
-  }, []);
-
-  // Theme selection handler
-  const handleThemeChange = (newTheme: 'dark' | 'light') => {
-    onUpdateSettings({
-      ...settings,
-      theme: newTheme,
-    });
+  const handleTogglePushAlerts = async (next: boolean) => {
+    setNotificationPermissionError('');
+    if (!next) {
+      update({ notificationsEnabled: false });
+      return;
+    }
+    setRequestingNotificationPermission(true);
+    try {
+      const granted = await requestPushNotificationPermission();
+      if (!granted) {
+        setNotificationPermissionError('Notification permission was not granted. Allow notifications in your browser or device settings.');
+        return;
+      }
+      onUpdateSettings({ ...latestSettingsRef.current, notificationsEnabled: true });
+    } catch (error) {
+      console.warn('Could not request notification permission:', error);
+      setNotificationPermissionError('Could not request notification permission. Please try again.');
+    } finally {
+      setRequestingNotificationPermission(false);
+    }
   };
 
+  /* ---------------- Passcode ---------------- */
+  const [showPasscodeSetup, setShowPasscodeSetup] = useState(false);
+  const handleTogglePasscode = (next: boolean) => {
+    if (next) {
+      setShowPasscodeSetup(true);
+      return;
+    }
+    // Disabling the lock must also forget the stored hash + salt and any biometric enrolment.
+    clearBiometricEnrollment();
+    update({ passcodeEnabled: false, passcodeHash: undefined, passcodeSalt: undefined, biometricUnlockEnabled: false });
+  };
+
+  /* ---------------- Biometric ---------------- */
+  const [biometricAvailable, setBiometricAvailable] = useState<boolean | null>(null);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  const [biometricError, setBiometricError] = useState('');
+  useEffect(() => {
+    let active = true;
+    isBiometricAvailable().then((available) => {
+      if (active) setBiometricAvailable(available);
+    });
+    return () => { active = false; };
+  }, []);
+  const handleToggleBiometric = async (next: boolean) => {
+    setBiometricError('');
+    if (!next) {
+      clearBiometricEnrollment();
+      update({ biometricUnlockEnabled: false });
+      return;
+    }
+    setBiometricBusy(true);
+    try {
+      const ok = await enrollBiometric(authUserEmail || settings.userEmail || settings.userName || 'MTracker');
+      if (!ok) {
+        setBiometricError('Biometric enrolment was cancelled or is not supported here. You can keep using the PIN.');
+        return;
+      }
+      update({ biometricUnlockEnabled: true });
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
+
+  /* ---------------- Backup ---------------- */
+  const backupFileInputRef = useRef<HTMLInputElement>(null);
+  const [backupRestoreMessage, setBackupRestoreMessage] = useState<string | null>(null);
   const handleBackupFileSelection = async (file?: File) => {
     if (!file) return;
     setBackupRestoreMessage(null);
@@ -153,279 +223,88 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  // Connected Demat Accounts list
-  const dematAccounts: ConnectedDematAccount[] = useMemo(() => {
-    return settings.connectedDematAccounts || [];
-  }, [settings.connectedDematAccounts]);
+  /* ---------------- Cloud sync ---------------- */
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
+  const [forceSyncResult, setForceSyncResult] = useState<{ success: boolean; error?: string; warning?: string } | null>(null);
+  const handleSyncNow = async () => {
+    if (!onForceSyncNow) return;
+    setIsForceSyncing(true);
+    setForceSyncResult(null);
+    try {
+      setForceSyncResult(await onForceSyncNow());
+    } finally {
+      setIsForceSyncing(false);
+    }
+  };
+  const lastSyncLabel = useMemo(() => {
+    if (!syncStatus?.timestamp) return null;
+    return new Date(syncStatus.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }, [syncStatus?.timestamp]);
+  const cloudTone: 'emerald' | 'red' | 'amber' | 'neutral' = !isAuthenticated
+    ? 'neutral'
+    : syncStatus && !syncStatus.success
+    ? 'red'
+    : syncStatus?.warning
+    ? 'amber'
+    : 'emerald';
 
-  // Compute portfolio stats for a broker (combining live investments logged under this demat or fallback to mock)
-  const getBrokerStats = (account: ConnectedDematAccount) => {
-    const matching = (investments || []).filter(
-      (inv) =>
-        (inv.dematAccount && inv.dematAccount.toLowerCase() === account.brokerCode.toLowerCase()) ||
-        (inv.dematAccount && inv.dematAccount.toLowerCase() === account.brokerName.toLowerCase()) ||
-        (account.clientId && inv.brokerClientId === account.clientId)
+  /* ---------------- Section jump + scroll-spy ---------------- */
+  const jumpTo = (id: string) => {
+    setActiveSectionId(id);
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  useEffect(() => {
+    if (mode !== 'preferences' || typeof IntersectionObserver === 'undefined') return;
+    const root = sectionsRootRef.current;
+    if (!root) return;
+    const sections: HTMLElement[] = Array.from(root.querySelectorAll<HTMLElement>('section[id^="settings-"]'));
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActiveSectionId(visible[0].target.id);
+      },
+      { rootMargin: '-30% 0px -60% 0px', threshold: 0 }
     );
+    sections.forEach((s: HTMLElement) => observer.observe(s));
+    return () => observer.disconnect();
+  }, [mode]);
 
-    if (matching.length > 0) {
-      const val = matching.reduce((sum, inv) => sum + (inv.currentValue || 0), 0);
-      const invAmt = matching.reduce((sum, inv) => sum + (inv.amountInvested || 0), 0);
-      const ret = invAmt > 0 ? ((val - invAmt) / invAmt) * 100 : 0;
-      return {
-        value: val,
-        invested: invAmt,
-        returnsPercent: Math.round(ret * 10) / 10,
-        holdingsCount: matching.length,
-        isRealData: true,
-      };
-    }
-
-    const val = account.mockPortfolioValue || 0;
-    const ret = account.mockReturnsPercent || 0;
-    const invAmt = ret !== -100 ? Math.round(val / (1 + ret / 100)) : val;
-    return {
-      value: val,
-      invested: invAmt,
-      returnsPercent: ret,
-      holdingsCount: account.totalHoldingsCount || 0,
-      isRealData: false,
-    };
-  };
-
-  // Aggregated summary stats across all connected demat accounts
-  const aggregatedStats = useMemo(() => {
-    const active = dematAccounts.filter((a) => a.isConnected);
-    let totalVal = 0;
-    let totalInv = 0;
-    let totalHoldings = 0;
-
-    active.forEach((acc) => {
-      const stats = getBrokerStats(acc);
-      totalVal += stats.value;
-      totalInv += stats.invested;
-      totalHoldings += stats.holdingsCount;
-    });
-
-    const totalGainLoss = totalVal - totalInv;
-    const totalGainLossPercent = totalInv > 0 ? (totalGainLoss / totalInv) * 100 : 0;
-
-    return {
-      totalVal,
-      totalInv,
-      totalGainLoss,
-      totalGainLossPercent,
-      totalHoldings,
-      activeCount: active.length,
-      activeBrokers: active,
-    };
-  }, [dematAccounts, investments]);
-
-  // Actions for Demat Accounts
-  const handleToggleConnect = (account: ConnectedDematAccount) => {
-    const now = new Date().toISOString();
-    const updated = dematAccounts.map((acc) => {
-      if (acc.id === account.id) {
-        const nextConnected = !acc.isConnected;
-        return {
-          ...acc,
-          isConnected: nextConnected,
-          connectedAt: nextConnected ? now : acc.connectedAt,
-          mockPortfolioValue: acc.mockPortfolioValue || 0,
-          mockReturnsPercent: acc.mockReturnsPercent || 0,
-          totalHoldingsCount: acc.totalHoldingsCount || 0,
-        };
-      }
-      return acc;
-    });
-
-    onUpdateSettings({
-      ...settings,
-      connectedDematAccounts: updated,
-    });
-
-    const isNowConnected = !account.isConnected;
-    setFeedbackMessage(
-      isNowConnected
-        ? `Resumed manual tracking for ${account.brokerName}.`
-        : `Paused manual tracking for ${account.brokerName}.`
-    );
-    setTimeout(() => setFeedbackMessage(null), 3000);
-  };
-
-  const handleSyncBroker = (accountId: string) => {
-    setSyncingBrokerId(accountId);
-    const updated = dematAccounts.map((acc) => {
-      if (acc.id === accountId) {
-        return {
-          ...acc,
-          lastSyncedAt: new Date().toISOString(),
-        };
-      }
-      return acc;
-    });
-    onUpdateSettings({
-      ...settings,
-      connectedDematAccounts: updated,
-    });
-    setSyncingBrokerId(null);
-    setFeedbackMessage('Manual portfolio totals recalculated. No external data was fetched.');
-    setTimeout(() => setFeedbackMessage(null), 3000);
-  };
-
-  const handleSyncAll = () => {
-    setIsSyncingAll(true);
-    const now = new Date().toISOString();
-    const updated = dematAccounts.map((acc) => {
-      if (acc.isConnected) {
-        return { ...acc, lastSyncedAt: now };
-      }
-      return acc;
-    });
-    onUpdateSettings({
-      ...settings,
-      connectedDematAccounts: updated,
-    });
-    setIsSyncingAll(false);
-    setFeedbackMessage('Manual portfolio totals recalculated. No external data was fetched.');
-    setTimeout(() => setFeedbackMessage(null), 3000);
-  };
-
-  const handleOpenLinkModal = (existing?: ConnectedDematAccount) => {
-    setModalValidationError('');
-    if (existing) {
-      setEditingDemat(existing);
-      setModalBrokerCode(existing.brokerCode);
-      setModalBrokerName(existing.brokerName);
-      setModalPortfolioValue((existing.mockPortfolioValue || 0).toString());
-      setModalPortfolioReturns((existing.mockReturnsPercent || 0).toString());
-      setModalHoldingCount((existing.totalHoldingsCount || 0).toString());
-    } else {
-      setEditingDemat(null);
-      setModalBrokerCode('Zerodha');
-      setModalBrokerName('Zerodha Kite');
-      setModalPortfolioValue('0');
-      setModalPortfolioReturns('0');
-      setModalHoldingCount('0');
-    }
-    setShowLinkModal(true);
-  };
-
-  const handleSaveLinkedAccount = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = Number(modalPortfolioValue);
-    const ret = Number(modalPortfolioReturns);
-    const holdings = Number(modalHoldingCount);
-    if (!Number.isFinite(val) || val < 0) {
-      setModalValidationError('Portfolio valuation must be a non-negative number.');
-      return;
-    }
-    if (!Number.isFinite(ret) || ret < -100) {
-      setModalValidationError('Estimated return must be at least -100%.');
-      return;
-    }
-    if (!Number.isInteger(holdings) || holdings < 0) {
-      setModalValidationError('Holdings count must be a whole number of zero or more.');
-      return;
-    }
-    const now = new Date().toISOString();
-
-    const brokerColors: Record<string, string> = {
-      Zerodha: '#387ed1',
-      Dhan: '#6842ff',
-      Groww: '#00d09c',
-      Upstox: '#8833ff',
-      'Angel One': '#0066ff',
-      'ICICI Direct': '#e65100',
-    };
-
-    let updated: ConnectedDematAccount[];
-    if (editingDemat) {
-      updated = dematAccounts.map((acc) => {
-        if (acc.id === editingDemat.id) {
-          return {
-            ...acc,
-            brokerName: modalBrokerName,
-            brokerCode: modalBrokerCode,
-            mockPortfolioValue: val,
-            mockReturnsPercent: ret,
-            totalHoldingsCount: holdings,
-            color: brokerColors[modalBrokerCode] || acc.color || '#387ed1',
-          };
-        }
-        return acc;
-      });
-      setFeedbackMessage(`Updated portfolio details for ${modalBrokerName}.`);
-    } else {
-      const newAcc: ConnectedDematAccount = {
-        id: newId('broker'),
-        brokerName: modalBrokerName,
-        brokerCode: modalBrokerCode,
-        clientId: '',
-        isConnected: true,
-        connectedAt: now,
-        mockPortfolioValue: val,
-        mockReturnsPercent: ret,
-        totalHoldingsCount: holdings,
-        color: brokerColors[modalBrokerCode] || '#387ed1',
-      };
-      updated = [...dematAccounts, newAcc];
-      setFeedbackMessage(`Added ${modalBrokerName} portfolio.`);
-    }
-
-    onUpdateSettings({
-      ...settings,
-      connectedDematAccounts: updated,
-    });
-
-    setShowLinkModal(false);
-    setEditingDemat(null);
-    setTimeout(() => setFeedbackMessage(null), 3000);
-  };
+  const theme = settings.theme || 'dark';
+  const sampleLoaded = settings.sampleDataLoaded !== false;
 
   return (
-    <div className="space-y-6 pb-16 max-w-4xl font-mono">
-      {/* Page Title & Navigation Tabs */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 dark:border-[#222] pb-4">
+    <div className="space-y-5 pb-16 max-w-5xl font-mono">
+      {/* Page header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg sm:text-xl font-bold font-mono text-slate-900 dark:text-white tracking-tight uppercase">
-            SETTINGS & PREFERENCES
-          </h2>
-          <InfoButton
-            id="settings-header-info"
-            title="Settings & Preferences"
-            content="Browse General, Connections, Security, and Data & Backup settings, or open Personalisation for categories, budgets, and accounts."
-            align="left"
-          />
+          <h2 className="text-lg sm:text-xl font-bold font-mono text-content-1 tracking-tight uppercase">Settings</h2>
+          <span className="text-[10px] text-content-3 hidden sm:inline">Preferences, automation, security & data</span>
         </div>
 
-        <div className="flex gap-2 p-1 bg-slate-100 dark:bg-[#141418] border border-slate-200 dark:border-[#222] rounded-2xl shrink-0">
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('system')}
-            className={`px-3.5 py-1.5 text-xs font-mono font-bold uppercase rounded-xl transition-all cursor-pointer ${
-              activeSubTab === 'system'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            System & Security
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('personalisation')}
-            className={`px-3.5 py-1.5 text-xs font-mono font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-1.5 ${
-              activeSubTab === 'personalisation'
-                ? 'bg-red-600 text-white shadow-sm'
-                : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Personalisation</span>
-          </button>
-        </div>
+        <SegmentedControl<SettingsMode>
+          ariaLabel="Settings area"
+          size="md"
+          value={mode}
+          onChange={setMode}
+          options={[
+            { value: 'preferences', label: 'Preferences' },
+            {
+              value: 'personalisation',
+              label: (
+                <>
+                  <Sliders className="w-3.5 h-3.5" />
+                  <span>Categories & Budgets</span>
+                </>
+              ),
+            },
+          ]}
+        />
       </div>
 
-      {activeSubTab === 'personalisation' ? (
+      {mode === 'personalisation' ? (
         <CustomisationsView
           categories={categories}
           accounts={accounts}
@@ -441,1037 +320,487 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onForceSyncNow={onForceSyncNow}
         />
       ) : (
-        <div className="space-y-6">
-          <div
-            role="group"
+        <div className="lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-6 lg:items-start">
+          {/* Section navigation: horizontal chips on mobile, sticky rail on desktop */}
+          <nav
             aria-label="Settings sections"
-            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+            className="lg:sticky lg:top-2 -mx-1 px-1 mb-4 lg:mb-0 flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0"
           >
-            {([
-              ['general', 'General'],
-              ['connections', 'Connections'],
-              ['security', 'Security'],
-              ['data', 'Data & Backup'],
-            ] as const).map(([section, label]) => (
-              <button
-                key={section}
-                type="button"
-                aria-pressed={activeSystemSection === section}
-                onClick={() => setActiveSystemSection(section)}
-                className={`shrink-0 rounded-xl border px-3.5 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer ${
-                  activeSystemSection === section
-                    ? 'border-red-600 bg-red-600 text-white shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-[#2a2a34] dark:bg-[#141418] dark:text-[#aaa] dark:hover:bg-[#1c1c24]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* ==================== 1. APPEARANCE & DISPLAY ==================== */}
-          {activeSystemSection === 'general' && (
-            <>
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
-              <Palette className="w-4 h-4 text-red-500" />
-              <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider">
-                Appearance & Display
-              </h3>
-            </div>
-
-            {/* Theme Toggle */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Interface Theme</span>
-                <span className="text-[9px] bg-red-600 text-white font-mono px-2 py-0.5 rounded-full uppercase font-bold">
-                  {(settings.theme || 'dark').toUpperCase()}
-                </span>
-                <InfoButton
-                  id="theme-toggle-info"
-                  title="Interface Theme"
-                  content="Switch between Obsidian Dark and Ceramic Light color schemes across all screens and widgets."
-                  align="left"
-                />
-              </div>
-
-              <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 dark:bg-[#1e1e26] rounded-xl border border-slate-300/50 dark:border-[#333] shrink-0">
+            {SECTION_LINKS.map((link) => {
+              const active = activeSectionId === link.id;
+              return (
                 <button
+                  key={link.id}
                   type="button"
-                  onClick={() => handleThemeChange('light')}
-                  className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                    settings.theme === 'light'
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-500 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
+                  aria-current={active ? 'true' : undefined}
+                  onClick={() => jumpTo(link.id)}
+                  className={`shrink-0 lg:w-full lg:text-left rounded-xl border px-3 py-1.5 lg:py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                    active
+                      ? 'border-red-600 bg-red-600 text-white shadow-sm'
+                      : 'border-line bg-surface-1 text-content-2 hover:bg-surface-2 hover:text-content-1'
                   }`}
                 >
-                  <Sun className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Light</span>
+                  {link.label}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleThemeChange('dark')}
-                  className={`px-3 py-1.5 text-xs font-mono font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
-                    (settings.theme || 'dark') === 'dark'
-                      ? 'bg-[#121218] text-white shadow-sm'
-                      : 'text-slate-500 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
+              );
+            })}
+          </nav>
+
+          <div ref={sectionsRootRef} className="space-y-5 min-w-0">
+            {/* ============ PROFILE & ACCOUNT ============ */}
+            <SettingSection
+              id="settings-profile"
+              title="Profile & Account"
+              icon={UserCircle2}
+              iconClassName="text-red-500"
+              badge={
+                <StatusPill tone={cloudTone}>
+                  {!isAuthenticated ? 'Local only' : cloudTone === 'red' ? 'Sync failed' : cloudTone === 'amber' ? 'Sync warning' : 'Cloud synced'}
+                </StatusPill>
+              }
+            >
+              <SettingRow
+                label={settings.userName || 'Your profile'}
+                description={authUserEmail || settings.userEmail || 'Name, email and photo shown across the app.'}
+              >
+                {onOpenProfile && (
+                  <SettingButton onClick={onOpenProfile} icon={ChevronRight} iconClassName="text-content-3">
+                    Edit profile
+                  </SettingButton>
+                )}
+              </SettingRow>
+
+              <SettingRow
+                label="Cloud sync"
+                description={
+                  !isAuthenticated
+                    ? 'Sign in to back up your data to the cloud and use it on other devices.'
+                    : syncStatus && !syncStatus.success
+                    ? `Last attempt failed (${syncStatus.collection}): ${syncStatus.error}`
+                    : syncStatus?.warning
+                    ? syncStatus.warning
+                    : lastSyncLabel
+                    ? `Last synced at ${lastSyncLabel}. Changes sync automatically a moment after you make them.`
+                    : 'Changes sync automatically a moment after you make them.'
+                }
+                infoId="cloud-sync-info"
+                infoTitle="Cloud sync"
+                infoContent="Every change is saved locally first and then pushed to your private cloud space. Use Sync now to verify the connection immediately."
+              >
+                {isAuthenticated && onForceSyncNow && (
+                  <SettingButton onClick={handleSyncNow} disabled={isForceSyncing} icon={isForceSyncing ? RefreshCw : cloudTone === 'red' ? CloudOff : Cloud} iconClassName={`${isForceSyncing ? 'animate-spin' : ''} ${cloudTone === 'red' ? 'text-red-500' : 'text-emerald-500'}`}>
+                    {isForceSyncing ? 'Syncing…' : 'Sync now'}
+                  </SettingButton>
+                )}
+              </SettingRow>
+              {forceSyncResult && (
+                <p
+                  role="status"
+                  className={`py-2 text-[11px] ${
+                    forceSyncResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
                   }`}
                 >
-                  <Moon className="w-3.5 h-3.5 text-blue-400" />
-                  <span>Dark</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Default Net Worth Masking */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Executive Summary Privacy</span>
-                <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border ${
-                  settings.defaultNetWorthMasked !== false 
-                    ? 'bg-red-50 dark:bg-red-950/70 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/50' 
-                    : 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50'
-                }`}>
-                  {settings.defaultNetWorthMasked !== false ? 'MASKED' : 'VISIBLE'}
-                </span>
-                <InfoButton
-                  id="privacy-mask-info"
-                  title="Net Worth Privacy"
-                  content="Choose whether Net Worth and account balances on the dashboard start masked (••••) by default or displayed openly."
-                  align="left"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const currentVal = settings.defaultNetWorthMasked !== false;
-                  onUpdateSettings({
-                    ...settings,
-                    defaultNetWorthMasked: !currentVal,
-                  });
-                }}
-                className={`px-3.5 py-1.5 border text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-                  settings.defaultNetWorthMasked !== false
-                    ? 'bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 hover:bg-red-100'
-                    : 'bg-white dark:bg-[#1f1f1f] border-slate-300 dark:border-[#333] text-slate-800 dark:text-white hover:border-emerald-500'
-                }`}
-              >
-                {settings.defaultNetWorthMasked !== false ? (
-                  <>
-                    <EyeOff className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
-                    <span>MASKED</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                    <span>VISIBLE</span>
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Dashboard Sections Auto-Expand on Scroll */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Dashboard Section Expansion</span>
-                <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border ${
-                  settings.autoCollapseExpandOnScroll !== false 
-                    ? 'bg-red-50 dark:bg-red-950/70 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/50' 
-                    : 'bg-indigo-50 dark:bg-indigo-950/70 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/50'
-                }`}>
-                  {settings.autoCollapseExpandOnScroll !== false ? 'AUTO' : 'MANUAL'}
-                </span>
-                <InfoButton
-                  id="section-expansion-info"
-                  title="Scroll Auto-Expansion"
-                  content="Automatically expand or collapse dashboard budget, upcoming bills, and trend sections as you scroll into view."
-                  align="left"
-                />
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  const currentVal = settings.autoCollapseExpandOnScroll !== false;
-                  onUpdateSettings({
-                    ...settings,
-                    autoCollapseExpandOnScroll: !currentVal,
-                  });
-                }}
-                className={`px-3.5 py-1.5 border text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-                  settings.autoCollapseExpandOnScroll !== false
-                    ? 'bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-600 text-red-600 dark:text-red-400 hover:bg-red-100'
-                    : 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-600 text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100'
-                }`}
-              >
-                {settings.autoCollapseExpandOnScroll !== false ? (
-                  <>
-                    <ChevronsUpDown className="w-3.5 h-3.5 text-red-500 dark:text-red-400" />
-                    <span>AUTO SCROLL</span>
-                  </>
-                ) : (
-                  <>
-                    <MousePointerClick className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
-                    <span>MANUAL</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-
-          {/* ==================== 2. CURRENCY & REGIONAL ==================== */}
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
-              <Coins className="w-4 h-4 text-amber-500" />
-              <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider">
-                Currency & Regional
-              </h3>
-            </div>
-
-            <div className="p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Default Preferred Currency</span>
-                  <InfoButton
-                    id="currency-info"
-                    title="Currency Symbol"
-                    content="Applied across all balance totals, transactions, budget calculations, and financial reports."
-                    align="left"
-                  />
-                </div>
-                <span className="text-sm font-mono font-bold text-red-600 dark:text-red-400 px-2 py-0.5 bg-slate-200/80 dark:bg-[#222] rounded-lg">
-                  {currencySymbol}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
-                {[
-                  { symbol: '₹', code: 'INR', locale: ['en', 'IN'].join('-'), name: '₹ INR' },
-                  { symbol: '$', code: 'USD', locale: 'en-US', name: '$ USD' },
-                  { symbol: '€', code: 'EUR', locale: 'de-DE', name: '€ EUR' },
-                  { symbol: '£', code: 'GBP', locale: 'en-GB', name: '£ GBP' },
-                ].map((c) => (
-                  <button
-                    type="button"
-                    key={c.symbol}
-                    onClick={() => {
-                      onUpdateSettings({
-                        ...settings,
-                        currencySymbol: c.symbol,
-                        currencyCode: c.code,
-                        locale: c.locale,
-                      });
-                    }}
-                    className={`py-2 text-xs font-mono font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                      currencySymbol === c.symbol
-                        ? 'bg-red-600 text-white shadow-sm'
-                        : 'bg-white dark:bg-[#1a1a22] border border-slate-200 dark:border-[#2a2a34] text-slate-700 dark:text-[#aaa] hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>{c.name}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-            </>
-          )}
-
-          {/* ==================== 3. MANUAL BROKER PORTFOLIOS ==================== */}
-          {activeSystemSection === 'connections' && (
-            <>
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-[#222]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-                  <Building2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>Manual Broker Portfolios</span>
-                    <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
-                      {aggregatedStats.activeCount} TRACKED
-                    </span>
-                  </h3>
-                  <p className="text-[10px] text-slate-500 dark:text-[#888]">
-                    Record portfolio valuations and estimated returns here. Live broker connections are coming soon.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <InfoButton
-                  id="connected-demat-info"
-                  title="Manual Broker Portfolios"
-                  content="Manually record each brokerage portfolio's total valuation, estimated return, and holding count. Live broker connections are coming soon."
-                  align="right"
-                />
-                <button
-                  type="button"
-                  onClick={() => handleOpenLinkModal()}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-mono font-bold flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
-                >
-                  <PlusCircle className="w-3.5 h-3.5" />
-                  <span>Add Portfolio</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Notification Feedback */}
-            {feedbackMessage && (
-              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/80 rounded-xl flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300 font-mono">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                  <span>{feedbackMessage}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setFeedbackMessage(null)}
-                  className="text-xs text-emerald-600 dark:text-emerald-400 hover:underline"
-                >
-                  Dismiss
-                </button>
-              </div>
-            )}
-
-            {/* SUMMARY CARD: Aggregated External Portfolio Value */}
-            <div className="relative overflow-hidden rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-950/40 via-slate-900 to-black p-5 sm:p-6 text-white shadow-lg space-y-4">
-              <div className="absolute -right-8 -top-8 w-44 h-44 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
-              <div className="absolute -left-8 -bottom-8 w-44 h-44 bg-blue-500/10 rounded-full blur-2xl pointer-events-none" />
-
-              <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-emerald-400" />
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold">
-                    Aggregated Manual Portfolio Summary
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-slate-400">
-                    {aggregatedStats.activeCount > 0
-                      ? `${aggregatedStats.activeCount} Portfolio${aggregatedStats.activeCount > 1 ? 's' : ''} Tracked`
-                      : 'No Portfolios Tracked'}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={isSyncingAll || aggregatedStats.activeCount === 0}
-                    onClick={handleSyncAll}
-                    className="px-2.5 py-1 bg-white/10 hover:bg-white/20 border border-white/15 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
-                  >
-                    <RefreshCw className={`w-3 h-3 text-emerald-400 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingAll ? 'Updating...' : 'Recalculate Totals'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Primary Portfolio Value Display */}
-              <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
-                <div className="sm:col-span-2 space-y-1">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Total Portfolio Valuation
-                  </div>
-                  <div className="flex items-baseline gap-3 flex-wrap">
-                    <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white">
-                      {formatMoney(aggregatedStats.totalVal, { symbol: currencySymbol, locale: settings?.locale })}
-                    </div>
-                    <div className={`px-2 py-0.5 rounded-lg text-xs font-mono font-bold flex items-center gap-1 ${
-                      aggregatedStats.totalGainLoss >= 0
-                        ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                        : 'bg-red-500/20 text-red-400 border border-red-500/30'
-                    }`}>
-                      <TrendingUp className="w-3 h-3" />
-                      <span>
-                        {aggregatedStats.totalGainLoss >= 0 ? '+' : ''}
-                        {formatMoney(Math.abs(aggregatedStats.totalGainLoss), { symbol: currencySymbol, locale: settings?.locale })}
-                        {' '}
-                        ({aggregatedStats.totalGainLossPercent >= 0 ? '+' : ''}{aggregatedStats.totalGainLossPercent.toFixed(1)}%)
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2 border-t sm:border-t-0 sm:border-l border-white/10 sm:pl-4 pt-2 sm:pt-0">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-mono text-[10px] uppercase">Cost Basis:</span>
-                    <span className="font-mono font-bold text-white">
-                      {formatMoney(aggregatedStats.totalInv, { symbol: currencySymbol, locale: settings?.locale })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-mono text-[10px] uppercase">Holdings:</span>
-                    <span className="font-mono font-bold text-white">
-                      {aggregatedStats.totalHoldings} Assets
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-mono text-[10px] uppercase">Portfolios:</span>
-                    <span className="font-mono font-bold text-emerald-400 truncate max-w-[120px]">
-                      {aggregatedStats.activeBrokers.map(b => b.brokerCode).join(', ') || 'None'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Manual Portfolio Cards */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-[#888]">
-                <span className="uppercase text-[10px] font-bold tracking-wider">
-                  Manual Portfolios ({dematAccounts.length})
-                </span>
-                <span className="text-[10px]">Live broker sync coming soon</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {dematAccounts.map((account) => {
-                  const stats = getBrokerStats(account);
-                  const isSyncing = syncingBrokerId === account.id;
-
-                  return (
-                    <div
-                      key={account.id}
-                      className={`p-4 rounded-xl border transition-all ${
-                        account.isConnected
-                          ? 'bg-slate-50 dark:bg-[#0e0e14] border-slate-200 dark:border-[#2a2a35] hover:border-emerald-500/40'
-                          : 'bg-slate-100/50 dark:bg-[#121217]/50 border-dashed border-slate-300 dark:border-[#222] opacity-75 hover:opacity-100'
-                      }`}
-                    >
-                      {/* Broker Header */}
-                      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-200/80 dark:border-[#1a1a24]">
-                        <div className="flex items-center gap-2.5">
-                          <div
-                            className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-white text-xs shrink-0 shadow-sm"
-                            style={{ backgroundColor: account.color || '#3b82f6' }}
-                          >
-                            {account.brokerCode.substring(0, 2).toUpperCase()}
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-xs font-bold text-slate-900 dark:text-white font-mono">
-                                {account.brokerName}
-                              </span>
-                              {account.isConnected && (
-                                <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                              )}
-                            </div>
-                            <div className="text-[10px] font-mono text-slate-500 dark:text-[#888]">
-                              Status: <span className="font-bold text-slate-700 dark:text-slate-300">{account.isConnected ? 'Active' : 'Paused'}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Status Badge */}
-                        <span
-                          className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase border ${
-                            account.isConnected
-                              ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                              : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border-slate-300 dark:border-[#333]'
-                          }`}
-                        >
-                          {account.isConnected ? 'TRACKING' : 'PAUSED'}
-                        </span>
-                      </div>
-
-                      {/* Broker Value / Metrics */}
-                      <div className="py-3 flex items-center justify-between">
-                        <div>
-                          <div className="text-[10px] text-slate-500 dark:text-[#888] font-mono">
-                            {stats.isRealData ? 'TRACKED INVESTMENT TOTAL' : 'MANUAL VALUATION'}
-                          </div>
-                          <div className="text-base font-bold font-mono text-slate-900 dark:text-white">
-                            {formatMoney(stats.value, { symbol: currencySymbol, locale: settings?.locale })}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className={`text-xs font-mono font-bold ${
-                            stats.returnsPercent >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'
-                          }`}>
-                            {stats.returnsPercent >= 0 ? '+' : ''}{stats.returnsPercent}%
-                          </div>
-                          <div className="text-[10px] text-slate-500 dark:text-[#888] font-mono">
-                            {stats.holdingsCount} Holdings {stats.isRealData ? '(Investment records)' : '(Entered manually)'}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Action Buttons */}
-                      <div className="pt-2 border-t border-slate-200/80 dark:border-[#1a1a24] flex items-center justify-between gap-2">
-                        <div className="text-[9px] font-mono text-slate-400 truncate max-w-[120px]">
-                          {account.lastSyncedAt ? `Updated ${new Date(account.lastSyncedAt).toLocaleDateString()}` : 'Manual valuation'}
-                        </div>
-
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {account.isConnected ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={isSyncing}
-                                onClick={() => handleSyncBroker(account.id)}
-                                className="px-2.5 py-1 bg-white dark:bg-[#1a1a24] hover:bg-slate-100 dark:hover:bg-[#252535] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-[#ccc] hover:text-slate-900 dark:hover:text-white rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 cursor-pointer"
-                                title="Recalculate from saved manual values; no market or broker data is fetched"
-                              >
-                                <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-emerald-500' : ''}`} />
-                                <span>{isSyncing ? 'Updating...' : 'Recalculate'}</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenLinkModal(account)}
-                                className="px-2 py-1 bg-white dark:bg-[#1a1a24] hover:bg-slate-100 dark:hover:bg-[#252535] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-[#ccc] hover:text-slate-900 dark:hover:text-white rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer"
-                                title="Edit the manually tracked portfolio snapshot"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleConnect(account)}
-                                className="px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg text-[10px] font-mono font-bold transition-colors cursor-pointer"
-                                title="Pause manual tracking"
-                              >
-                                Unlink
-                              </button>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => handleToggleConnect(account)}
-                              className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 cursor-pointer shadow-sm"
-                            >
-                              <Link2 className="w-3 h-3" />
-                              <span>Resume Tracking</span>
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* ==================== 4. UPI & SMS NOTIFICATION INTERCEPTOR ==================== */}
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
-              <Smartphone className="w-4 h-4 text-red-500" />
-              <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider">
-                UPI &amp; SMS Interceptor
-              </h3>
-            </div>
-
-            {isNativeAndroid() ? (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Notification Access</span>
-                  <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full uppercase font-bold border ${
-                    notifAccessGranted 
-                      ? 'bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50' 
-                      : 'bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800/50'
-                  }`}>
-                    {notifAccessGranted ? 'GRANTED' : 'NOT GRANTED'}
-                  </span>
-                  <InfoButton
-                    id="notif-access-info"
-                    title="Notification Access"
-                    content="Required by the Android system service to parse incoming bank and UPI alerts in real time without manual entry."
-                    align="left"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await requestNotificationAccess();
-                    setTimeout(() => isNotificationAccessGranted().then(setNotifAccessGranted), 1000);
-                  }}
-                  className="px-3.5 py-1.5 bg-white dark:bg-[#1f1f1f] border border-slate-300 dark:border-[#333] hover:border-red-500 text-xs font-mono font-bold text-slate-800 dark:text-white rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0"
-                >
-                  <BellRing className="w-3.5 h-3.5 text-red-500" />
-                  <span>{notifAccessGranted ? 'REVIEW' : 'GRANT ACCESS'}</span>
-                </button>
-              </div>
-            ) : (
-              <div className="p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl flex items-center justify-between gap-3">
-                <span className="text-xs text-slate-700 dark:text-[#ccc] font-mono">On-device notification parsing active in Android APK</span>
-                <InfoButton
-                  id="web-interceptor-info"
-                  title="SMS Interceptor"
-                  content="Real-time on-device notification interception runs in the Android APK. On the web preview, you can test SMS parsing using the SMS Simulator on the Dashboard."
-                  align="right"
-                />
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Auto-Extract From Notifications</span>
-                <InfoButton
-                  id="auto-extract-info"
-                  title="Auto-Extraction"
-                  content="Automatically detect and extract amounts, merchants, categories, and payment modes from bank transaction SMS."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const updated = !autoExtractSms;
-                  onUpdateSettings({ ...settings, autoExtractSms: updated });
-                }}
-                className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
-                  autoExtractSms 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border border-slate-300 dark:border-[#333]'
-                }`}
-              >
-                {autoExtractSms ? 'ENABLED' : 'DISABLED'}
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">"Add Transaction?" Push Alerts</span>
-                <InfoButton
-                  id="push-alerts-info"
-                  title="Instant Alerts"
-                  content="Post a notification the moment an unlogged debit or credit is detected so you can approve it with one tap."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                disabled={requestingNotificationPermission}
-                onClick={async () => {
-                  setNotificationPermissionError('');
-                  if (notificationsEnabled) {
-                    onUpdateSettings({ ...settings, notificationsEnabled: false });
-                    return;
-                  }
-                  setRequestingNotificationPermission(true);
-                  try {
-                    const granted = await requestPushNotificationPermission();
-                    if (!granted) {
-                      setNotificationPermissionError('Notification permission was not granted. Allow notifications in your browser or device settings.');
-                      return;
-                    }
-                    onUpdateSettings({ ...latestSettingsRef.current, notificationsEnabled: true });
-                  } catch (error) {
-                    console.warn('Could not request notification permission:', error);
-                    setNotificationPermissionError('Could not request notification permission. Please try again.');
-                  } finally {
-                    setRequestingNotificationPermission(false);
-                  }
-                }}
-                className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
-                  notificationsEnabled 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border border-slate-300 dark:border-[#333]'
-                }`}
-              >
-                {notificationsEnabled ? 'ENABLED' : 'DISABLED'}
-              </button>
-            </div>
-
-            {notificationPermissionError && <p role="alert" className="text-xs text-red-400">{notificationPermissionError}</p>}
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Location Tagging</span>
-                <InfoButton
-                  id="location-tagging-info"
-                  title="Location Tagging"
-                  content="Capture real GPS coordinates and reverse-geocode place names when recording transactions or intercepting notifications."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  const updated = !locationTracking;
-                  onUpdateSettings({ ...settings, locationTracking: updated });
-                }}
-                className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
-                  locationTracking 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border border-slate-300 dark:border-[#333]'
-                }`}
-              >
-                {locationTracking ? 'ENABLED' : 'DISABLED'}
-              </button>
-            </div>
-          </div>
-            </>
-          )}
-
-          {/* ==================== 4. SECURITY & PASSCODE ==================== */}
-          {activeSystemSection === 'security' && (
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
-              <Lock className="w-4 h-4 text-red-500" />
-              <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider">
-                Security &amp; Passcode
-              </h3>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">App Lock Passcode</span>
-                <InfoButton
-                  id="app-lock-info"
-                  title="App Passcode Lock"
-                  content="Require a 4 to 6-digit numeric PIN every time MTracker launches to protect your financial confidentiality."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (passcodeEnabled) {
-                    onUpdateSettings({ ...settings, passcodeEnabled: false });
-                  } else {
-                    setShowPasscodeSetup(true);
-                  }
-                }}
-                className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
-                  passcodeEnabled 
-                    ? 'bg-red-600 text-white' 
-                    : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border border-slate-300 dark:border-[#333]'
-                }`}
-              >
-                {passcodeEnabled ? 'ENABLED' : 'DISABLED'}
-              </button>
-            </div>
-
-            {passcodeEnabled && (
-              <button type="button" onClick={() => setShowPasscodeSetup(true)}
-                className="px-4 py-2 bg-red-600 text-white font-mono text-xs rounded-xl">
-                Change PIN
-              </button>
-            )}
-            {showPasscodeSetup && (
-              <PasscodeSetupModal onClose={() => setShowPasscodeSetup(false)} onSave={credentials => {
-                onUpdateSettings({ ...settings, ...credentials, passcodeEnabled: true });
-                setShowPasscodeSetup(false);
-              }} />
-            )}
-          </div>
-          )}
-
-          {/* ==================== 5. DATA MANAGEMENT & BACKUP ==================== */}
-          {activeSystemSection === 'data' && (
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#222]">
-              <div className="flex items-center gap-2">
-                <Database className="w-4 h-4 text-red-500" />
-                <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider">
-                  Data Management &amp; Backup
-                </h3>
-              </div>
-              <span className="text-[9px] font-mono font-bold text-slate-400 dark:text-[#666] uppercase tracking-widest">
-                LOCAL &amp; EXPORT
-              </span>
-            </div>
-
-            {/* JSON Backup Export */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Full Financial Data Backup (JSON)</span>
-                <InfoButton
-                  id="backup-export-info"
-                  title="JSON Backup"
-                  content="Export all transactions, investments, categories, accounts, and system preferences to a downloadable JSON file."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={onExportBackupJSON}
-                className="px-4 py-2 bg-white dark:bg-[#1f1f1f] border border-slate-300 dark:border-[#333] hover:border-red-500 text-xs font-mono font-bold text-slate-800 dark:text-white rounded-xl transition-all flex items-center gap-2 cursor-pointer shrink-0 shadow-sm"
-              >
-                <Download className="w-3.5 h-3.5 text-red-500" />
-                <span>Export Backup JSON</span>
-              </button>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Restore From JSON Backup</span>
-                <InfoButton
-                  id="backup-restore-info"
-                  title="Restore JSON Backup"
-                  content="Validate a previously exported MTracker JSON backup, review the record counts, then confirm to replace the current records."
-                  align="left"
-                />
-              </div>
-              <input
-                ref={backupFileInputRef}
-                type="file"
-                accept=".json,application/json"
-                className="hidden"
-                aria-label="Select MTracker JSON backup"
-                onChange={(event) => {
-                  void handleBackupFileSelection(event.target.files?.[0]);
-                }}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setBackupRestoreMessage(null);
-                  backupFileInputRef.current?.click();
-                }}
-                className="px-4 py-2 bg-white dark:bg-[#1f1f1f] border border-slate-300 dark:border-[#333] hover:border-amber-500 text-xs font-mono font-bold text-slate-800 dark:text-white rounded-xl transition-all flex items-center gap-2 cursor-pointer shrink-0 shadow-sm"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
-                <span>Choose Backup to Restore</span>
-              </button>
-            </div>
-            {backupRestoreMessage && (
-              <p role="status" className="text-xs text-slate-700 dark:text-slate-300" aria-live="polite">
-                {backupRestoreMessage}
-              </p>
-            )}
-
-            {/* Sample Demo Data Controls */}
-            <div className="p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Sample Demo Data</span>
-                  <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold font-mono uppercase border ${
-                    settings.sampleDataLoaded !== false
-                      ? 'bg-blue-50 dark:bg-blue-950/70 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800/80'
-                      : 'bg-slate-200 dark:bg-zinc-800/90 text-slate-600 dark:text-zinc-400 border-slate-300 dark:border-zinc-700/80'
-                  }`}>
-                    {settings.sampleDataLoaded !== false ? 'LOADED' : 'REMOVED'}
-                  </span>
-                  <InfoButton
-                    id="demo-data-info"
-                    title="Sample Records"
-                    content="Toggle initial sample records. When removed, demo records won't re-seed on restart."
-                    align="left"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-200 dark:border-[#1e1e1e]">
-                {onLoadSampleData && (
-                  <button
-                    type="button"
-                    onClick={onLoadSampleData}
-                    className="text-blue-600 dark:text-blue-400 hover:underline font-mono text-xs font-bold flex items-center gap-1.5 cursor-pointer bg-transparent border-none p-0"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
-                    <span>Re-Load Sample Data</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    const isCurrentlyLoaded = settings.sampleDataLoaded !== false;
-                    if (isCurrentlyLoaded && onRemoveSampleData) {
-                      onRemoveSampleData();
-                    } else if (!isCurrentlyLoaded && onLoadSampleData) {
-                      onLoadSampleData();
-                    }
-                  }}
-                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                    settings.sampleDataLoaded !== false ? 'bg-blue-600' : 'bg-slate-300 dark:bg-zinc-700'
-                  }`}
-                  title={settings.sampleDataLoaded !== false ? 'Click to Remove Sample Data' : 'Click to Load Sample Data'}
-                >
-                  <span className="sr-only">Toggle Sample Data</span>
-                  <span
-                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                      settings.sampleDataLoaded !== false ? 'translate-x-5' : 'translate-x-0'
-                    }`}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {/* Total Reset Data */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-red-50/50 dark:bg-[#1a0f12] border border-red-200 dark:border-red-950/80 rounded-xl">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-red-600 dark:text-red-400">Clear All Financial Records</span>
-                <InfoButton
-                  id="wipe-data-info"
-                  title="Wipe All Data"
-                  content="Permanently wipe all local and cloud accounts, transactions, investments, and loans."
-                  align="left"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={onResetAllData}
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-mono font-bold rounded-xl transition-colors flex items-center gap-2 cursor-pointer shrink-0 shadow-sm"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Reset All Data</span>
-              </button>
-            </div>
-          </div>
-          )}
-        </div>
-      )}
-
-      {/* Manual Portfolio Modal */}
-      {showLinkModal && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-[#121217] border border-[#2a2a34] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
-            <div className="flex justify-between items-center pb-3 border-b border-[#222]">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-emerald-950/70 border border-emerald-700/60 flex items-center justify-center text-emerald-400">
-                  <Building2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold uppercase">
-                    {editingDemat ? 'Edit Manual Portfolio' : 'Add Manual Portfolio'}
-                  </h3>
-                  <p className="text-[10px] text-[#888]">
-                    Record a snapshot now; live broker connections are coming soon.
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowLinkModal(false);
-                  setEditingDemat(null);
-                }}
-                className="text-[#666] hover:text-white p-1 rounded-lg bg-[#181820]"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveLinkedAccount} className="space-y-3.5">
-              {/* Select Portfolio Provider */}
-              <div>
-                <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  Brokerage / Portfolio Name
-                </label>
-                <select
-                  value={modalBrokerCode}
-                  onChange={(e) => {
-                    const code = e.target.value;
-                    setModalBrokerCode(code);
-                    const brokerNames: Record<string, string> = {
-                      Zerodha: 'Zerodha Kite',
-                      Dhan: 'Dhan HQ',
-                      Groww: 'Groww Direct',
-                      Upstox: 'Upstox Pro',
-                      'Angel One': 'Angel One',
-                      'ICICI Direct': 'ICICI Direct',
-                    };
-                    setModalBrokerName(brokerNames[code] || code);
-                  }}
-                  className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="Zerodha">Zerodha</option>
-                  <option value="Dhan">Dhan</option>
-                  <option value="Groww">Groww</option>
-                  <option value="Upstox">Upstox</option>
-                  <option value="Angel One">Angel One</option>
-                  <option value="ICICI Direct">ICICI Direct</option>
-                </select>
-              </div>
-
-              {/* Manual Portfolio Snapshot */}
-              <div className="grid grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Portfolio Value ({currencySymbol})
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    required
-                    value={modalPortfolioValue}
-                    onWheel={(e) => (e.target as HTMLElement).blur()}
-                    onChange={(e) => {
-                      setModalPortfolioValue(e.target.value);
-                      setModalValidationError('');
-                    }}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Estimated Returns (%)
-                  </label>
-                  <input
-                    type="number"
-                    min="-100"
-                    step="any"
-                    required
-                    value={modalPortfolioReturns}
-                    onWheel={(e) => (e.target as HTMLElement).blur()}
-                    onChange={(e) => {
-                      setModalPortfolioReturns(e.target.value);
-                      setModalValidationError('');
-                    }}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Number of Holdings
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    required
-                    value={modalHoldingCount}
-                    onWheel={(e) => (e.target as HTMLElement).blur()}
-                    onChange={(e) => {
-                      setModalHoldingCount(e.target.value);
-                      setModalValidationError('');
-                    }}
-                    placeholder="0"
-                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              {modalValidationError && (
-                <p role="alert" className="text-xs text-red-400">{modalValidationError}</p>
+                  {forceSyncResult.success
+                    ? forceSyncResult.warning || 'All collections synced successfully.'
+                    : forceSyncResult.error || 'Sync failed.'}
+                </p>
               )}
 
-              {/* Manual Tracking Note */}
-              <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl flex items-start gap-2.5 text-[10px] text-emerald-300">
-                <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                <span>
-                  Values are entered manually and stored in app settings. No broker account access or price feed is connected.
-                </span>
-              </div>
+              {isAuthenticated && onSignOut && (
+                <SettingRow label="Sign out" description="Clears this device's local copy. Your cloud data stays safe.">
+                  <SettingButton onClick={onSignOut} icon={LogOut} iconClassName="text-red-500">
+                    Sign out
+                  </SettingButton>
+                </SettingRow>
+              )}
+            </SettingSection>
 
-              {/* Submit Buttons */}
-              <div className="flex gap-2 pt-2">
-                <button
-                  type="button"
+            {/* ============ APPEARANCE ============ */}
+            <SettingSection id="settings-appearance" title="Appearance & Display" icon={Palette}>
+              <SettingRow
+                label="Theme"
+                description="Obsidian dark or Ceramic light across every screen."
+                badge={<StatusPill tone="red">{theme}</StatusPill>}
+              >
+                <SegmentedControl<'light' | 'dark'>
+                  ariaLabel="Interface theme"
+                  value={theme}
+                  onChange={(t) => update({ theme: t })}
+                  options={[
+                    { value: 'light', label: (<><Sun className="w-3.5 h-3.5" /><span>Light</span></>) },
+                    { value: 'dark', label: (<><Moon className="w-3.5 h-3.5" /><span>Dark</span></>) },
+                  ]}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Mask balances by default"
+                description="Hide net worth and totals until you tap the eye icon."
+                htmlFor="sw-mask-balances"
+              >
+                <SettingSwitch
+                  id="sw-mask-balances"
+                  label="Mask balances by default"
+                  checked={settings.defaultNetWorthMasked !== false}
+                  onChange={(v) => update({ defaultNetWorthMasked: v })}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Auto-expand dashboard sections on scroll"
+                description="Budget, upcoming bills and trend cards open as they scroll into view. Turn off to control them manually."
+                htmlFor="sw-auto-expand"
+              >
+                <SettingSwitch
+                  id="sw-auto-expand"
+                  label="Auto-expand dashboard sections on scroll"
+                  checked={settings.autoCollapseExpandOnScroll !== false}
+                  onChange={(v) => update({ autoCollapseExpandOnScroll: v })}
+                />
+              </SettingRow>
+            </SettingSection>
+
+            {/* ============ CURRENCY & REGION ============ */}
+            <SettingSection id="settings-region" title="Currency & Region" icon={Coins} iconClassName="text-amber-500">
+              <SettingRow
+                label="Preferred currency"
+                description="Applied to all balances, transactions, budgets and reports."
+                badge={<StatusPill tone="neutral">{settings.currencyCode} · {settings.currencySymbol}</StatusPill>}
+                stacked
+              >
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-label="Preferred currency">
+                  {CURRENCIES.map((c) => {
+                    const active = settings.currencyCode === c.code;
+                    return (
+                      <button
+                        type="button"
+                        key={c.code}
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => update({ currencySymbol: c.symbol, currencyCode: c.code, locale: c.locale })}
+                        className={`py-2 text-xs font-mono font-bold rounded-xl transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-red-600 text-white shadow-sm'
+                            : 'bg-surface-2 border border-line text-content-2 hover:text-content-1 hover:bg-surface-3'
+                        }`}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </SettingRow>
+            </SettingSection>
+
+            {/* ============ AUTOMATION ============ */}
+            <SettingSection
+              id="settings-automation"
+              title="Automation & Alerts"
+              icon={Smartphone}
+              description="On-device UPI/SMS capture, push alerts and budget notifications."
+            >
+              {isAndroid ? (
+                <SettingRow
+                  label="Notification access"
+                  description="Lets the Android service read bank & UPI alerts in real time. Nothing leaves your device."
+                  badge={<StatusPill tone={notifAccessGranted ? 'emerald' : 'red'}>{notifAccessGranted ? 'Granted' : 'Not granted'}</StatusPill>}
+                >
+                  <SettingButton
+                    icon={BellRing}
+                    iconClassName="text-red-500"
+                    onClick={async () => {
+                      await requestNotificationAccess();
+                      setTimeout(() => isNotificationAccessGranted().then(setNotifAccessGranted), 1000);
+                    }}
+                  >
+                    {notifAccessGranted ? 'Review' : 'Grant access'}
+                  </SettingButton>
+                </SettingRow>
+              ) : (
+                <SettingRow
+                  label="Notification access"
+                  description="Automatic capture of bank/UPI alerts is available in the Android app. On the web you can test parsing with the SMS Simulator (header icon)."
+                  badge={<StatusPill tone="neutral">Android only</StatusPill>}
+                />
+              )}
+
+              <SettingRow
+                label="Auto-extract from notifications"
+                description="Detect amount, merchant, category and payment mode from bank messages."
+                htmlFor="sw-auto-extract"
+              >
+                <SettingSwitch
+                  id="sw-auto-extract"
+                  label="Auto-extract from notifications"
+                  checked={settings.autoExtractSms}
+                  onChange={(v) => update({ autoExtractSms: v })}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="“Add transaction?” push alerts"
+                description="Post a notification the moment an unlogged debit or credit is detected."
+                htmlFor="sw-push-alerts"
+              >
+                <SettingSwitch
+                  id="sw-push-alerts"
+                  label="Add transaction push alerts"
+                  checked={settings.notificationsEnabled}
+                  busy={requestingNotificationPermission}
+                  onChange={(v) => void handleTogglePushAlerts(v)}
+                />
+              </SettingRow>
+              {notificationPermissionError && (
+                <p role="alert" className="py-2 text-[11px] text-red-600 dark:text-red-400">{notificationPermissionError}</p>
+              )}
+
+              <SettingRow
+                label="Budget threshold alerts"
+                description="Notify at 80% and 100% of a category's monthly budget."
+                htmlFor="sw-budget-alerts"
+              >
+                <SettingSwitch
+                  id="sw-budget-alerts"
+                  label="Budget threshold alerts"
+                  checked={settings.budgetAlertsEnabled !== false}
+                  disabled={!settings.notificationsEnabled}
+                  onChange={(v) => update({ budgetAlertsEnabled: v })}
+                />
+              </SettingRow>
+
+              <SettingRow
+                label="Location tagging"
+                description="Attach the place where a transaction happened (uses device GPS)."
+                htmlFor="sw-location"
+              >
+                <SettingSwitch
+                  id="sw-location"
+                  label="Location tagging"
+                  checked={settings.locationTracking}
+                  onChange={(v) => update({ locationTracking: v })}
+                />
+              </SettingRow>
+            </SettingSection>
+
+            {/* ============ SECURITY & PRIVACY ============ */}
+            <SettingSection id="settings-security" title="Security & Privacy" icon={Lock}>
+              <SettingRow
+                label="App lock (PIN)"
+                description="Require a 4–6 digit PIN every time the app opens."
+                htmlFor="sw-passcode"
+                badge={settings.passcodeEnabled ? <StatusPill tone="emerald">On</StatusPill> : undefined}
+              >
+                {settings.passcodeEnabled && (
+                  <SettingButton icon={KeyRound} iconClassName="text-content-3" onClick={() => setShowPasscodeSetup(true)}>
+                    Change PIN
+                  </SettingButton>
+                )}
+                <SettingSwitch id="sw-passcode" label="App lock" checked={settings.passcodeEnabled} onChange={handleTogglePasscode} />
+              </SettingRow>
+
+              {settings.passcodeEnabled && (
+                <>
+                  <SettingRow
+                    label="Unlock with device biometrics"
+                    description={
+                      biometricAvailable === false
+                        ? 'Not available on this device/browser (needs a secure context and a platform authenticator such as Windows Hello, Touch ID or Android biometrics).'
+                        : 'Use fingerprint / face / Windows Hello instead of typing the PIN. Enrolled per device; the PIN always still works.'
+                    }
+                    htmlFor="sw-biometric"
+                    badge={settings.biometricUnlockEnabled && isBiometricEnrolled() ? <StatusPill tone="emerald">Enrolled</StatusPill> : undefined}
+                  >
+                    <SettingSwitch
+                      id="sw-biometric"
+                      label="Unlock with device biometrics"
+                      checked={Boolean(settings.biometricUnlockEnabled) && isBiometricEnrolled()}
+                      disabled={biometricAvailable === false}
+                      busy={biometricBusy}
+                      onChange={(v) => void handleToggleBiometric(v)}
+                    />
+                  </SettingRow>
+                  {biometricError && <p role="alert" className="py-2 text-[11px] text-red-600 dark:text-red-400">{biometricError}</p>}
+
+                  <SettingRow
+                    label="Auto-lock"
+                    description="Re-lock after the app has been in the background for this long."
+                  >
+                    <SegmentedControl<string>
+                      ariaLabel="Auto-lock delay"
+                      value={settings.autoLockMinutes === undefined ? 'never' : String(settings.autoLockMinutes)}
+                      onChange={(v) => update({ autoLockMinutes: v === 'never' ? undefined : Number(v) })}
+                      options={[
+                        { value: '0', label: 'Instantly' },
+                        { value: '1', label: '1 min' },
+                        { value: '5', label: '5 min' },
+                        { value: '15', label: '15 min' },
+                        { value: 'never', label: 'On restart', title: 'Only ask for the PIN when the app is launched' },
+                      ]}
+                    />
+                  </SettingRow>
+                </>
+              )}
+
+              <SettingRow
+                label="Skip delete confirmations"
+                description="Delete records immediately without a confirmation dialog. You can always restore from a backup."
+                stacked
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  {([
+                    ['skipDeleteConfirmation', 'Transactions', 'sw-skip-tx'],
+                    ['skipInvestmentDeleteConfirmation', 'Investments', 'sw-skip-inv'],
+                    ['skipLoanDeleteConfirmation', 'Loans & lends', 'sw-skip-loan'],
+                  ] as const).map(([key, label, id]) => (
+                    <label key={key} htmlFor={id} className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-surface-2 border border-line text-[11px] text-content-1 cursor-pointer">
+                      <span>{label}</span>
+                      <SettingSwitch id={id} label={`Skip delete confirmation for ${label}`} checked={Boolean(settings[key])} onChange={(v) => update({ [key]: v })} />
+                    </label>
+                  ))}
+                </div>
+              </SettingRow>
+            </SettingSection>
+
+            {/* ============ BROKER PORTFOLIOS ============ */}
+            <div id="settings-brokers" className="scroll-mt-24">
+              <BrokerPortfoliosSection settings={settings} investments={investments} onUpdateSettings={onUpdateSettings} />
+            </div>
+
+            {/* ============ DATA & BACKUP ============ */}
+            <SettingSection id="settings-data" title="Data & Backup" icon={Database}>
+              <SettingRow
+                label="Categories, budgets & accounts"
+                description="Manage spending categories, monthly budgets and linked bank accounts."
+              >
+                <SettingButton icon={Tags} iconClassName="text-content-3" onClick={() => setMode('personalisation')}>
+                  Categories
+                </SettingButton>
+                {onNavigateToTab && (
+                  <SettingButton icon={Landmark} iconClassName="text-content-3" onClick={() => onNavigateToTab('accounts')}>
+                    Accounts
+                  </SettingButton>
+                )}
+              </SettingRow>
+
+              <SettingRow
+                label="Export backup (JSON)"
+                description="All transactions, investments, loans, categories, accounts and preferences in one file."
+              >
+                <SettingButton icon={Download} iconClassName="text-red-500" onClick={onExportBackupJSON}>
+                  Export
+                </SettingButton>
+              </SettingRow>
+
+              <SettingRow
+                label="Restore from backup"
+                description="Validates the file and shows record counts before replacing current data."
+              >
+                <input
+                  ref={backupFileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  className="hidden"
+                  aria-label="Select MTracker JSON backup"
+                  onChange={(event) => void handleBackupFileSelection(event.target.files?.[0])}
+                />
+                <SettingButton
+                  icon={Upload}
+                  iconClassName="text-amber-600 dark:text-amber-400"
                   onClick={() => {
-                    setShowLinkModal(false);
-                    setEditingDemat(null);
+                    setBackupRestoreMessage(null);
+                    backupFileInputRef.current?.click();
                   }}
-                  className="flex-1 py-2.5 bg-[#181820] hover:bg-[#252530] text-[#aaa] hover:text-white rounded-xl text-xs transition-colors"
                 >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                  Choose file
+                </SettingButton>
+              </SettingRow>
+              {backupRestoreMessage && (
+                <p role="status" aria-live="polite" className="py-2 text-[11px] text-content-2">{backupRestoreMessage}</p>
+              )}
+
+              <SettingRow
+                label="Sample demo data"
+                description={sampleLoaded ? 'Demo records are loaded. Turn off to remove them (they will not re-seed).' : 'Demo records removed. Turn on to load them again.'}
+                htmlFor="sw-sample-data"
+                badge={<StatusPill tone={sampleLoaded ? 'blue' : 'neutral'}>{sampleLoaded ? 'Loaded' : 'Removed'}</StatusPill>}
+              >
+                {sampleLoaded && onLoadSampleData && (
+                  <SettingButton variant="ghost" icon={RefreshCw} iconClassName="text-blue-500" onClick={onLoadSampleData}>
+                    Re-load
+                  </SettingButton>
+                )}
+                <SettingSwitch
+                  id="sw-sample-data"
+                  label="Sample demo data"
+                  tone="blue"
+                  checked={sampleLoaded}
+                  onChange={(v) => {
+                    if (v) onLoadSampleData?.();
+                    else onRemoveSampleData?.();
+                  }}
+                />
+              </SettingRow>
+            </SettingSection>
+
+            <SettingSection id="settings-danger" title="Danger zone" icon={Trash2} iconClassName="text-red-600" tone="danger">
+              <SettingRow
+                label="Reset all data"
+                description="Permanently wipes all local and cloud accounts, transactions, investments, loans and categories. Export a backup first."
+              >
+                <SettingButton variant="danger" icon={Trash2} onClick={onResetAllData}>
+                  Reset all data
+                </SettingButton>
+              </SettingRow>
+            </SettingSection>
+
+            {/* ============ ABOUT ============ */}
+            <SettingSection id="settings-about" title="About" icon={Info} iconClassName="text-content-3">
+              <SettingRow label="Version" description="MTracker · Track Money Flow">
+                <StatusPill tone="neutral">v{__APP_VERSION__}</StatusPill>
+              </SettingRow>
+              <SettingRow
+                label="Android app"
+                description="Install the APK to enable real-time UPI/SMS capture."
+              >
+                <a
+                  href={`${import.meta.env.BASE_URL}downloads/TMF-app.apk`}
+                  className="px-3.5 py-1.5 text-xs font-mono font-bold rounded-xl bg-surface-2 hover:bg-surface-3 border border-line text-content-1 flex items-center gap-2 transition-colors"
+                  download
                 >
-                  <Check className="w-3.5 h-3.5" />
-                  <span>{editingDemat ? 'Save Portfolio' : 'Add Portfolio'}</span>
-                </button>
-              </div>
-            </form>
+                  <Download className="w-3.5 h-3.5 text-emerald-500" />
+                  Download APK
+                </a>
+              </SettingRow>
+              <SettingRow label="Privacy" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security.">
+                <Shield className="w-4 h-4 text-emerald-500" aria-hidden="true" />
+              </SettingRow>
+              <SettingRow label="Open source" description="Issues and feature requests are welcome.">
+                <a
+                  href="https://github.com/Sagar856/TMF-app"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-bold text-content-2 hover:text-content-1 flex items-center gap-1.5"
+                >
+                  GitHub <ExternalLink className="w-3 h-3" />
+                </a>
+              </SettingRow>
+            </SettingSection>
           </div>
         </div>
       )}
+
+      {showPasscodeSetup && (
+        <PasscodeSetupModal
+          onClose={() => setShowPasscodeSetup(false)}
+          onSave={(credentials) => {
+            update({ ...credentials, passcodeEnabled: true });
+            setShowPasscodeSetup(false);
+          }}
+        />
+      )}
+
+      {/* Keep the icon import used for the broker section header parity */}
+      <span className="hidden"><Building2 className="w-0 h-0" /></span>
     </div>
   );
 };

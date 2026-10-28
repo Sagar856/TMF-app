@@ -16,9 +16,13 @@ const transaction: Transaction = {
   payeeOrPayer: 'Cafe "North"',
   location: { lat: 19.076, lng: 72.8777, name: 'Mumbai, India' },
   refNumber: 'ref,123',
+  kind: 'expense',
+  accountId: 'acc_hdfc',
+  paymentMethod: 'acc_hdfc',
+  note: 'Team catch-up [Tags: #work]',
 };
 
-test('CSV export round-trips quoted values, optional fields, and location coordinates', () => {
+test('CSV export round-trips quoted values, optional fields, location, kind, account and note', () => {
   const csv = stringifyTransactionsCsv([transaction]);
   const result = parseTransactionsCsv(csv, () => 'generated-id');
 
@@ -26,7 +30,7 @@ test('CSV export round-trips quoted values, optional fields, and location coordi
   assert.deepEqual(result.transactions, [transaction]);
 });
 
-test('CSV import assigns IDs and defaults optional transaction fields', () => {
+test('CSV import assigns IDs, infers kind, and defaults optional transaction fields', () => {
   const csv = [
     'Title,Type,Amount,Category,Date',
     '"Salary, monthly",Credit,1200,Income,2026-10-12',
@@ -47,7 +51,42 @@ test('CSV import assigns IDs and defaults optional transaction fields', () => {
     payeeOrPayer: undefined,
     location: undefined,
     refNumber: undefined,
+    kind: 'income',
   }]);
+});
+
+test('CSV import accepts spreadsheet type aliases, formatted amounts and signed amounts', () => {
+  const csv = [
+    'Title,Type,Amount,Category,Date',
+    'Rent,Expense,"₹12,500.00",Housing,2026-10-01',
+    'Bonus,income,"1.250,50",Income,2026-10-02',
+    'Petrol,,-800,Transport,2026-10-03',
+    'Refund,,(300),Shopping,2026-10-04',
+  ].join('\n');
+  const result = parseTransactionsCsv(csv, () => 'id');
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.transactions.map((t) => [t.type, t.amount, t.kind]), [
+    ['debit', 12500, 'expense'],
+    ['credit', 1250.5, 'income'],
+    ['debit', 800, 'expense'],
+    ['debit', 300, 'expense'],
+  ]);
+});
+
+test('CSV import flags duplicate IDs and duplicate un-identified rows within the file', () => {
+  const csv = [
+    'ID,Title,Type,Amount,Category,Date,Time',
+    'tx-1,Lunch,debit,200,Food,2026-10-12,12:00',
+    'tx-1,Lunch again,debit,250,Food,2026-10-12,13:00',
+    ',Coffee,debit,80,Food,2026-10-12,09:00',
+    ',Coffee,debit,80,Food,2026-10-12,09:00',
+  ].join('\n');
+  const result = parseTransactionsCsv(csv, () => 'gen');
+  assert.equal(result.transactions.length, 2);
+  assert.deepEqual(result.errors, [
+    'Row 3: duplicate ID "tx-1" in this file.',
+    'Row 5: duplicate of an earlier row (same title, amount, date and time).',
+  ]);
 });
 
 test('CSV import reports invalid rows while retaining valid rows', () => {

@@ -5,6 +5,14 @@ import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { currentMonthLocal, todayLocalISO } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
 import { calculateSavingsRate } from '../utils/savingsRate';
+import {
+  getTransactionKind,
+  isOperatingExpense,
+  isOperatingIncome,
+  isRefund,
+  sumOperatingExpense,
+  sumOperatingIncome,
+} from '../utils/transactionKind';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
@@ -112,29 +120,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Stacked vs Expanded KPI state for Home Page
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
-  const [touchStartY, setTouchStartY] = useState<number | null>(null);
+  const touchStartYRef = React.useRef<number | null>(null);
 
-  // Auto-collapse expanded KPIs when user scrolls down
+  // Auto-collapse expanded KPIs when the user scrolls down — only while the
+  // "auto expand/collapse on scroll" preference is on, and rAF-throttled.
   useEffect(() => {
-    const handleScroll = () => {
-      const mainEl = document.querySelector('main');
-      if (mainEl && mainEl.scrollTop > 50 && !isKpiStacked) {
-        setIsKpiStacked(true);
-      }
-    };
+    if (autoCollapseExpandOnScroll === false || isKpiStacked) return;
     const mainEl = document.querySelector('main');
-    mainEl?.addEventListener('scroll', handleScroll);
-    return () => mainEl?.removeEventListener('scroll', handleScroll);
-  }, [isKpiStacked]);
+    if (!mainEl) return;
+    let frame: number | null = null;
+    const handleScroll = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (mainEl.scrollTop > 50) setIsKpiStacked(true);
+      });
+    };
+    mainEl.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      mainEl.removeEventListener('scroll', handleScroll);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, [isKpiStacked, autoCollapseExpandOnScroll]);
 
   const handleTouchStart = (e: React.TouchEvent) => {
-    setTouchStartY(e.touches[0].clientY);
+    touchStartYRef.current = e.touches[0].clientY;
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (touchStartY === null) return;
+    const startY = touchStartYRef.current;
+    if (startY === null) return;
     const touchEndY = e.changedTouches[0].clientY;
-    const diffY = touchEndY - touchStartY;
+    const diffY = touchEndY - startY;
     if (diffY > 25) {
       // Swiped down -> Expand vertically (placed one below one)
       setIsKpiStacked(false);
@@ -142,7 +159,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       // Swiped up -> Stack vertically with overlap
       setIsKpiStacked(true);
     }
-    setTouchStartY(null);
+    touchStartYRef.current = null;
   };
 
   // Synchronized scroll focus carousel for the 3 target dashboard sections
@@ -157,35 +174,37 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const activeMonthStr = currentMonthLocal();
   const todayIso = todayLocalISO();
 
-  // All-time income & expense
+  // All-time cash movements (used only for the no-accounts fallback balance).
+  // Transfers are cash-neutral and excluded.
   const totalCredit = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'credit')
+      .filter((t) => t.type === 'credit' && getTransactionKind(t) !== 'transfer')
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
   const totalDebit = useMemo(() => {
     return transactions
-      .filter((t) => t.type === 'debit')
+      .filter((t) => t.type === 'debit' && getTransactionKind(t) !== 'transfer')
       .reduce((sum, t) => sum + t.amount, 0);
   }, [transactions]);
 
-  // Current month income & expense
-  const monthCreditTxns = useMemo(() => {
-    return transactions.filter((t) => t.type === 'credit' && t.date && t.date.startsWith(activeMonthStr));
-  }, [transactions, activeMonthStr]);
+  // Current month OPERATING income & expense: investments, EMIs, loan
+  // disbursals and transfers are balance-sheet moves, not income/spend.
+  const monthTxns = useMemo(
+    () => transactions.filter((t) => t.date && t.date.startsWith(activeMonthStr)),
+    [transactions, activeMonthStr]
+  );
 
-  const monthDebitTxns = useMemo(() => {
-    return transactions.filter((t) => t.type === 'debit' && t.date && t.date.startsWith(activeMonthStr));
-  }, [transactions, activeMonthStr]);
+  const monthCreditTxns = useMemo(() => monthTxns.filter(isOperatingIncome), [monthTxns]);
+  const monthDebitTxns = useMemo(() => monthTxns.filter((t) => isOperatingExpense(t) || isRefund(t)), [monthTxns]);
 
-  const monthCredit = useMemo(() => {
-    return monthCreditTxns.reduce((sum, t) => sum + t.amount, 0);
-  }, [monthCreditTxns]);
+  const monthCredit = useMemo(() => sumOperatingIncome(monthTxns), [monthTxns]);
+  const monthDebit = useMemo(() => sumOperatingExpense(monthTxns), [monthTxns]);
 
-  const monthDebit = useMemo(() => {
-    return monthDebitTxns.reduce((sum, t) => sum + t.amount, 0);
-  }, [monthDebitTxns]);
+  const allTimeIncome = useMemo(() => sumOperatingIncome(transactions), [transactions]);
+  const allTimeExpense = useMemo(() => sumOperatingExpense(transactions), [transactions]);
+  const allTimeIncomeTxns = useMemo(() => transactions.filter(isOperatingIncome), [transactions]);
+  const allTimeExpenseTxns = useMemo(() => transactions.filter((t) => isOperatingExpense(t) || isRefund(t)), [transactions]);
 
   // Keep the rate signed so spending beyond income is visible.
   const savingsRate = useMemo(
@@ -236,22 +255,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // liabilities = ccOutstanding + payables
   const totalLiabilities = ccOutstanding + payables;
 
-  // Fallback cashflow-based net worth if accounts is empty
-  const cashflowNetBalance = totalCredit - totalDebit;
+  // Fallback cashflow-based net worth if accounts is empty. Investment
+  // purchases already show up in investmentsValue, so add them back to avoid
+  // counting the same rupee twice.
+  const investedViaLedger = useMemo(
+    () => transactions.filter((t) => t.type === 'debit' && getTransactionKind(t) === 'investment').reduce((s, t) => s + t.amount, 0),
+    [transactions]
+  );
+  const cashflowNetBalance = totalCredit - totalDebit + investedViaLedger;
   const cashflowNetWorth = cashflowNetBalance + investmentsValue;
 
   // netWorth = liquid − ccOutstanding + investmentsValue + receivables − payables
   const totalNetWorth = hasAccounts
     ? liquid - ccOutstanding + investmentsValue + receivables - payables
     : cashflowNetWorth;
-
-  const categoriesExceeding80 = categories.filter((cat) => {
-    if (cat.type !== 'expense' || !cat.budgetLimit || cat.budgetLimit <= 0) return false;
-    const spent = transactions
-      .filter((t) => t.type === 'debit' && t.category === cat.name && t.date && t.date.startsWith(activeMonthStr))
-      .reduce((sum, t) => sum + t.amount, 0);
-    return (spent / cat.budgetLimit) >= 0.80;
-  });
 
   const overdueLoans = useMemo(() => {
     return (loans || []).filter((l) => getEffectiveLoanStatus(l, todayIso) === 'overdue');
@@ -393,7 +410,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <CreditCard className="w-3 h-3 text-red-400" />
             </div>
             <div className="text-red-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `-${currencySymbol}${formatAmount(totalLiabilities)}`}
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(totalLiabilities)}`}
             </div>
           </div>
         </div>
@@ -450,7 +467,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => setIsKpiStacked(!isKpiStacked)}
-              className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+              className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
               title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
             >
               {isKpiStacked ? (
@@ -468,7 +485,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
-              ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
+              ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
@@ -547,11 +564,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
                 {showCredit
-                  ? `+${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthCredit : totalCredit))}`
+                  ? `+${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthCredit : allTimeIncome))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {(kpiTimeframe === 'month' ? monthCreditTxns : transactions.filter((t) => t.type === 'credit')).length} Deposits
+                {(kpiTimeframe === 'month' ? monthCreditTxns : allTimeIncomeTxns).length} Deposits
               </div>
             </div>
           </div>
@@ -588,11 +605,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
                 {showDebit
-                  ? `-${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthDebit : totalDebit))}`
+                  ? `-${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthDebit : allTimeExpense))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {(kpiTimeframe === 'month' ? monthDebitTxns : transactions.filter((t) => t.type === 'debit')).length} Expenses
+                {(kpiTimeframe === 'month' ? monthDebitTxns : allTimeExpenseTxns).length} Expenses
               </div>
             </div>
           </div>
@@ -667,7 +684,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             type="button"
             onClick={onNavigateToTransactions}
             title="Go to Transactions Page"
-            className="p-1.5 bg-obsidian hover:bg-[#222] border border-nothing hover:border-red-500 rounded-lg text-white transition-all nav-lift cursor-pointer flex items-center gap-1 group text-[10px] shrink-0"
+            className="p-1.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-lg text-white transition-all nav-lift cursor-pointer flex items-center gap-1 group text-[10px] shrink-0"
           >
             <span className="hidden sm:inline text-[#aaa] group-hover:text-white transition-colors">ALL TXNS</span>
             <ArrowRight className="w-3.5 h-3.5 text-red-500 group-hover:translate-x-0.5 transition-transform" />
@@ -680,7 +697,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div
               key={tx.id}
               onClick={onNavigateToTransactions}
-              className="p-2.5 bg-obsidian hover:bg-[#121212] border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between transition-all tactile-lift cursor-pointer group min-w-0"
+              className="p-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between transition-all tactile-lift cursor-pointer group min-w-0"
             >
               <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
                 <span className="text-[9px] text-[#777] truncate">{tx.date}</span>
@@ -769,12 +786,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
 
       {/* ==================== 7. CATEGORY EXPENSE DONUT ==================== */}
-      <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
+      <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
 
       {/* ==================== 8. TOP SPEND CATEGORY & 9. MOST SPEND PLACES & MERCHANTS ==================== */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        <TopCategoriesCard transactions={transactions} categories={categories} currencySymbol={currencySymbol} />
-        <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} />
+        <TopCategoriesCard transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
+        <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} month={activeMonthStr} />
       </div>
     </div>
   );

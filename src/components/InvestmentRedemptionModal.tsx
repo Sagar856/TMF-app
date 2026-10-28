@@ -4,6 +4,8 @@ import { InvestmentRecord, FinancialAccount, InvestmentRedemption } from '../typ
 import { calculateRedemption, roundCurrency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
 import { todayLocalISO } from '../utils/dates';
+import { parseNumberInput } from '../utils/numberInput';
+import { useDialog } from '../hooks/useDialog';
 import { X, ArrowDownRight, CheckCircle2, AlertCircle, Building2, DollarSign, Percent, ShieldCheck } from 'lucide-react';
 
 interface InvestmentRedemptionModalProps {
@@ -70,6 +72,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
   const [notes, setNotes] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
+  const dialogRef = useDialog<HTMLDivElement>({ isOpen: true, onClose, autoFocus: false });
 
   // Handle mode toggle
   const handleToggleFull = (full: boolean) => {
@@ -81,12 +84,24 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
     }
   };
 
-  const parsedQty = parseFloat(redeemQuantity) || 0;
-  const parsedPrice = parseFloat(redemptionPrice) || 0;
-  const parsedCharges = parseFloat(charges) || 0;
-  const parsedTaxPercent = parseFloat(taxPercent) || 0;
+  const qtyParse = parseNumberInput(redeemQuantity, { label: 'Quantity', min: 0 });
+  const priceParse = parseNumberInput(redemptionPrice, { label: 'Redemption price', min: 0 });
+  const chargesParse = parseNumberInput(charges, { label: 'Charges', min: 0, allowEmpty: true });
+  const taxParse = parseNumberInput(taxPercent, { label: 'Tax rate', min: 0, max: 100, allowEmpty: true });
 
-  // Real-time calculation using financial engine
+  const parsedQty = qtyParse.ok ? qtyParse.value ?? 0 : 0;
+  const parsedPrice = priceParse.ok ? priceParse.value ?? 0 : 0;
+  const parsedCharges = chargesParse.ok ? chargesParse.value ?? 0 : 0;
+  const parsedTaxPercent = taxParse.ok ? taxParse.value ?? 0 : 0;
+
+  // Current market price (not the sale price) values what is left after a partial sale.
+  const marketPrice = isStock
+    ? investment.currentPrice || investment.purchasePrice || 0
+    : isMF
+    ? investment.currentNav || investment.purchaseNav || 0
+    : 0;
+
+  // Real-time calculation using financial engine (FIFO lots for stocks when available)
   const calculationResult = useMemo(() => {
     return calculateRedemption({
       totalUnitsOrShares: availableQuantity,
@@ -96,11 +111,19 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
       chargesAmount: parsedCharges,
       taxRatePercent: parsedTaxPercent,
       isFixedDeposit: isFD,
+      lots: isStock ? investment.lots : undefined,
+      redemptionDate,
     });
-  }, [availableQuantity, investment.amountInvested, isFull, parsedQty, parsedPrice, parsedCharges, parsedTaxPercent, isFD]);
+  }, [availableQuantity, investment.amountInvested, investment.lots, isStock, isFull, parsedQty, parsedPrice, parsedCharges, parsedTaxPercent, isFD, redemptionDate]);
 
   const handleExecuteRedemption = () => {
     setErrorMsg('');
+    if (isSubmitting) return;
+    const firstInputError = [qtyParse, priceParse, chargesParse, taxParse].find((r) => !r.ok) as { ok: false; error: string } | undefined;
+    if (firstInputError && !(isFull && !qtyParse.ok)) {
+      setErrorMsg(firstInputError.error);
+      return;
+    }
     if (!selectedAccountId) {
       setErrorMsg('Please select a bank account to receive the redemption funds.');
       return;
@@ -115,6 +138,19 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
     }
     if (parsedPrice <= 0) {
       setErrorMsg('Redemption price must be greater than zero.');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(redemptionDate)) {
+      setErrorMsg('Choose a valid redemption date.');
+      return;
+    }
+    if (redemptionDate > todayLocalISO()) {
+      setErrorMsg('Redemption date cannot be in the future.');
+      return;
+    }
+    const purchaseDate = investment.depositDate || investment.date;
+    if (purchaseDate && redemptionDate < purchaseDate) {
+      setErrorMsg(`Redemption date cannot be before the purchase date (${purchaseDate}).`);
       return;
     }
 
@@ -155,15 +191,18 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         currentValue: 0,
         units: 0,
         shares: 0,
+        lots: isStock ? [] : investment.lots,
         realizedProfitLoss: totalRealizedPL,
         redemptions: updatedRedemptions,
         notes: `${investment.notes ? investment.notes + ' | ' : ''}Liquidated on ${redemptionDate}`,
       };
     } else {
-      // Partial redemption
+      // Partial redemption: remaining holding is valued at the *market* price,
+      // falling back to the sale price only when no market price is known.
       const remainingCostBasis = calculationResult.remainingCostBasis;
       const remainingQty = calculationResult.remainingUnitsOrShares;
-      const remainingCurrentValue = roundCurrency(remainingQty * parsedPrice);
+      const valuationPrice = marketPrice > 0 ? marketPrice : parsedPrice;
+      const remainingCurrentValue = roundCurrency(remainingQty * valuationPrice);
       const remainingReturnPct = remainingCostBasis > 0 
         ? roundCurrency(((remainingCurrentValue - remainingCostBasis) / remainingCostBasis) * 100) 
         : 0;
@@ -176,6 +215,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         returnsPercent: remainingReturnPct,
         units: isMF ? remainingQty : investment.units,
         shares: isStock ? remainingQty : investment.shares,
+        lots: isStock && calculationResult.remainingLots ? calculationResult.remainingLots : investment.lots,
         realizedProfitLoss: totalRealizedPL,
         redemptions: updatedRedemptions,
       };
@@ -191,12 +231,12 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 font-mono">
+    <div role="dialog" aria-modal="true" aria-label={`Redeem ${investment.name}`} className="fixed inset-0 z-modal flex items-center justify-center p-3 sm:p-4 font-mono">
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity" onClick={onClose} />
+      <div className="fixed inset-0 bg-backdrop backdrop-blur-xs transition-opacity" onClick={onClose} />
 
       {/* Modal Container */}
-      <div className="relative z-10 bg-[#121217] border border-[#2a2a34] rounded-3xl p-5 sm:p-6 max-w-lg w-full text-white shadow-2xl max-h-[92vh] overflow-y-auto space-y-4 animate-in zoom-in-95 duration-150">
+      <div ref={dialogRef} tabIndex={-1} className="relative z-10 bg-surface-1 border border-line rounded-3xl p-5 sm:p-6 max-w-lg w-full text-content-1 shadow-2xl max-h-[92vh] overflow-y-auto space-y-4 animate-in zoom-in-95 duration-150 outline-none">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[#222]">
           <div className="flex items-center gap-2">
@@ -214,7 +254,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-xl bg-[#1e1e24] border border-[#333] text-[#aaa] hover:text-white transition-colors cursor-pointer"
+            className="p-1.5 rounded-xl bg-surface-2 border border-[#333] text-[#aaa] hover:text-white transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
           </button>
@@ -230,7 +270,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
 
         {/* Full vs Partial Tabs */}
         {!isFD && (
-          <div className="flex items-center p-1 bg-[#181820] border border-[#2a2a34] rounded-2xl gap-1">
+          <div className="flex items-center p-1 bg-[#181820] border border-line rounded-2xl gap-1">
             <button
               type="button"
               onClick={() => handleToggleFull(true)}
@@ -257,7 +297,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         )}
 
         {/* Investment Current Position Summary */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-[#16161c] border border-[#22222a] rounded-2xl text-[11px]">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-3 bg-[#16161c] border border-line rounded-2xl text-[11px]">
           <div>
             <span className="text-[#666] block text-[9px] uppercase">Total Cost Basis</span>
             <span className="font-bold text-[#ddd]">
@@ -302,7 +342,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
                 <button
                   type="button"
                   onClick={() => setRedeemQuantity(String(availableQuantity))}
-                  className="absolute right-2 top-1.5 px-2 py-0.5 bg-[#252530] text-[9px] text-red-400 font-bold rounded hover:bg-[#303040]"
+                  className="absolute right-2 top-1.5 px-2 py-0.5 bg-surface-2 text-[9px] text-red-400 font-bold rounded hover:bg-surface-3"
                 >
                   MAX
                 </button>
@@ -391,11 +431,15 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
               onChange={(e) => setSelectedAccountId(e.target.value)}
               className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-500 cursor-pointer"
             >
-              {accounts.map((acc) => (
-                <option key={acc.id} value={acc.id} className="bg-[#181820] text-white">
-                  {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{formatAmount(acc.balance)}
-                </option>
-              ))}
+              {/* Proceeds land in cash accounts; cards are listed last and marked. */}
+              {[...accounts]
+                .sort((a, b) => Number(a.type === 'Credit Card') - Number(b.type === 'Credit Card'))
+                .map((acc) => (
+                  <option key={acc.id} value={acc.id} className="bg-[#181820] text-white">
+                    {acc.type === 'Credit Card' ? '⚠ ' : ''}{acc.name} ({acc.bankName}) - Bal: {currencySymbol}{formatAmount(acc.balance)}
+                    {acc.type === 'Credit Card' ? ' — card, not a cash account' : ''}
+                  </option>
+                ))}
             </select>
           </div>
 
@@ -413,8 +457,8 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         </div>
 
         {/* Live Calculation Summary Breakdown Card */}
-        <div className="p-4 bg-gradient-to-br from-[#181820] to-[#121217] border border-[#2a2a34] rounded-2xl space-y-2">
-          <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center justify-between pb-1 border-b border-[#252530]">
+        <div className="p-4 bg-gradient-to-br from-[#181820] to-[#121217] border border-line rounded-2xl space-y-2">
+          <div className="text-[10px] font-bold text-red-400 uppercase tracking-widest flex items-center justify-between pb-1 border-b border-line">
             <span>Financial Settlement Breakdown</span>
             <span className="text-[#888]">
               {calculationResult.isFullRedemption ? '100% Liquidation' : 'Partial Liquidation'}
@@ -442,7 +486,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
             </div>
           )}
 
-          <div className="pt-2 border-t border-[#252530] flex justify-between items-baseline">
+          <div className="pt-2 border-t border-line flex justify-between items-baseline">
             <div>
               <span className="text-xs text-[#aaa] block">Net Credited to Bank Account</span>
               <span className="text-[9px] text-[#666]">
@@ -455,7 +499,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           </div>
 
           {/* Realized Profit or Loss vs Returned Principal */}
-          <div className="pt-2 border-t border-[#252530] flex justify-between items-center text-xs">
+          <div className="pt-2 border-t border-line flex justify-between items-center text-xs">
             <span className="text-[#aaa]">Realized Profit / Loss:</span>
             <span
               className={`font-bold ${
@@ -466,6 +510,33 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
               {currencySymbol}{formatAmount(calculationResult.realizedProfitLoss)}
             </span>
           </div>
+
+          {/* FIFO lot detail (stocks with purchase lots) */}
+          {calculationResult.consumedLots && calculationResult.consumedLots.length > 0 && (
+            <details className="pt-2 border-t border-line text-xs">
+              <summary className="cursor-pointer text-[#aaa] flex items-center justify-between">
+                <span>FIFO lots consumed ({calculationResult.consumedLots.length})</span>
+                <span className="text-[10px]">
+                  <span className="text-amber-400">STCG {calculationResult.shortTermGain! >= 0 ? '+' : ''}{currencySymbol}{formatAmount(calculationResult.shortTermGain || 0)}</span>
+                  {' · '}
+                  <span className="text-cyan-400">LTCG {calculationResult.longTermGain! >= 0 ? '+' : ''}{currencySymbol}{formatAmount(calculationResult.longTermGain || 0)}</span>
+                </span>
+              </summary>
+              <ul className="mt-2 space-y-1">
+                {calculationResult.consumedLots.map((lot) => (
+                  <li key={lot.lotId} className="flex justify-between gap-2 text-[10px] text-[#bbb]">
+                    <span>
+                      {lot.date} · {lot.shares} @ {currencySymbol}{formatAmount(lot.purchasePrice)}
+                      <span className={`ml-1 ${lot.isLongTerm ? 'text-cyan-400' : 'text-amber-400'}`}>{lot.isLongTerm ? 'LT' : 'ST'} {lot.holdingDays}d</span>
+                    </span>
+                    <span className={lot.gain >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                      {lot.gain >= 0 ? '+' : ''}{currencySymbol}{formatAmount(lot.gain)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -473,7 +544,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           <button
             type="button"
             onClick={onClose}
-            className="flex-1 py-2.5 bg-[#1e1e24] hover:bg-[#252530] border border-[#333] text-xs font-bold uppercase rounded-xl text-[#aaa] hover:text-white transition-colors cursor-pointer"
+            className="flex-1 py-2.5 bg-surface-2 hover:bg-surface-2 border border-[#333] text-xs font-bold uppercase rounded-xl text-[#aaa] hover:text-white transition-colors cursor-pointer"
           >
             Cancel
           </button>

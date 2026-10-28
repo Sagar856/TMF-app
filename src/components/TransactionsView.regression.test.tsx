@@ -63,5 +63,9 @@ test('transaction summary renders totals and counts consistently with transactio
   assert.match(markup, /Paycheck/);
   assert.match(markup, /Groceries/);
   assert.match(markup, /EDIT/);
-  assert.match(markup, /RECEIPT/);
+  assert.match(markup, /Attach or view receipt for Groceries/);
+  assert.match(markup, /aria-label="Transaction records table"/);
+  assert.match(markup, /aria-pressed="true"[^>]*>[\s\S]*?<span>TABLE<\/span>/);
+  assert.match(markup, /Scroll horizontally to view all table columns/);
+  assert.doesNotMatch(markup, /class="bg-\[#111111\] border border-\[#222\] rounded-xl p-3 space-y-2"/);
 });

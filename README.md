@@ -38,7 +38,12 @@ is automatically kept private from every other user via RLS.
 1. Create a free project at supabase.com.
 2. Run [`supabase_schema.sql`](supabase_schema.sql) in the Supabase SQL editor
    (this creates the tables AND the strict per-user Row Level Security
-   policies — no user can ever read/write another user's rows).
+   policies — no user can ever read/write another user's rows). The script
+   is idempotent: **re-run it whenever you upgrade the app**, since new
+   releases add columns (`ref_number`, `kind`, `account_id`, `updated_at`,
+   `deleted_at` tombstones…). If the live schema is behind, the app keeps
+   working and shows an amber *"Cloud schema is outdated"* banner instead of
+   failing — the skipped columns simply aren't synced until you re-run it.
 3. In Supabase Auth settings, enable **Email** provider (default). Real email
    confirmation and password-reset links work out of the box on the free tier.
 4. Copy `.env.example` to `.env` and fill in your project's URL + anon key

@@ -62,7 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Simulator Trigger Banner */}
       <button
         onClick={onOpenSimulator}
-        className="mb-6 p-3 bg-shadow hover:bg-[#222] border border-red-900/60 rounded-xl transition-all tactile-lift group text-left relative overflow-hidden cursor-pointer"
+        className="mb-6 p-3 bg-shadow hover:bg-surface-3 border border-red-900/60 rounded-xl transition-all tactile-lift group text-left relative overflow-hidden cursor-pointer"
       >
         <div className="absolute top-0 right-0 w-12 h-12 bg-red-600/10 rounded-full blur-xl pointer-events-none"></div>
         <div className="flex items-center justify-between mb-1">

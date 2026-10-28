@@ -1,4 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { isOperatingExpense } from '../utils/transactionKind';
 import React from 'react';
 import { Transaction, Category } from '../types/finance';
 import { Flame, PieChart, ShieldCheck } from 'lucide-react';
@@ -8,21 +9,27 @@ interface TopCategoriesCardProps {
   transactions: Transaction[];
   categories: Category[];
   currencySymbol: string;
+  /** YYYY-MM to scope to; omit for all time. */
+  month?: string;
 }
 
 export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
   transactions,
   categories,
   currencySymbol,
+  month,
 }) => {
   const formatAmount = useMoneyFormatter();
-  const debitTxs = transactions.filter((t) => t.type === 'debit');
+  const debitTxs = transactions.filter((t) => isOperatingExpense(t) && (!month || (t.date && t.date.startsWith(month))));
   const totalDebitSum = debitTxs.reduce((sum, t) => sum + t.amount, 0);
+  const norm = (s: string) => (s || '').trim().toLowerCase();
 
-  // Category spend mapping
+  // Category spend mapping (case-insensitive). Spend in categories that no
+  // longer exist is still counted in the denominator and shown as "Other".
+  const knownKeys = new Set(categories.map((c) => norm(c.name)));
   const categoryStats = categories
     .map((cat) => {
-      const catTxs = debitTxs.filter((t) => t.category === cat.name);
+      const catTxs = debitTxs.filter((t) => norm(t.category) === norm(cat.name));
       const spent = catTxs.reduce((sum, t) => sum + t.amount, 0);
       const count = catTxs.length;
       const percentOfTotal = totalDebitSum > 0 ? (spent / totalDebitSum) * 100 : 0;
@@ -49,6 +56,11 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
 
   const topCategories = categoryStats.slice(0, 5);
   const maxCategorySpent = topCategories.length > 0 ? topCategories[0].spent : 1;
+  // Everything not in the top five (plus spend on deleted/unknown categories) forms the "Other" share
+  const topSum = topCategories.reduce((s, c) => s + c.spent, 0);
+  const unknownSpend = debitTxs.filter((t) => !knownKeys.has(norm(t.category))).reduce((s, t) => s + t.amount, 0);
+  const otherShare = totalDebitSum > 0 ? Math.max(0, ((totalDebitSum - topSum) / totalDebitSum) * 100) : 0;
+  const hiddenCount = Math.max(0, categoryStats.length - topCategories.length) + (unknownSpend > 0 ? 1 : 0);
 
   return (
     <div className="bg-carbon border border-nothing p-4 rounded-2xl space-y-4">
@@ -82,8 +94,10 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
       {totalDebitSum > 0 && topCategories.length > 0 && (
         <div className="space-y-1.5 bg-obsidian p-2.5 rounded-xl border border-nothing">
           <div className="flex items-center justify-between text-[9px] font-mono text-[#888]">
-            <span>CATEGORY SHARE</span>
-            <span className="text-emerald-400 font-bold">{totalDebitSum > 0 ? '100% OUTFLOW' : '0%'}</span>
+            <span>CATEGORY SHARE{month ? ` · ${month}` : ''}</span>
+            <span className="text-emerald-400 font-bold">
+              {otherShare >= 0.5 ? `TOP ${topCategories.length} = ${(100 - otherShare).toFixed(0)}% · OTHER ${otherShare.toFixed(0)}%` : '100% OUTFLOW'}
+            </span>
           </div>
           <div className="w-full h-3 bg-[#111] rounded-full overflow-hidden flex p-0.5 gap-0.5 border border-[#222]">
             {topCategories.map((item, idx) => {
@@ -100,6 +114,13 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
                 />
               );
             })}
+            {otherShare >= 1 && (
+              <div
+                title={`Other (${hiddenCount} categor${hiddenCount === 1 ? 'y' : 'ies'}): ${otherShare.toFixed(1)}%`}
+                style={{ width: `${otherShare}%`, backgroundColor: '#475569' }}
+                className="h-full rounded-sm transition-all hover:opacity-80"
+              />
+            )}
           </div>
         </div>
       )}
@@ -113,7 +134,7 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
           return (
             <div
               key={item.category.id}
-              className={`p-3 bg-obsidian border rounded-xl space-y-2 transition-all hover:bg-[#121212] ${
+              className={`p-3 bg-obsidian border rounded-xl space-y-2 transition-all hover:bg-surface-3 ${
                 item.isOverBudget
                   ? 'border-red-600/70 shadow-[0_0_15px_rgba(220,38,38,0.15)]'
                   : item.isOverThreshold

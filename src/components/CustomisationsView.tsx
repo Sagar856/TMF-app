@@ -491,12 +491,12 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Reusable Month Selector Stepper
   const renderMonthSelector = () => (
-    <div className="flex items-center bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl p-0.5 text-xs shadow-xs shrink-0 max-w-[170px] sm:max-w-none">
+    <div className="flex items-center bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl p-0.5 text-xs shadow-xs shrink-0 max-w-[170px] sm:max-w-none">
       <button
         type="button"
         onClick={handlePrevMonth}
         title="Previous Month"
-        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] rounded-xl transition-colors cursor-pointer shrink-0"
+        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
       >
         <ChevronLeft className="w-3.5 h-3.5" />
       </button>
@@ -521,7 +521,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
         type="button"
         onClick={handleNextMonth}
         title="Next Month"
-        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] rounded-xl transition-colors cursor-pointer shrink-0"
+        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
       >
         <ChevronRight className="w-3.5 h-3.5" />
       </button>
@@ -549,7 +549,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               setIsSearchExpanded(true);
               setTimeout(() => searchInputRef.current?.focus(), 50);
             }}
-            className="p-2 sm:p-2.5 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] transition-colors cursor-pointer shrink-0 shadow-xs flex items-center justify-center active:scale-95"
+            className="p-2 sm:p-2.5 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 transition-colors cursor-pointer shrink-0 shadow-xs flex items-center justify-center active:scale-95"
             title="Search"
             aria-label="Search"
           >
@@ -564,7 +564,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={options.searchPlaceholder || "Search..."}
-              className="w-full pl-8 pr-7 py-2 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
+              className="w-full pl-8 pr-7 py-2 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
             />
             <button
               type="button"
@@ -603,7 +603,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {/* 1. TOP HEADER & PRIMARY ACTIONS (Compact & Space-Conserving)              */}
       {/* ========================================================================= */}
-      <div className="relative flex items-center justify-between gap-2.5 bg-white dark:bg-[#121217] border border-slate-200 dark:border-[#202028] px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xs">
+      <div className="relative flex items-center justify-between gap-2.5 bg-white dark:bg-[#121217] border border-slate-200 dark:border-line px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xs">
         <div className="flex items-center gap-2 min-w-0">
           <div className="p-1.5 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800/60 rounded-xl text-red-600 dark:text-red-500 shrink-0">
             <Sliders className="w-4 h-4" />
@@ -625,7 +625,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
                 showInfoPopover
                   ? 'bg-red-50 dark:bg-red-950/70 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400'
-                  : 'bg-slate-100 dark:bg-[#181820] border-slate-200 dark:border-[#2a2a34] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/80 dark:hover:bg-[#22222c]'
+                  : 'bg-slate-100 dark:bg-[#181820] border-slate-200 dark:border-line text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/80 dark:hover:bg-surface-3'
               }`}
               title="Information & Guide"
               aria-label="Information & Guide"
@@ -642,7 +642,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   exit={{ opacity: 0, y: 4, scale: 0.95 }}
                   transition={{ duration: 0.15 }}
                   onMouseLeave={() => setShowInfoPopover(false)}
-                  className="absolute right-0 top-full mt-2 w-72 sm:w-80 p-3.5 bg-white/95 dark:bg-[#16161d]/95 backdrop-blur-xl border border-slate-200 dark:border-[#2e2e3a] rounded-2xl shadow-xl z-30 text-xs font-mono"
+                  className="absolute right-0 top-full mt-2 w-72 sm:w-80 p-3.5 bg-white/95 dark:bg-surface-1/95 backdrop-blur-xl border border-slate-200 dark:border-line rounded-2xl shadow-xl z-30 text-xs font-mono"
                 >
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-bold uppercase text-[11px]">
@@ -678,7 +678,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 setForceSyncResult(result);
                 setIsForceSyncing(false);
               }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-[#181820] hover:bg-slate-200 dark:hover:bg-[#24242e] border border-slate-200 dark:border-[#2a2a34] text-slate-800 dark:text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer disabled:opacity-60 shadow-xs"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-[#181820] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-line text-slate-800 dark:text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer disabled:opacity-60 shadow-xs"
               title="Synchronize all categories, budgets, and accounts with cloud database"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-red-500 ${isForceSyncing ? 'animate-spin' : ''}`} />
@@ -719,7 +719,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {/* 2. SUB-TAB NAVIGATION SEGMENTED PILLS                                     */}
       {/* ========================================================================= */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-100/90 dark:bg-[#141419] border border-slate-200 dark:border-[#222] rounded-2xl overflow-x-auto">
+      <div className="flex items-center gap-2 p-1.5 bg-slate-100/90 dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl overflow-x-auto">
         <button
           type="button"
           onClick={() => {
@@ -729,7 +729,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'budgets'
               ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1e1e26]'
+              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5" />
@@ -750,7 +750,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'categories'
               ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1e1e26]'
+              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -766,7 +766,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'accounts'
               ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1e1e26]'
+              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
           }`}
         >
           <Building2 className="w-3.5 h-3.5" />
@@ -782,7 +782,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'rules'
               ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-[#1e1e26]'
+              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
           }`}
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -796,7 +796,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {activeTab === 'budgets' && (
         <div className="space-y-5">
           {/* Executive Overview Deck */}
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
+          <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#222]">
               <div>
                 <div className="text-[10px] text-slate-500 dark:text-[#888] uppercase font-bold tracking-wider">
@@ -822,7 +822,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
             {/* 4-Stat Metric Grid */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-              <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
+              <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Budget Tracked</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                   {currencySymbol}{formatAmount(budgetSummary.totalBudget)}
@@ -830,7 +830,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across configured categories</div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
+              <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Month Debit Outflow</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                   {currencySymbol}{formatAmount(budgetSummary.totalSpent)}
@@ -838,7 +838,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Actual debits in {formatMonthLabel(selectedMonth)}</div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
+              <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Net Remaining Buffer</div>
                 <div className={`text-base sm:text-lg font-bold mt-1 ${budgetSummary.remainingBudget === 0 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {currencySymbol}{formatAmount(budgetSummary.remainingBudget)}
@@ -846,7 +846,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Safe spending capacity</div>
               </div>
 
-              <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
+              <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Overall Utilization</div>
                 <div className={`text-base sm:text-lg font-bold mt-1 ${budgetSummary.overallPercent >= 80 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {budgetSummary.overallPercent.toFixed(1)}%
@@ -865,7 +865,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   {currencySymbol}{formatAmount(budgetSummary.totalSpent)} of {currencySymbol}{formatAmount(budgetSummary.totalBudget)} ({budgetSummary.overallPercent.toFixed(0)}%)
                 </span>
               </div>
-              <div className="relative w-full h-3 bg-slate-100 dark:bg-[#0d0d12] rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-[#24242d]">
+              <div className="relative w-full h-3 bg-slate-100 dark:bg-surface-1 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-line">
                 {/* 80% Marker line */}
                 <div className="absolute top-0 bottom-0 z-20 w-0.5 bg-red-500" style={{ left: '80%' }} />
                 <div
@@ -905,7 +905,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     budgetStatusFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
-                      : 'bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
+                      : 'bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   {chip.label}
@@ -917,7 +917,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           {/* List of Category Budget Cards */}
           <div className="space-y-4">
             {filteredBudgetCategories.length === 0 ? (
-              <div className="p-10 text-center bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-3xl">
+              <div className="p-10 text-center bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-3xl">
                 <TrendingUp className="w-8 h-8 text-slate-400 mx-auto mb-2" />
                 <div className="text-sm font-bold text-slate-700 dark:text-[#aaa]">No budget categories match the filter</div>
                 <p className="text-xs text-slate-400 mt-1">Try resetting the search query or setting budget limits</p>
@@ -934,10 +934,10 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     key={cat.id}
                     className={`p-4 sm:p-5 rounded-3xl border transition-all ${
                       spendData.isOverBudget
-                        ? 'bg-red-50/70 dark:bg-[#1a1114] border-red-300 dark:border-red-600/80 shadow-sm'
+                        ? 'bg-red-50/70 dark:bg-surface-1 border-red-300 dark:border-red-600/80 shadow-sm'
                         : spendData.isOverThreshold
-                        ? 'bg-amber-50/50 dark:bg-[#191414] border-amber-300 dark:border-amber-600/60 shadow-sm'
-                        : 'bg-white dark:bg-[#14141a] border-slate-200 dark:border-[#222] hover:border-slate-300 dark:hover:border-[#333]'
+                        ? 'bg-amber-50/50 dark:bg-surface-1 border-amber-300 dark:border-amber-600/60 shadow-sm'
+                        : 'bg-white dark:bg-surface-1 border-slate-200 dark:border-[#222] hover:border-slate-300 dark:hover:border-[#333]'
                     }`}
                   >
                     {/* Header: Category Icon, Name, Status Pill & Quick Controls */}
@@ -948,7 +948,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             ? 'bg-red-100 dark:bg-red-950/80 text-red-600 border-red-300 dark:border-red-700'
                             : spendData.isOverThreshold
                             ? 'bg-amber-100 dark:bg-amber-950/80 text-amber-600 border-amber-300 dark:border-amber-700'
-                            : 'bg-slate-100 dark:bg-[#1c1c24] text-slate-700 dark:text-[#aaa] border-slate-200 dark:border-[#2a2a34]'
+                            : 'bg-slate-100 dark:bg-surface-2 text-slate-700 dark:text-[#aaa] border-slate-200 dark:border-line'
                         }`}>
                           {renderCategoryIcon(cat.iconName)}
                         </div>
@@ -975,7 +975,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                                 </span>
                               )
                             ) : (
-                              <span className="px-2 py-0.5 bg-slate-100 dark:bg-[#1a1a22] text-slate-500 dark:text-[#777] border border-slate-200 dark:border-[#2a2a34] rounded-lg text-[10px] font-bold">
+                              <span className="px-2 py-0.5 bg-slate-100 dark:bg-surface-2 text-slate-500 dark:text-[#777] border border-slate-200 dark:border-line rounded-lg text-[10px] font-bold">
                                 NO LIMIT SET
                               </span>
                             )}
@@ -992,7 +992,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       {/* Right: Budget Edit / Preset Adjusters */}
                       <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
                         {isEditing ? (
-                          <div className="flex items-center gap-1.5 bg-white dark:bg-[#101014] border border-red-500 p-1 rounded-xl shadow-sm">
+                          <div className="flex items-center gap-1.5 bg-white dark:bg-surface-1 border border-red-500 p-1 rounded-xl shadow-sm">
                             <span className="text-xs text-slate-400 pl-1">{currencySymbol}</span>
                             <input
                               type="number"
@@ -1046,11 +1046,11 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
                             {/* Quick Increment/Decrement Buttons */}
                             {hasBudget && (
-                              <div className="flex flex-col gap-1 border-l border-slate-200 dark:border-[#2a2a34] pl-2">
+                              <div className="flex flex-col gap-1 border-l border-slate-200 dark:border-line pl-2">
                                 <button
                                   type="button"
                                   onClick={() => handleQuickBudgetDelta(cat, 1000)}
-                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
+                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
                                   title="Add +₹1,000 to limit"
                                 >
                                   +1k
@@ -1058,7 +1058,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => handleQuickBudgetDelta(cat, -1000)}
-                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-[#222] border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
+                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
                                   title="Subtract -₹1,000 from limit"
                                 >
                                   -1k
@@ -1121,7 +1121,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       )}
 
                       {/* Progress Track */}
-                      <div className="w-full h-3 bg-slate-100 dark:bg-[#0c0c10] rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-[#282832] relative z-10">
+                      <div className="w-full h-3 bg-slate-100 dark:bg-surface-1 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-line relative z-10">
                         {hasBudget ? (
                           <div
                             className={`h-full rounded-full transition-all duration-700 ease-out ${
@@ -1134,13 +1134,13 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             style={{ width: `${clampedBarWidth}%` }}
                           />
                         ) : (
-                          <div className="h-full w-full bg-slate-100 dark:bg-[#16161a] rounded-full border border-dashed border-slate-300 dark:border-[#333]" />
+                          <div className="h-full w-full bg-slate-100 dark:bg-surface-1 rounded-full border border-dashed border-slate-300 dark:border-[#333]" />
                         )}
                       </div>
                     </div>
 
                     {/* Progress Footer Explainer */}
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-[#777] mt-2 pt-2 border-t border-slate-100 dark:border-[#1e1e24]">
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-[#777] mt-2 pt-2 border-t border-slate-100 dark:border-line">
                       <span>
                         {hasBudget ? (
                           spendData.isOverThreshold ? (
@@ -1198,7 +1198,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     categoryTypeFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
-                      : 'bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
+                      : 'bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   {chip.label}
@@ -1216,13 +1216,13 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               return (
                 <div
                   key={cat.id}
-                  className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-4 sm:p-5 rounded-3xl shadow-sm flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-[#333] transition-colors"
+                  className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 sm:p-5 rounded-3xl shadow-sm flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-[#333] transition-colors"
                 >
                   <div>
                     {/* Top Row: Icon + Name + Type Badge + Actions */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-slate-100 dark:bg-[#1c1c24] border border-slate-200 dark:border-[#2a2a34] rounded-xl text-red-600 dark:text-red-500">
+                        <div className="p-2 bg-slate-100 dark:bg-surface-2 border border-slate-200 dark:border-line rounded-xl text-red-600 dark:text-red-500">
                           {renderCategoryIcon(cat.iconName)}
                         </div>
                         <div>
@@ -1251,7 +1251,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                         <button
                           type="button"
                           onClick={() => openEditCategoryModal(cat)}
-                          className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-[#202028] rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-lg transition-colors cursor-pointer"
                           title="Edit Category"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
@@ -1277,7 +1277,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                         {cat.subcategories.map((sub, idx) => (
                           <span
                             key={idx}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-[#181820] border border-slate-200 dark:border-[#282832] text-slate-700 dark:text-[#ccc] text-[10px] font-mono rounded-xl group"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-50 dark:bg-[#181820] border border-slate-200 dark:border-line text-slate-700 dark:text-[#ccc] text-[10px] font-mono rounded-xl group"
                           >
                             <span>{sub}</span>
                             {cat.subcategories.length > 1 && (
@@ -1295,7 +1295,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
                         {/* Inline Tag Adder */}
                         {isAddingSubcat ? (
-                          <div className="inline-flex items-center gap-1 bg-white dark:bg-[#101014] border border-red-500 px-2 py-0.5 rounded-xl">
+                          <div className="inline-flex items-center gap-1 bg-white dark:bg-surface-1 border border-red-500 px-2 py-0.5 rounded-xl">
                             <input
                               type="text"
                               value={newSubcatText}
@@ -1330,7 +1330,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                               setAddingSubcatForId(cat.id);
                               setNewSubcatText('');
                             }}
-                            className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-[#1a1a24] hover:bg-slate-200 dark:hover:bg-[#252532] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white text-[10px] rounded-xl transition-colors cursor-pointer border border-dashed border-slate-300 dark:border-[#333]"
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-surface-2 hover:bg-slate-200 dark:hover:bg-surface-3 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white text-[10px] rounded-xl transition-colors cursor-pointer border border-dashed border-slate-300 dark:border-[#333]"
                           >
                             <Plus className="w-2.5 h-2.5" />
                             <span>Add Tag</span>
@@ -1342,7 +1342,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
                   {/* Expense Progress Footer */}
                   {cat.type === 'expense' && (
-                    <div className="pt-2 border-t border-slate-100 dark:border-[#202028] text-[10px] text-slate-500 dark:text-[#777] flex items-center justify-between">
+                    <div className="pt-2 border-t border-slate-100 dark:border-line text-[10px] text-slate-500 dark:text-[#777] flex items-center justify-between">
                       <span>Spent this month:</span>
                       <span className="font-bold text-slate-800 dark:text-white">
                         {currencySymbol}{formatAmount(spendData.actualSpent)}
@@ -1363,7 +1363,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
         <div className="space-y-5">
           {/* Executive Accounts Summary */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Liquid Balances</div>
               <div className="text-base sm:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
                 {currencySymbol}
@@ -1374,7 +1374,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across bank &amp; wallet accounts</div>
             </div>
 
-            <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Credit Card Outstanding</div>
               <div className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400 mt-1">
                 {currencySymbol}
@@ -1385,7 +1385,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Estimated bill dues</div>
             </div>
 
-            <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Linked Accounts</div>
               <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                 {accounts.length} Accounts
@@ -1419,7 +1419,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     accountTypeFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
-                      : 'bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
+                      : 'bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white'
                   }`}
                 >
                   {chip.label}
@@ -1430,7 +1430,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
           {/* Account Cards Grid */}
           {filteredAccounts.length === 0 ? (
-            <div className="p-10 text-center bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-3xl">
+            <div className="p-10 text-center bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-3xl">
               <Building2 className="w-8 h-8 text-slate-400 mx-auto mb-2" />
               <div className="text-sm font-bold text-slate-700 dark:text-[#aaa]">No accounts found</div>
               <p className="text-xs text-slate-400 mt-1">Add a new bank or card account to start tracking</p>
@@ -1440,11 +1440,11 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               {filteredAccounts.map((acc) => (
                 <div
                   key={acc.id}
-                  className="p-4 sm:p-5 bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] rounded-3xl shadow-sm flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-[#333] transition-colors"
+                  className="p-4 sm:p-5 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-3xl shadow-sm flex flex-col justify-between space-y-4 hover:border-slate-300 dark:hover:border-[#333] transition-colors"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 bg-slate-100 dark:bg-[#1b1b22] border border-slate-200 dark:border-[#282834] rounded-2xl flex items-center justify-center text-red-600 dark:text-red-500 font-black text-xs font-mono shadow-sm">
+                      <div className="w-11 h-11 bg-slate-100 dark:bg-surface-2 border border-slate-200 dark:border-line rounded-2xl flex items-center justify-center text-red-600 dark:text-red-500 font-black text-xs font-mono shadow-sm">
                         {acc.bankName.slice(0, 3).toUpperCase()}
                       </div>
                       <div>
@@ -1462,13 +1462,13 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       </div>
                     </div>
 
-                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-[#1c1c24] text-slate-700 dark:text-[#aaa] border border-slate-200 dark:border-[#2a2a34] rounded-lg text-[10px] font-bold">
+                    <span className="px-2 py-0.5 bg-slate-100 dark:bg-surface-2 text-slate-700 dark:text-[#aaa] border border-slate-200 dark:border-line rounded-lg text-[10px] font-bold">
                       {acc.type}
                     </span>
                   </div>
 
                   {/* Account Balance / Bill Details */}
-                  <div className="p-3 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/70 dark:border-[#222] rounded-2xl flex items-center justify-between">
+                  <div className="p-3 bg-slate-50 dark:bg-surface-1 border border-slate-200/70 dark:border-[#222] rounded-2xl flex items-center justify-between">
                     <div>
                       <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">
                         {acc.type === 'Credit Card' ? 'Current Outflow / Bill' : 'Available Balance'}
@@ -1491,7 +1491,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   </div>
 
                   {/* Footer Actions */}
-                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-[#202028]">
+                  <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-line">
                     <span className="text-[10px] text-slate-400">ID: {acc.id}</span>
                     {onDeleteAccount && (
                       <button
@@ -1517,7 +1517,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {activeTab === 'rules' && (
         <div className="space-y-5">
           {/* Rules Explainer Header */}
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-3xl shadow-sm space-y-3">
+          <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-3xl shadow-sm space-y-3">
             <div className="flex items-center gap-2.5">
               <div className="p-2 bg-amber-50 dark:bg-amber-950/70 border border-amber-200 dark:border-amber-800/60 rounded-xl text-amber-600 dark:text-amber-400">
                 <Sparkles className="w-5 h-5" />
@@ -1544,7 +1544,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   value={newRuleKeyword}
                   onChange={(e) => setNewRuleKeyword(e.target.value)}
                   placeholder="e.g. apple or blinkit"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282830] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1561,7 +1561,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       setNewRuleSubcat(found.subcategories[0]);
                     }
                   }}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282830] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none cursor-pointer"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none cursor-pointer"
                 >
                   {categories.map((c) => (
                     <option key={c.id} value={c.name} className="bg-white dark:bg-[#141416] text-slate-900 dark:text-white">
@@ -1580,7 +1580,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   value={newRuleSubcat}
                   onChange={(e) => setNewRuleSubcat(e.target.value)}
                   placeholder="e.g. Groceries"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282830] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1597,17 +1597,17 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           </div>
 
           {/* Rules List */}
-          <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-4 sm:p-5 rounded-3xl shadow-sm space-y-2">
+          <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 sm:p-5 rounded-3xl shadow-sm space-y-2">
             <div className="text-xs font-bold text-slate-900 dark:text-white uppercase pb-2 border-b border-slate-100 dark:border-[#222] flex items-center justify-between">
               <span>Active Keywords &amp; Mappings</span>
               <span className="text-[10px] text-slate-400">{smartRules.length} rules</span>
             </div>
 
-            <div className="divide-y divide-slate-100 dark:divide-[#202028]">
+            <div className="divide-y divide-slate-100 dark:divide-line">
               {smartRules.map((rule) => (
                 <div key={rule.id} className="py-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3">
-                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-[#1c1c24] border border-slate-200 dark:border-[#2a2a34] rounded-lg text-xs font-bold text-red-600 dark:text-red-400">
+                    <span className="px-2.5 py-1 bg-slate-100 dark:bg-surface-2 border border-slate-200 dark:border-line rounded-lg text-xs font-bold text-red-600 dark:text-red-400">
                       "{rule.keyword}"
                     </span>
                     <span className="text-slate-400 text-xs">→</span>
@@ -1638,7 +1638,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-[#222]">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase flex items-center gap-2">
@@ -1712,7 +1712,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   value={catName}
                   onChange={(e) => setCatName(e.target.value)}
                   placeholder="e.g. Subscriptions or Gaming"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1734,7 +1734,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                         className={`p-2.5 rounded-xl border flex items-center justify-center transition-all cursor-pointer ${
                           isSelected
                             ? 'bg-red-600 text-white border-red-600 shadow-sm'
-                            : 'bg-slate-50 dark:bg-[#16161e] border-slate-200 dark:border-[#282832] text-slate-700 dark:text-[#aaa] hover:border-slate-400'
+                            : 'bg-slate-50 dark:bg-[#16161e] border-slate-200 dark:border-line text-slate-700 dark:text-[#aaa] hover:border-slate-400'
                         }`}
                       >
                         <IconComp className="w-4 h-4" />
@@ -1761,22 +1761,22 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       }
                     }}
                     placeholder="Type tag and press Add..."
-                    className="flex-1 px-3 py-2 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                    className="flex-1 px-3 py-2 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                   />
                   <button
                     type="button"
                     onClick={handleAddTagToModal}
-                    className="px-3 py-2 bg-slate-200 dark:bg-[#20202a] hover:bg-slate-300 dark:hover:bg-[#2a2a38] text-slate-800 dark:text-white text-xs font-bold rounded-xl cursor-pointer"
+                    className="px-3 py-2 bg-slate-200 dark:bg-surface-2 hover:bg-slate-300 dark:hover:bg-surface-3 text-slate-800 dark:text-white text-xs font-bold rounded-xl cursor-pointer"
                   >
                     Add
                   </button>
                 </div>
 
-                <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl">
+                <div className="flex flex-wrap gap-1.5 min-h-[36px] p-2 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl">
                   {catSubcategories.map((tag) => (
                     <span
                       key={tag}
-                      className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-white dark:bg-[#1a1a24] border border-slate-200 dark:border-[#333] text-slate-800 dark:text-[#ccc] text-[10px] rounded-lg"
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-white dark:bg-surface-2 border border-slate-200 dark:border-[#333] text-slate-800 dark:text-[#ccc] text-[10px] rounded-lg"
                     >
                       <span>{tag}</span>
                       <button
@@ -1802,7 +1802,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     value={catBudgetLimitInput}
                     onChange={(e) => setCatBudgetLimitInput(e.target.value)}
                     placeholder="e.g. 15000"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                   />
                   <div className="text-[10px] text-slate-400 mt-1">
                     Automatic 80% threshold alerts will trigger when spending crosses 80% of this value.
@@ -1815,7 +1815,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCategoryModal(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-[#2a2a34] text-slate-600 dark:text-[#888] text-xs rounded-xl hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                  className="px-4 py-2 border border-slate-200 dark:border-line text-slate-600 dark:text-[#888] text-xs rounded-xl hover:text-slate-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1839,7 +1839,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
           >
             <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-[#222]">
               <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase flex items-center gap-2">
@@ -1894,7 +1894,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   value={accName}
                   onChange={(e) => setAccName(e.target.value)}
                   placeholder="e.g. HDFC Salary Account or Amazon Pay ICICI"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1909,7 +1909,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   value={accBankName}
                   onChange={(e) => setAccBankName(e.target.value)}
                   placeholder="e.g. HDFC, SBI, Kotak, ICICI, Paytm"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                 />
               </div>
 
@@ -1925,7 +1925,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     value={accLast4}
                     onChange={(e) => setAccLast4(e.target.value)}
                     placeholder="4666"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                   />
                 </div>
 
@@ -1938,7 +1938,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     value={accBalance}
                     onChange={(e) => setAccBalance(e.target.value)}
                     placeholder="50000"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                   />
                 </div>
               </div>
@@ -1955,7 +1955,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       value={accCreditLimit}
                       onChange={(e) => setAccCreditLimit(e.target.value)}
                       placeholder="200000"
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                     />
                   </div>
 
@@ -1968,7 +1968,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       value={accDueDate}
                       onChange={(e) => setAccDueDate(e.target.value)}
                       placeholder="15th"
-                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200 dark:border-[#282832] rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-surface-1 border border-slate-200 dark:border-line rounded-xl text-xs font-mono text-slate-900 dark:text-white focus:outline-none focus:border-red-500"
                     />
                   </div>
                 </div>
@@ -1989,7 +1989,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowAccountModal(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-[#2a2a34] text-slate-600 dark:text-[#888] text-xs rounded-xl hover:text-slate-900 dark:hover:text-white cursor-pointer"
+                  className="px-4 py-2 border border-slate-200 dark:border-line text-slate-600 dark:text-[#888] text-xs rounded-xl hover:text-slate-900 dark:hover:text-white cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -2027,7 +2027,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-red-50 dark:bg-[#18181f] border border-red-200 dark:border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-red-50 dark:bg-surface-1 border border-red-200 dark:border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-500" />
                   </div>
                   <div>
@@ -2078,7 +2078,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setAccountToDelete(null)}
-                  className="px-4 py-2 bg-slate-100 dark:bg-[#18181f] hover:bg-slate-200 dark:hover:bg-[#222] border border-slate-200 dark:border-[#2d2d35] text-xs font-mono text-slate-700 dark:text-[#888] hover:text-slate-900 dark:hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-slate-100 dark:bg-surface-1 hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-line text-xs font-mono text-slate-700 dark:text-[#888] hover:text-slate-900 dark:hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

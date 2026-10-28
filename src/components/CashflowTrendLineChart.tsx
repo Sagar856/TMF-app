@@ -1,4 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { isOperatingExpense, isOperatingIncome } from '../utils/transactionKind';
 import React, { useState } from 'react';
 import { Transaction } from '../types/finance';
 import { parseLocalDate, toLocalISODate } from '../utils/dates';
@@ -35,11 +36,11 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         const label = d.toLocaleDateString('en-US', { weekday: 'short' });
 
         const debit = transactions
-          .filter((t) => t.type === 'debit' && t.date === dateStr)
+          .filter((t) => isOperatingExpense(t) && t.date === dateStr)
           .reduce((sum, t) => sum + t.amount, 0);
 
         const credit = transactions
-          .filter((t) => t.type === 'credit' && t.date === dateStr)
+          .filter((t) => isOperatingIncome(t) && t.date === dateStr)
           .reduce((sum, t) => sum + t.amount, 0);
 
         points.push({ label, dateStr, debit, credit });
@@ -61,11 +62,11 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
         const debit = transactions
-          .filter((t) => t.type === 'debit' && t.date <= dateStr)
+          .filter((t) => isOperatingExpense(t) && t.date <= dateStr)
           .reduce((sum, t) => sum + t.amount, 0);
 
         const credit = transactions
-          .filter((t) => t.type === 'credit' && t.date <= dateStr)
+          .filter((t) => isOperatingIncome(t) && t.date <= dateStr)
           .reduce((sum, t) => sum + t.amount, 0);
 
         points.push({ label, dateStr, debit, credit });

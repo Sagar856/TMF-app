@@ -1,4 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentRecord, InvestmentType, Transaction, UserSettings } from '../types/finance';
@@ -43,7 +44,8 @@ import {
 import { InvestmentRedemptionModal } from './InvestmentRedemptionModal';
 import { InvestmentRedemption, FinancialAccount } from '../types/finance';
 import { fetchStockPrice, fetchMutualFundNav } from '../services/marketDataService';
-import { calculateFixedDeposit, roundCurrency } from '../services/financialCalculations';
+import { calculateFixedDeposit, roundCurrency, type FdCalculationResult } from '../services/financialCalculations';
+import { parseNumberInput, parsePositiveAmount } from '../utils/numberInput';
 import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } from 'lucide-react';
 import { StockSelector } from './StockSelector';
 import { DematManagerModal } from './DematManagerModal';
@@ -108,6 +110,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   onUpdateSettings,
 }) => {
   const formatAmount = useMoneyFormatter();
+  const reduceMotion = useReducedMotion();
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
   const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
@@ -344,30 +347,36 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       return fromTx.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    // Fallback: derive transactions from investment records so the ledger is never blank if investments exist
+    // Fallback: derive transactions from investment records so the ledger is never blank if investments exist.
+    // monthlyContributions are the dated pieces that make up amountInvested, so only the remainder
+    // (if any) is emitted as an initial lump-sum row — otherwise the initial amount would be double-counted.
     const fromInv: InvestmentTxn[] = [];
     investments.forEach((inv) => {
-      fromInv.push({
-        id: `tx_${inv.id}_initial`,
-        date: inv.date || todayLocalISO(),
-        category: inv.name,
-        account: inv.type,
-        type: 'DEBIT',
-        amount: inv.amountInvested,
-      });
+      const contributions = inv.monthlyContributions || [];
+      const contributed = contributions.reduce((sum, mc) => sum + (Number(mc.amount) || 0), 0);
+      const initialRemainder = Math.round(((Number(inv.amountInvested) || 0) - contributed) * 100) / 100;
 
-      if (inv.monthlyContributions) {
-        inv.monthlyContributions.forEach((mc, idx) => {
-          fromInv.push({
-            id: `tx_${inv.id}_mc_${idx}`,
-            date: `${mc.month}-01`,
-            category: `${inv.name} (SIP)`,
-            account: inv.type,
-            type: 'DEBIT',
-            amount: mc.amount,
-          });
+      if (contributions.length === 0 || initialRemainder > 0) {
+        fromInv.push({
+          id: `tx_${inv.id}_initial`,
+          date: inv.date || todayLocalISO(),
+          category: inv.name,
+          account: inv.type,
+          type: 'DEBIT',
+          amount: contributions.length === 0 ? inv.amountInvested : initialRemainder,
         });
       }
+
+      contributions.forEach((mc, idx) => {
+        fromInv.push({
+          id: `tx_${inv.id}_mc_${idx}`,
+          date: `${mc.month}-01`,
+          category: contributions.length > 1 || inv.investmentPlan === 'sip' ? `${inv.name} (SIP)` : inv.name,
+          account: inv.type,
+          type: 'DEBIT',
+          amount: mc.amount,
+        });
+      });
     });
 
     return fromInv.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -653,8 +662,19 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     e.preventDefault();
     setFormError(null);
 
-    let numInv = parseFloat(amountInvested) || 0;
-    let numVal = parseFloat(currentValue) || 0;
+    const invParse = parsePositiveAmount(amountInvested, 'Amount invested');
+    if (invParse.ok === false) {
+      setFormError(invParse.error);
+      return;
+    }
+    const valParse = parseNumberInput(currentValue, { label: 'Current value', min: 0, allowEmpty: true });
+    if (valParse.ok === false) {
+      setFormError(valParse.error);
+      return;
+    }
+    let numInv = invParse.value as number;
+    let numVal = valParse.ok ? valParse.value ?? 0 : 0;
+    let fdCalc: FdCalculationResult | null = null;
 
     let calculatedUnits = units.trim() ? parseFloat(units) : 0;
     let calculatedShares = shares.trim() ? parseFloat(shares) : 0;
@@ -758,10 +778,18 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         }
       }
     } else if (type === 'Fixed Deposit') {
-      const fdRate = parseFloat(fdInterestRate) || 7.0;
-      const fdTenure = parseInt(fdTenureMonths, 10) || 12;
-      const penalty = parseFloat(fdPrematurePenalty) || 1.0;
-      const fdResult = calculateFixedDeposit({
+      const rateParse = parseNumberInput(fdInterestRate, { label: 'Interest rate', min: 0, max: 100 });
+      const tenureParse = parseNumberInput(fdTenureMonths, { label: 'Tenure (months)', min: 1, integer: true });
+      const penaltyParse = parseNumberInput(fdPrematurePenalty, { label: 'Premature penalty', min: 0, max: 100, allowEmpty: true });
+      const fdInputError = [rateParse, tenureParse, penaltyParse].find((r) => r.ok === false) as { ok: false; error: string } | undefined;
+      if (fdInputError) {
+        setFormError(fdInputError.error);
+        return;
+      }
+      const fdRate = rateParse.ok ? (rateParse.value as number) : 0;
+      const fdTenure = tenureParse.ok ? (tenureParse.value as number) : 0;
+      const penalty = penaltyParse.ok ? penaltyParse.value ?? 0 : 0;
+      fdCalc = calculateFixedDeposit({
         principal: numInv,
         annualInterestRate: fdRate,
         depositDate: purchaseDate,
@@ -770,8 +798,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         payoutFrequency: fdPayout,
         prematurePenaltyPercent: penalty,
       });
+      if (!fdCalc.isValid) {
+        setFormError(fdCalc.validationError || 'Fixed deposit details are invalid.');
+        return;
+      }
       if (numVal <= 0 || !editingInv || numInv !== editingInv.amountInvested) {
-        numVal = roundCurrency(numInv + fdResult.accruedInterestToDate);
+        numVal = roundCurrency(numInv + fdCalc.accruedInterestToDate);
       }
     }
 
@@ -812,29 +844,21 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         purchasePrice: type === 'Stocks' ? pPrice : editingInv.purchasePrice,
         currentPrice: type === 'Stocks' ? cPrice : editingInv.currentPrice,
         brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : editingInv.brokerageFees,
-        // FD fields
+        // FD fields (recomputed from the engine so edits to rate/tenure/payout refresh maturity & accrual)
         bankName: type === 'Fixed Deposit' ? fdBankName : editingInv.bankName,
-        interestRate: type === 'Fixed Deposit' ? (parseFloat(fdInterestRate) || 7.0) : editingInv.interestRate,
+        interestRate: type === 'Fixed Deposit' ? Number(fdInterestRate) : editingInv.interestRate,
         depositDate: type === 'Fixed Deposit' ? purchaseDate : editingInv.depositDate,
-        maturityDate: type === 'Fixed Deposit' ? addMonthsClamped(purchaseDate, parseInt(fdTenureMonths, 10) || 12) : editingInv.maturityDate,
-        tenureMonths: type === 'Fixed Deposit' ? (parseInt(fdTenureMonths, 10) || 12) : editingInv.tenureMonths,
+        maturityDate: type === 'Fixed Deposit' ? addMonthsClamped(purchaseDate, Number(fdTenureMonths)) : editingInv.maturityDate,
+        maturityAmount: type === 'Fixed Deposit' && fdCalc ? fdCalc.totalMaturityAmount : editingInv.maturityAmount,
+        accruedInterest: type === 'Fixed Deposit' && fdCalc ? fdCalc.accruedInterestToDate : editingInv.accruedInterest,
+        tenureMonths: type === 'Fixed Deposit' ? Number(fdTenureMonths) : editingInv.tenureMonths,
         compoundingFrequency: type === 'Fixed Deposit' ? fdCompounding : editingInv.compoundingFrequency,
         payoutFrequency: type === 'Fixed Deposit' ? fdPayout : editingInv.payoutFrequency,
-        prematurePenaltyPercent: type === 'Fixed Deposit' ? (parseFloat(fdPrematurePenalty) || 1.0) : editingInv.prematurePenaltyPercent,
+        prematurePenaltyPercent: type === 'Fixed Deposit' ? (Number(fdPrematurePenalty) || 0) : editingInv.prematurePenaltyPercent,
       });
     } else {
-      const fdRate = parseFloat(fdInterestRate) || 7.0;
-      const fdTenure = parseInt(fdTenureMonths, 10) || 12;
-      const penalty = parseFloat(fdPrematurePenalty) || 1.0;
-      const fdResult = calculateFixedDeposit({
-        principal: numInv,
-        annualInterestRate: fdRate,
-        depositDate: purchaseDate,
-        tenureMonths: fdTenure,
-        compoundingFrequency: fdCompounding,
-        payoutFrequency: fdPayout,
-        prematurePenaltyPercent: penalty,
-      });
+      const fdTenure = Number(fdTenureMonths) || 0;
+      const penalty = Number(fdPrematurePenalty) || 0;
 
       const newInv: InvestmentRecord = {
         id: newId('inv'),
@@ -865,14 +889,14 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         purchasePrice: type === 'Stocks' ? pPrice : undefined,
         currentPrice: type === 'Stocks' ? cPrice : undefined,
         brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : undefined,
-        lots: type === 'Stocks' ? [{ id: 'lot_1', date: purchaseDate, shares: calculatedShares, purchasePrice: pPrice }] : undefined,
+        lots: type === 'Stocks' ? [{ id: 'lot_1', date: purchaseDate, shares: calculatedShares, purchasePrice: pPrice, brokerageFees: parseFloat(brokerageFees) || 0 }] : undefined,
         // FD fields
         bankName: type === 'Fixed Deposit' ? fdBankName : undefined,
-        interestRate: type === 'Fixed Deposit' ? (parseFloat(fdInterestRate) || 7.0) : undefined,
+        interestRate: type === 'Fixed Deposit' ? Number(fdInterestRate) : undefined,
         depositDate: type === 'Fixed Deposit' ? purchaseDate : undefined,
         maturityDate: type === 'Fixed Deposit' ? addMonthsClamped(purchaseDate, fdTenure) : undefined,
-        maturityAmount: type === 'Fixed Deposit' ? fdResult.totalMaturityAmount : undefined,
-        accruedInterest: type === 'Fixed Deposit' ? fdResult.accruedInterestToDate : undefined,
+        maturityAmount: type === 'Fixed Deposit' && fdCalc ? fdCalc.totalMaturityAmount : undefined,
+        accruedInterest: type === 'Fixed Deposit' && fdCalc ? fdCalc.accruedInterestToDate : undefined,
         tenureMonths: type === 'Fixed Deposit' ? fdTenure : undefined,
         compoundingFrequency: type === 'Fixed Deposit' ? fdCompounding : undefined,
         payoutFrequency: type === 'Fixed Deposit' ? fdPayout : undefined,
@@ -994,7 +1018,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search investment transactions or accounts..."
-              className="w-full bg-[#111111] border border-red-500/60 rounded-xl py-1.5 pl-8 pr-7 text-xs font-mono text-white placeholder-[#666] focus:outline-none focus:ring-1 focus:ring-red-500"
+              className="w-full bg-[#111111] border border-red-500/60 rounded-xl py-1.5 pl-8 pr-7 text-xs font-mono text-white placeholder-content-3 focus:outline-none focus:ring-1 focus:ring-red-500"
             />
             <button
               type="button"
@@ -1029,7 +1053,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <button
               type="button"
               onClick={() => setIsSearchExpanded(true)}
-              className="p-1.5 bg-[#111111] hover:bg-[#1a1a1a] border border-[#222] hover:border-[#444] rounded-lg text-[#aaa] hover:text-white transition-colors cursor-pointer"
+              className="p-1.5 bg-[#111111] hover:bg-surface-3 border border-[#222] hover:border-[#444] rounded-lg text-[#aaa] hover:text-white transition-colors cursor-pointer"
               title="Search"
             >
               <Search className="w-4 h-4" />
@@ -1046,7 +1070,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             className={`p-1.5 rounded-lg border text-xs font-mono flex items-center gap-1.5 transition-colors cursor-pointer ${
               isFilterOpen || activeFilterCount > 0
                 ? 'bg-red-950/40 border-red-500 text-red-400'
-                : 'bg-[#111111] hover:bg-[#1a1a1a] border-[#222] hover:border-[#444] text-[#aaa] hover:text-white'
+                : 'bg-[#111111] hover:bg-surface-3 border-[#222] hover:border-[#444] text-[#aaa] hover:text-white'
             }`}
             title="Filter Investments"
           >
@@ -1069,7 +1093,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               setNotes('');
               setShowAddModal(true);
             }}
-            className="px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-mono font-bold flex items-center gap-1 transition-colors cursor-pointer"
+            className="hidden sm:flex px-2.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-mono font-bold items-center gap-1 transition-colors cursor-pointer"
+            title="Add investment holding"
           >
             <Plus className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">ADD</span>
@@ -1232,7 +1257,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
@@ -1249,7 +1274,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
-              ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
+              ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
@@ -1413,6 +1438,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   dataKey="amount"
                   stroke="#06b6d4"
                   strokeWidth={2.5}
+                  isAnimationActive={!reduceMotion}
                   dot={{ r: 4, fill: '#06b6d4' }}
                   activeDot={{ r: 6, fill: '#38bdf8' }}
                 />
@@ -1447,6 +1473,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     innerRadius={35}
                     outerRadius={65}
                     paddingAngle={3}
+                    isAnimationActive={!reduceMotion}
                   >
                     {pieData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
@@ -1540,7 +1567,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 filteredTxns.map((tx) => (
                   <div
                     key={tx.id}
-                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all hover:translate-x-0.5"
+                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5"
                   >
                     <div className="col-span-2 text-[#aaa] truncate">
                       {formatDateDisplay(tx.date)}
@@ -1564,7 +1591,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                           e.stopPropagation();
                           handleEditTxn(tx);
                         }}
-                        className="px-2 py-1 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
+                        className="px-2 py-1 bg-[#181818] hover:bg-surface-3 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
                         title="Edit Transaction"
                       >
                         EDIT
@@ -1634,7 +1661,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               filteredTxns.map((tx) => (
                 <div
                   key={tx.id}
-                  className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-[#161616] rounded-2xl flex items-center justify-between gap-3 font-mono transition-all tactile-lift"
+                  className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-2xl flex items-center justify-between gap-3 font-mono transition-all tactile-lift"
                 >
                   <div className="space-y-1 min-w-0 flex-1">
                     <div className="text-xs font-bold text-white truncate">{tx.category}</div>
@@ -1660,7 +1687,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                           e.stopPropagation();
                           handleEditTxn(tx);
                         }}
-                        className="px-2 py-0.5 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
+                        className="px-2 py-0.5 bg-[#181818] hover:bg-surface-3 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
                         title="Edit Transaction"
                       >
                         EDIT
@@ -1741,7 +1768,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             type="button"
             disabled={isRefreshingQuotes}
             onClick={handleRefreshMarketQuotes}
-            className="px-3 py-1.5 bg-[#181820] hover:bg-[#22222c] border border-[#333] hover:border-red-500 rounded-xl text-xs font-mono text-[#aaa] hover:text-white transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            className="px-3 py-1.5 bg-[#181820] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-xl text-xs font-mono text-[#aaa] hover:text-white transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             title="Refresh current NAV & live stock quotes"
           >
             <RefreshCw className={`w-3.5 h-3.5 text-red-400 ${isRefreshingQuotes ? 'animate-spin' : ''}`} />
@@ -1802,7 +1829,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   <div
                     key={inv.id}
                     className={`p-5 bg-[#121217] border rounded-3xl space-y-4 transition-all relative ${
-                      isRedeemed ? 'border-[#222] opacity-75' : 'border-[#282834] hover:border-[#3a3a4c]'
+                      isRedeemed ? 'border-[#222] opacity-75' : 'border-line hover:border-line-strong'
                     }`}
                   >
                     <div className="flex justify-between items-start">
@@ -1851,7 +1878,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     </div>
 
                     {/* Asset-Specific Financial Telemetry */}
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 bg-[#16161e] border border-[#22222c] rounded-2xl text-[11px] font-mono">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 bg-[#16161e] border border-line rounded-2xl text-[11px] font-mono">
                       <div>
                         <span className="text-[#666] block text-[9px] uppercase">Cost Basis</span>
                         <span className="text-white font-bold">
@@ -1952,7 +1979,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleOpenEditModal(inv)}
-                          className="p-1.5 text-[#888] hover:text-white hover:bg-[#222] rounded-lg transition-colors cursor-pointer"
+                          className="p-1.5 text-[#888] hover:text-white hover:bg-surface-3 rounded-lg transition-colors cursor-pointer"
                           title="Edit"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -1990,9 +2017,9 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             </div>
           </div>
 
-          <div className="bg-[#111116] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+          <div className="bg-surface-1 border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
             <div className="min-w-[860px]">
-              <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0e]">
+              <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-surface-1">
                 <div className="col-span-2">DATE</div>
                 <div className="col-span-3">ASSET / NOTE</div>
                 <div className="col-span-2 text-right">GROSS PROCEEDS</div>
@@ -2009,7 +2036,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 allRedemptions.map((red) => (
                   <div
                     key={red.id}
-                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a20] items-center text-xs text-white hover:bg-[#16161e] transition-all"
+                    className="grid grid-cols-12 px-4 py-3 border-b border-line items-center text-xs text-white hover:bg-surface-3 transition-all"
                   >
                     <div className="col-span-2 text-[#aaa] font-mono">
                       {formatDateDisplay(red.date)}
@@ -2096,7 +2123,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   filteredTxns.map((tx) => (
                     <div
                       key={tx.id}
-                      className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all"
+                      className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all"
                     >
                       <div className="col-span-2 text-[#aaa] truncate">
                         {formatDateDisplay(tx.date)}
@@ -2120,7 +2147,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             e.stopPropagation();
                             handleEditTxn(tx);
                           }}
-                          className="px-2 py-1 bg-[#181818] hover:bg-[#282828] border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer"
+                          className="px-2 py-1 bg-[#181818] hover:bg-surface-3 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer"
                         >
                           EDIT
                         </button>
@@ -2150,7 +2177,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 filteredTxns.map((tx) => (
                   <div
                     key={tx.id}
-                    className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-[#161616] rounded-2xl flex items-center justify-between gap-3 font-mono transition-all"
+                    className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-2xl flex items-center justify-between gap-3 font-mono transition-all"
                   >
                     <div className="space-y-1 min-w-0 flex-1">
                       <div className="text-xs font-bold text-white truncate">{tx.category}</div>
@@ -2195,7 +2222,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       {/* Modal for adding/editing investment with comprehensive asset forms */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-[#121217] border border-[#2a2a34] p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
+          <div className="bg-[#121217] border border-line p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
             <div className="flex justify-between items-center pb-3 border-b border-[#222]">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-700/60 flex items-center justify-center text-red-400">
@@ -2318,7 +2345,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     />
 
                     {showMfSearchResults && mfSearchResults.length > 0 && (
-                      <div className="mt-1.5 max-h-48 overflow-y-auto bg-[#14141c] border border-[#333] rounded-xl p-1 shadow-2xl divide-y divide-[#222]">
+                      <div className="mt-1.5 max-h-48 overflow-y-auto bg-surface-1 border border-[#333] rounded-xl p-1 shadow-2xl divide-y divide-line">
                         <div className="flex items-center justify-between px-2 py-1 text-[9px] text-[#777]">
                           <span>Select AMFI Scheme:</span>
                           <button
@@ -2334,7 +2361,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             key={item.schemeCode}
                             type="button"
                             onClick={() => handleSelectMfScheme(item)}
-                            className="w-full text-left px-2 py-1.5 hover:bg-[#20202e] rounded-lg transition-colors flex items-center justify-between gap-2 cursor-pointer"
+                            className="w-full text-left px-2 py-1.5 hover:bg-surface-3 rounded-lg transition-colors flex items-center justify-between gap-2 cursor-pointer"
                           >
                             <span className="text-[11px] text-white truncate flex-1">{item.schemeName}</span>
                             <span className="text-[10px] font-mono text-cyan-400 shrink-0 font-bold">{item.schemeCode}</span>
@@ -2696,7 +2723,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-surface-1 border border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
@@ -2741,7 +2768,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               </div>
 
               {/* Checkbox */}
-              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+              <label className="flex items-center gap-3 p-3 bg-surface-1 border border-line hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
                 <input
                   type="checkbox"
                   checked={doNotAskAgainChecked}
@@ -2756,7 +2783,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setTxnToDelete(null)}
-                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-1 hover:bg-surface-3 border border-line text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -2797,7 +2824,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-surface-1 border border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
@@ -2842,7 +2869,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               </p>
 
               {/* Checkbox */}
-              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+              <label className="flex items-center gap-3 p-3 bg-surface-1 border border-line hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
                 <input
                   type="checkbox"
                   checked={doNotAskAgainChecked}
@@ -2857,7 +2884,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setAssetToDelete(null)}
-                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-1 hover:bg-surface-3 border border-line text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

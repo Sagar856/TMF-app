@@ -56,7 +56,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <nav
       id="mobile-bottom-navigation"
       aria-label="Mobile Navigation"
-      className="lg:hidden sticky bottom-0 left-0 right-0 z-40 bg-[#0c0c10]/95 backdrop-blur-xl border-t border-[#202028] px-1.5 sm:px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 shadow-[0_-8px_32px_rgba(0,0,0,0.7)] transition-colors select-none"
+      className="lg:hidden sticky bottom-0 left-0 right-0 z-nav bg-surface-1/95 backdrop-blur-xl border-t border-line px-1.5 sm:px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 shadow-[0_-8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.7)] transition-colors select-none"
     >
       <div className="flex items-center justify-around gap-0.5 sm:gap-1 max-w-lg mx-auto">
         {navItems.map((item) => {
@@ -76,7 +76,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               className={`relative flex-1 flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 rounded-2xl transition-all duration-200 cursor-pointer min-w-0 group ${
                 isActive
                   ? 'text-red-500 font-bold'
-                  : 'text-[#888] hover:text-white hover:bg-white/5 active:scale-95'
+                  : 'text-content-3 hover:text-content-1 hover:bg-surface-2 active:scale-95'
               }`}
             >
               {/* Active Tab Background Pill */}
@@ -107,7 +107,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 
                 {/* Notification / Alert Badge */}
                 {item.badgeCount && item.badgeCount > 0 ? (
-                  <span className="absolute -top-1.5 -right-2 flex items-center justify-center min-w-[15px] h-[15px] px-1 bg-red-600 text-white text-[9px] font-mono font-bold rounded-full shadow-xs ring-2 ring-[#0c0c10] animate-pulse">
+                  <span className="absolute -top-1.5 -right-2 flex items-center justify-center min-w-[15px] h-[15px] px-1 bg-red-600 text-white text-[9px] font-mono font-bold rounded-full shadow-xs ring-2 ring-surface-1 animate-pulse">
                     {item.badgeCount > 9 ? '9+' : item.badgeCount}
                   </span>
                 ) : null}
@@ -118,7 +118,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
                 className={`relative z-10 text-[9px] sm:text-[10px] font-mono tracking-tight truncate max-w-full mt-0.5 transition-colors ${
                   isActive
                     ? 'font-bold text-red-400'
-                    : 'font-semibold text-zinc-300 group-hover:text-white'
+                    : 'font-semibold text-zinc-300 group-hover:text-content-1'
                 }`}
               >
                 {item.shortLabel || item.label}

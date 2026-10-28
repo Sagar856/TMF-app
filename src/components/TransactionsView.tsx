@@ -1,11 +1,13 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Transaction, Category, UserSettings } from '../types/finance';
+import { Transaction, Category, UserSettings, FinancialAccount, PaymentSource } from '../types/finance';
 import { parseLocalDate, todayLocalISO } from '../utils/dates';
 import { normalizeTransactionType } from '../utils/transactionType';
 import { calculateTransactionMetrics } from '../utils/transactionMetrics';
 import { parseTransactionsCsv, stringifyTransactionsCsv } from '../utils/transactionCsv';
+import { resolveAccountId } from '../utils/accountResolver';
+import { filterTransactions, isDateRangeInvalid } from '../utils/transactionFilters';
 import { Download, Upload, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle, Paperclip } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
@@ -14,6 +16,7 @@ import { ReceiptAttachmentModal } from './ReceiptAttachmentModal';
 interface TransactionsViewProps {
   transactions: Transaction[];
   categories: Category[];
+  accounts?: FinancialAccount[];
   onAddTransaction: () => void;
   onEditTransaction: (tx: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
@@ -23,9 +26,12 @@ interface TransactionsViewProps {
   onUpdateSettings: (newSettings: UserSettings) => void;
 }
 
+const SOURCE_OPTIONS: PaymentSource[] = ['UPI', 'SMS', 'Manual', 'Bank Sync'];
+
 export const TransactionsView: React.FC<TransactionsViewProps> = ({
   transactions,
   categories,
+  accounts = [],
   onAddTransaction,
   onEditTransaction,
   onDeleteTransaction,
@@ -46,8 +52,22 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const [toDate, setToDate] = useState<string>('');
   const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
   const [accountFilter, setAccountFilter] = useState<string>('All');
+  const [sourceFilter, setSourceFilter] = useState<string>('All');
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [tagFilter, setTagFilter] = useState<string>('All');
+
+  const dateRangeInvalid = isDateRangeInvalid(fromDate, toDate);
+
+  const resetFilters = () => {
+    setCategoryFilter('All Categories');
+    setAccountFilter('All');
+    setSourceFilter('All');
+    setTypeFilter('All');
+    setTagFilter('All');
+    setSearchQuery('');
+    setFromDate('');
+    setToDate('');
+  };
 
   // Collapsible Filter Panel state
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
@@ -127,23 +147,31 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     let count = 0;
     if (categoryFilter !== 'All Categories' && categoryFilter !== 'All') count++;
     if (accountFilter !== 'All') count++;
+    if (sourceFilter !== 'All') count++;
     if (typeFilter !== 'All') count++;
     if (tagFilter !== 'All') count++;
     if (searchQuery.trim()) count++;
     if (fromDate) count++;
     if (toDate) count++;
     return count;
-  }, [categoryFilter, accountFilter, typeFilter, tagFilter, searchQuery, fromDate, toDate]);
+  }, [categoryFilter, accountFilter, sourceFilter, typeFilter, tagFilter, searchQuery, fromDate, toDate]);
 
-  // Unique list of accounts (sources / payment methods)
-  const uniqueAccounts = useMemo(() => {
-    const set = new Set<string>();
+  // Account filter options: real accounts by id, plus any legacy payment-method
+  // strings that don't resolve to an account (so old records stay reachable).
+  const accountOptions = useMemo(() => {
+    const options: { value: string; label: string }[] = accounts.map((a) => ({
+      value: `acc:${a.id}`,
+      label: `${a.name} · ${a.bankName}${a.accountNumberLast4 ? ` (**${a.accountNumberLast4})` : ''}`,
+    }));
+    const legacy = new Set<string>();
     transactions.forEach((tx) => {
-      if (tx.source) set.add(tx.source);
-      if (tx.paymentMethod) set.add(tx.paymentMethod);
+      if (tx.accountId) return;
+      const pm = tx.paymentMethod?.trim();
+      if (pm && !resolveAccountId(accounts, pm)) legacy.add(pm);
     });
-    return Array.from(set).sort();
-  }, [transactions]);
+    Array.from(legacy).sort().forEach((pm) => options.push({ value: `legacy:${pm}`, label: pm }));
+    return options;
+  }, [accounts, transactions]);
 
   // Unique list of tags (subcategories)
   const uniqueTags = useMemo(() => {
@@ -166,62 +194,21 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     return `${day} ${month} ${year}`;
   };
 
-  // Filter logic
-  const filteredTransactions = useMemo(() => {
-    return transactions.filter((tx) => {
-      // Search matching title, payee, category, account, location
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchTitle = tx.title.toLowerCase().includes(q);
-        const matchPayee = tx.payeeOrPayer?.toLowerCase().includes(q) || false;
-        const matchCat = tx.category.toLowerCase().includes(q);
-        const matchSubcat = tx.subcategory.toLowerCase().includes(q);
-        const matchAccount = tx.source.toLowerCase().includes(q) || (tx.paymentMethod?.toLowerCase().includes(q) || false);
-        const matchPlace = tx.location?.name.toLowerCase().includes(q) || false;
-        if (!matchTitle && !matchPayee && !matchCat && !matchSubcat && !matchAccount && !matchPlace) {
-          return false;
-        }
-      }
-
-      // From date
-      if (fromDate && tx.date < fromDate) return false;
-
-      // To date
-      if (toDate && tx.date > toDate) return false;
-
-      // Category
-      if (categoryFilter !== 'All Categories' && categoryFilter !== 'All') {
-        if (tx.category !== categoryFilter) return false;
-      }
-
-      // Account
-      if (accountFilter !== 'All') {
-        if (tx.source !== accountFilter && tx.paymentMethod !== accountFilter) return false;
-      }
-
-      // Type
-      if (typeFilter !== 'All') {
-        if (typeFilter === 'Debit' && tx.type !== 'debit') return false;
-        if (typeFilter === 'Credit' && tx.type !== 'credit') return false;
-      }
-
-      // Tag
-      if (tagFilter !== 'All') {
-        if (tx.subcategory !== tagFilter) return false;
-      }
-
-      return true;
-    });
-  }, [
-    transactions,
-    searchQuery,
-    fromDate,
-    toDate,
-    categoryFilter,
-    accountFilter,
-    typeFilter,
-    tagFilter,
-  ]);
+  // Filter logic (shared pure implementation, unit-tested in utils/transactionFilters.test.ts)
+  const filteredTransactions = useMemo(
+    () =>
+      filterTransactions(transactions, accounts, {
+        search: searchQuery,
+        fromDate,
+        toDate,
+        category: categoryFilter,
+        account: accountFilter,
+        source: sourceFilter,
+        type: typeFilter,
+        tag: tagFilter,
+      }),
+    [transactions, accounts, searchQuery, fromDate, toDate, categoryFilter, accountFilter, sourceFilter, typeFilter, tagFilter]
+  );
 
   // KPI Calculations
   const { creditCount, debitCount, totalCredit, totalDebit } = useMemo(
@@ -295,7 +282,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search title, payee, category..."
-              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-[#555] focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
+              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-content-3 focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
             />
             <button
               type="button"
@@ -346,6 +333,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             type="button"
             onClick={() => setIsFilterOpen(!isFilterOpen)}
             title="Toggle Filters"
+            aria-label="Toggle filters"
+            aria-expanded={isFilterOpen}
             className={`p-2 rounded-lg border transition-all cursor-pointer shrink-0 flex items-center justify-center ${
               isFilterOpen || activeFilterCount > 0
                 ? 'bg-[#222] border-red-600/80 text-white font-bold'
@@ -354,9 +343,24 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           >
             <SlidersHorizontal className="w-3.5 h-3.5 text-red-500" />
             {activeFilterCount > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-red-500 ml-0.5" />
+              <span className="min-w-[14px] h-[14px] px-1 rounded-full bg-red-600 text-white text-[9px] font-bold flex items-center justify-center ml-0.5">
+                {activeFilterCount}
+              </span>
             )}
           </button>
+
+          {/* Always-visible clear action when any filter is active */}
+          {activeFilterCount > 0 && (
+            <button
+              type="button"
+              onClick={resetFilters}
+              title="Clear all filters"
+              aria-label="Clear all filters"
+              className="p-2 rounded-lg border border-[#222] bg-[#0a0a0a] text-[#aaa] hover:text-white hover:border-red-600/60 transition-colors cursor-pointer shrink-0 flex items-center justify-center"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {/* Three-Dot Menu Button (Contains Export CSV & Add Transaction) */}
           <div className="relative shrink-0">
@@ -387,7 +391,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     setShowThreeDotMenu(false);
                     csvImportInputRef.current?.click();
                   }}
-                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-surface-3 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <Upload className="w-3.5 h-3.5 text-blue-400" />
                   <span>Import CSV</span>
@@ -398,7 +402,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     handleExportCSV();
                     setShowThreeDotMenu(false);
                   }}
-                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-surface-3 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <Download className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Export CSV</span>
@@ -409,7 +413,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     onAddTransaction();
                     setShowThreeDotMenu(false);
                   }}
-                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-surface-3 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-red-500" />
                   <span>Add Transaction</span>
@@ -479,30 +483,38 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                <label htmlFor="tx-filter-account" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   ACCOUNT
                 </label>
                 <select
+                  id="tx-filter-account"
                   value={accountFilter}
                   onChange={(e) => setAccountFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                 >
                   <option value="All">All Accounts</option>
-                  {uniqueAccounts.map((acc) => (
-                    <option key={acc} value={acc}>
-                      {acc}
+                  {accountOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
                     </option>
                   ))}
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl">
+            {dateRangeInvalid && (
+              <p role="alert" className="text-[11px] text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-xl px-3 py-2">
+                “From” date is after “To” date — the date range is being ignored until you fix it.
+              </p>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                <label htmlFor="tx-filter-type" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   TYPE
                 </label>
                 <select
+                  id="tx-filter-type"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
@@ -514,10 +526,30 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                <label htmlFor="tx-filter-source" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
+                  SOURCE
+                </label>
+                <select
+                  id="tx-filter-source"
+                  value={sourceFilter}
+                  onChange={(e) => setSourceFilter(e.target.value)}
+                  className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
+                >
+                  <option value="All">All Sources</option>
+                  {SOURCE_OPTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label htmlFor="tx-filter-tag" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                   TAG / SUBCATEGORY
                 </label>
                 <select
+                  id="tx-filter-tag"
                   value={tagFilter}
                   onChange={(e) => setTagFilter(e.target.value)}
                   className="w-full px-3 py-2 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
@@ -537,16 +569,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               <div className="pt-2 flex justify-end">
                 <button
                   type="button"
-                  onClick={() => {
-                    setCategoryFilter('All Categories');
-                    setAccountFilter('All');
-                    setTypeFilter('All');
-                    setTagFilter('All');
-                    setSearchQuery('');
-                    setFromDate('');
-                    setToDate('');
-                  }}
-                  className="text-[10px] font-mono uppercase text-red-400 hover:underline"
+                  onClick={resetFilters}
+                  className="text-[10px] font-mono uppercase text-red-400 hover:underline cursor-pointer"
                 >
                   RESET FILTERS
                 </button>
@@ -582,7 +606,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
@@ -599,14 +623,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           onTouchEnd={handleTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
-              ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
+              ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
           {/* 1. NET BALANCE CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-surface-1/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-cyan-400 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-40 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
@@ -649,7 +673,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           {/* 2. TOTAL CREDIT CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-surface-1/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-30 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
@@ -686,7 +710,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           {/* 3. TOTAL DEBIT CARD */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
-            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-[#12121c]/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
+            className={`p-3 sm:p-3.5 bg-[#181820]/75 dark:bg-surface-1/80 backdrop-blur-md border border-white/20 dark:border-white/15 border-t-2 border-t-red-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 ${
               isKpiStacked
                 ? 'z-20 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
@@ -729,10 +753,11 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
         </div>
 
         {/* Table & Detail view option directly above table */}
-        <div className="bg-[#0a0a0a] border border-[#222] p-1 rounded-xl flex items-center gap-1">
+        <div role="group" aria-label="Transaction record layout" className="bg-[#0a0a0a] border border-[#222] p-1 rounded-xl flex items-center gap-1">
           <button
             type="button"
             onClick={() => setViewMode('table')}
+            aria-pressed={viewMode === 'table'}
             className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-all nav-lift cursor-pointer ${
               viewMode === 'table'
                 ? 'bg-[#222] text-white font-bold border border-[#333] shadow-sm -translate-y-0.5'
@@ -745,6 +770,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           <button
             type="button"
             onClick={() => setViewMode('detail')}
+            aria-pressed={viewMode === 'detail'}
             className={`px-3 py-1.5 text-[10px] font-mono uppercase rounded-lg flex items-center gap-1.5 transition-all nav-lift cursor-pointer ${
               viewMode === 'detail'
                 ? 'bg-[#222] text-white font-bold border border-[#333] shadow-sm -translate-y-0.5'
@@ -759,8 +785,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
       {/* ==================== RECORD LISTING ==================== */}
       {viewMode === 'table' ? (
-        <>
-        <div className="hidden sm:block bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+        <div
+          role="region"
+          aria-label="Transaction records table"
+          tabIndex={0}
+          className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
+        >
+          <p className="px-3 pt-2 text-[10px] text-[#888] sm:hidden">
+            Scroll horizontally to view all table columns.
+          </p>
           <div className="min-w-[860px]">
             {/* Header */}
             <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
@@ -783,7 +816,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <div
                   key={tx.id}
                   onClick={() => onEditTransaction(tx)}
-                  className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-[#181818] transition-all hover:translate-x-0.5 cursor-pointer"
+                  className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5 cursor-pointer"
                 >
                   {/* DATE */}
                   <div className="col-span-2 text-[#aaa] truncate">
@@ -858,56 +891,6 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             )}
           </div>
         </div>
-        <div className="sm:hidden space-y-2.5">
-          {filteredTransactions.length === 0 ? (
-            <div className="p-8 text-center text-xs text-[#666] bg-[#111111] border border-[#222] rounded-2xl">
-              No transactions match your search filters.
-            </div>
-          ) : (
-            filteredTransactions.map((tx) => (
-              <article key={tx.id} className="bg-[#111111] border border-[#222] rounded-xl p-3 space-y-2">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-white truncate">{tx.title || tx.category}</div>
-                    <div className="text-[10px] text-[#aaa] mt-1">
-                      {formatDateDisplay(tx.date)} · {tx.category}
-                    </div>
-                    <div className="text-[10px] text-[#777] mt-0.5 truncate">
-                      {tx.paymentMethod || tx.source}{tx.payeeOrPayer ? ` · ${tx.payeeOrPayer}` : ''}
-                    </div>
-                  </div>
-                  <div className={`shrink-0 text-right font-bold text-xs ${normalizeTransactionType(tx.type) === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
-                    {normalizeTransactionType(tx.type) === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 border-t border-[#222] pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setReceiptTransactionId(tx.id)}
-                    className="min-h-10 px-3 border border-emerald-900/70 text-emerald-300 text-xs font-bold rounded-lg"
-                  >
-                    RECEIPT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onEditTransaction(tx)}
-                    className="min-h-10 min-w-16 px-3 border border-[#333] text-[#ccc] text-xs font-bold rounded-lg"
-                  >
-                    EDIT
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteClick(tx)}
-                    className="min-h-10 min-w-16 px-3 border border-red-900/80 text-red-400 text-xs font-bold rounded-lg"
-                  >
-                    DELETE
-                  </button>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-        </>
       ) : (
         /* DETAIL FORMAT (Card layout) */
         <div className="space-y-2.5">
@@ -919,7 +902,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             filteredTransactions.map((tx) => (
               <div
                 key={tx.id}
-                className="p-4 bg-[#111111] border border-[#222] hover:border-[#333] rounded-2xl hover:bg-[#161616] transition-all tactile-lift flex items-center justify-between flex-wrap gap-4 group cursor-pointer"
+                className="p-4 bg-[#111111] border border-[#222] hover:border-[#333] rounded-2xl hover:bg-surface-3 transition-all tactile-lift flex items-center justify-between flex-wrap gap-4 group cursor-pointer"
               >
                 {/* Left: DR/CR badge & Title */}
                 <div className="flex items-center gap-3.5 min-w-[240px]">
@@ -1030,7 +1013,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-surface-1 border border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
@@ -1075,7 +1058,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               </div>
 
               {/* Checkbox */}
-              <label className="flex items-center gap-3 p-3 bg-[#0c0c0f] border border-[#222]/80 hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
+              <label className="flex items-center gap-3 p-3 bg-surface-1 border border-line hover:border-[#333] rounded-2xl cursor-pointer transition-all select-none">
                 <input
                   type="checkbox"
                   checked={doNotAskAgainChecked}
@@ -1090,7 +1073,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setTransactionToDelete(null)}
-                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-1 hover:bg-surface-3 border border-line text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

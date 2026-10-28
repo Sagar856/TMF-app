@@ -1,5 +1,19 @@
 export type TransactionType = 'credit' | 'debit';
 
+/**
+ * What a money movement *means*, independent of its debit/credit direction.
+ * Only `income`/`expense`/`refund` are operating cashflow; the rest are
+ * balance-sheet movements and must be excluded from income/spend metrics.
+ */
+export type TransactionKind =
+  | 'income'
+  | 'expense'
+  | 'refund'
+  | 'transfer'
+  | 'investment'
+  | 'loan_disbursal'
+  | 'loan_repayment';
+
 export type PaymentSource = 'UPI' | 'SMS' | 'Manual' | 'Bank Sync';
 
 export type AccountType = 'Bank' | 'Credit Card' | 'Debit Card' | 'Wallet/UPI';
@@ -40,6 +54,8 @@ export interface Transaction {
   title: string;
   amount: number;
   type: TransactionType;
+  /** Semantic classification; derived from category/subcategory when absent (see utils/transactionKind). */
+  kind?: TransactionKind;
   category: string;
   subcategory: string;
   date: string; // YYYY-MM-DD
@@ -48,6 +64,10 @@ export interface Transaction {
   source: PaymentSource;
   rawText?: string;
   payeeOrPayer?: string;
+  /** Canonical FinancialAccount.id this transaction hit. `paymentMethod` is kept for display/legacy matching. */
+  accountId?: string;
+  /** For transfers: the receiving account. */
+  toAccountId?: string;
   paymentMethod?: string;
   note?: string;
   refNumber?: string;
@@ -286,6 +306,10 @@ export interface UserSettings {
   passcodeEnabled: boolean;
   passcodeHash?: string;
   passcodeSalt?: string;
+  /** Unlock with the device authenticator (Windows Hello / Touch ID / Android biometrics) in addition to the PIN. Device-specific. */
+  biometricUnlockEnabled?: boolean;
+  /** Minutes in the background before the app re-locks. 0 = immediately, undefined = only on restart. */
+  autoLockMinutes?: number;
   locationTracking: boolean;
   autoExtractSms: boolean;
   notificationsEnabled: boolean;

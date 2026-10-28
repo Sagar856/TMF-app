@@ -217,7 +217,7 @@ export const SavingsGoalsCard: React.FC<SavingsGoalsCardProps> = ({ goals, onCha
                   </div>
                 </div>
                 <div
-                  className="mt-2 h-2 overflow-hidden rounded-full bg-[#29292d]"
+                  className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
                   role="progressbar"
                   aria-label={`${goal.title} progress`}
                   aria-valuemin={0}

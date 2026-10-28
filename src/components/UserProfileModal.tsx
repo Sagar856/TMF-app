@@ -167,7 +167,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl bg-[#1c1c1c] text-[#888] hover:text-white hover:bg-[#252525] transition-colors"
+            className="p-2 rounded-xl bg-[#1c1c1c] text-[#888] hover:text-white hover:bg-surface-3 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -280,7 +280,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
-                      className="px-3 py-1.5 bg-[#1a1a1a] hover:bg-[#252525] border border-[#333] hover:border-red-500 text-white font-bold text-[10px] uppercase rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 text-white font-bold text-[10px] uppercase rounded-lg transition-colors flex items-center gap-1.5 cursor-pointer"
                     >
                       <Upload className="w-3 h-3 text-red-400" />
                       <span>Upload Photo</span>
@@ -359,7 +359,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsChangePasswordOpen(!isChangePasswordOpen)}
-                  className="w-full p-4 flex items-center justify-between text-xs font-bold text-white hover:bg-[#121212] transition-colors cursor-pointer"
+                  className="w-full p-4 flex items-center justify-between text-xs font-bold text-white hover:bg-surface-3 transition-colors cursor-pointer"
                 >
                   <span className="flex items-center gap-2">
                     <Lock className="w-4 h-4 text-red-500" />

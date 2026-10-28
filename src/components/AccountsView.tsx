@@ -33,6 +33,7 @@ import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
 import { formatMoney } from '../utils/money';
+import { transactionBelongsToAccount } from '../utils/transactionKind';
 
 function formatDueDay(dayStr?: string): string {
   if (!dayStr) return '';
@@ -185,17 +186,24 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const totalCreditCardSpent = creditCards.reduce((sum, a) => sum + a.balance, 0);
   const totalApproxMonthlyBill = creditCards.reduce((sum, a) => sum + (a.approxMonthlyBill || a.balance), 0);
 
-  // Transactions for selected account
+  // Transactions for selected account: canonical accountId first, legacy
+  // paymentMethod/rawText matching as a fallback for records created before
+  // accountId existed.
   const selectedAccountObj = accounts.find((a) => a.id === selectedAccountId);
   const accountTxns = useMemo(() => {
     if (!selectedAccountObj) return [];
+    const last4Str = selectedAccountObj.accountNumberLast4;
+    const bankStr = selectedAccountObj.bankName.toLowerCase();
     return transactions.filter((t) => {
+      if (t.accountId || t.toAccountId) return transactionBelongsToAccount(t, selectedAccountObj, accounts);
+      if (transactionBelongsToAccount(t, selectedAccountObj, accounts)) return true;
       const pm = (t.paymentMethod || t.rawText || '').toLowerCase();
-      const last4Str = selectedAccountObj.accountNumberLast4;
-      const bankStr = selectedAccountObj.bankName.toLowerCase();
-      return pm.includes(last4Str) || pm.includes(bankStr);
+      return (last4Str.length === 4 && pm.includes(`**${last4Str}`)) || (bankStr.length > 0 && pm.includes(bankStr));
     });
-  }, [selectedAccountObj, transactions]);
+  }, [selectedAccountObj, transactions, accounts]);
+
+  const linkedTxnCount = (acc: FinancialAccount) =>
+    transactions.filter((t) => transactionBelongsToAccount(t, acc, accounts)).length;
 
   const handleOpenAdd = () => {
     setEditingAcc(null);
@@ -244,9 +252,24 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       return;
     }
 
-    const balNum = parseFloat(balance) || 0;
-    const limitNum = parseFloat(creditLimit) || 0;
-    const billNum = parseFloat(approxMonthlyBill) || balNum;
+    const balNum = parseFloat(balance);
+    const limitNum = parseFloat(creditLimit);
+    const billNum = parseFloat(approxMonthlyBill);
+    if (balance.trim() !== '' && !Number.isFinite(balNum)) {
+      setFormError('Balance must be a valid number.');
+      return;
+    }
+    if (accType === 'Credit Card') {
+      if (creditLimit.trim() !== '' && (!Number.isFinite(limitNum) || limitNum < 0)) {
+        setFormError('Credit limit must be a non-negative number.');
+        return;
+      }
+      if (approxMonthlyBill.trim() !== '' && (!Number.isFinite(billNum) || billNum < 0)) {
+        setFormError('Approx. monthly bill must be a non-negative number.');
+        return;
+      }
+    }
+    const safeBalance = Number.isFinite(balNum) ? balNum : 0;
 
     const updated: FinancialAccount = {
       id: editingAcc ? editingAcc.id : newId('acc'),
@@ -254,15 +277,22 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       bankName: bankName.trim(),
       type: accType,
       accountNumberLast4: cleanedLast4,
-      balance: balNum,
-      creditLimit: accType === 'Credit Card' ? limitNum : undefined,
-      approxMonthlyBill: accType === 'Credit Card' ? billNum : undefined,
+      balance: safeBalance,
+      creditLimit: accType === 'Credit Card' ? (Number.isFinite(limitNum) ? limitNum : 0) : undefined,
+      approxMonthlyBill: accType === 'Credit Card' ? (Number.isFinite(billNum) ? billNum : safeBalance) : undefined,
       dueDate: accType === 'Credit Card' ? dueDate.trim() : undefined,
       cardHolderName: cardHolderName.trim() || undefined,
       cardNetwork,
       cardColorTheme: cardTheme,
       isDefault,
     };
+
+    // Only one account may be the default: demote any other flagged account.
+    if (isDefault) {
+      accounts
+        .filter((a) => a.isDefault && a.id !== updated.id)
+        .forEach((a) => onUpdateAccount({ ...a, isDefault: false }));
+    }
 
     if (editingAcc) {
       onUpdateAccount(updated);
@@ -303,7 +333,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search account..."
-              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-[#555] focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
+              className="w-full pl-8 pr-8 py-1.5 bg-[#0a0a0a] border border-red-600/80 rounded-lg text-[11px] font-mono text-white placeholder-content-3 focus:outline-none focus:ring-1 focus:ring-red-500 shadow-inner"
             />
             <button
               type="button"
@@ -381,7 +411,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     className={`w-full text-left px-3 py-1.5 flex items-center justify-between transition-colors cursor-pointer text-[11px] ${
                       selectedType === type
                         ? 'bg-red-950/80 text-red-400 font-bold'
-                        : 'text-[#aaa] hover:bg-[#222] hover:text-white'
+                        : 'text-[#aaa] hover:bg-surface-3 hover:text-white'
                     }`}
                   >
                     <span>{type === 'All' ? 'ALL' : type === 'Credit Card' ? 'CARD' : type === 'Wallet/UPI' ? 'UPI' : type.toUpperCase()}</span>
@@ -411,7 +441,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     handleOpenAdd();
                     setShowThreeDotMenu(false);
                   }}
-                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-surface-3 hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5 text-red-500" />
                   <span>Add Account</span>
@@ -453,7 +483,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setIsCardsStacked(!isCardsStacked)}
-                className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+                className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
                 title={isCardsStacked ? "Expand Cards" : "Stack Cards"}
               >
                 {isCardsStacked ? (
@@ -489,7 +519,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     if (isCardsStacked) setIsCardsStacked(false);
                   }}
                   style={isCardsStacked ? { zIndex: creditCards.length - idx } : undefined}
-                  className={`p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden flex flex-col justify-between h-[168px] sm:h-[180px] max-w-[330px] w-full mx-auto ${themeClasses} ${
+                  className={`dark-surface p-4 rounded-2xl border transition-all duration-300 cursor-pointer relative overflow-hidden flex flex-col justify-between h-[168px] sm:h-[180px] max-w-[330px] w-full mx-auto ${themeClasses} ${
                     isCardsStacked
                       ? 'shadow-[0_12px_30px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                       : 'hover:border-white/40 shadow-xl'
@@ -567,23 +597,27 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     )}
                   </div>
 
-                  {/* Credit Limit utilization progress bar */}
-                  {card.creditLimit && card.creditLimit > 0 && (
-                    <div className="my-0.5 relative z-10 space-y-0.5">
-                      <div className="flex justify-between text-[8px] font-mono opacity-80">
-                        <span className={subTextColor}>UTILIZATION</span>
-                        <span className={`font-bold ${textColor}`}>
-                          {Math.round((card.balance / card.creditLimit) * 100)}% ({formatMoney(card.balance, { symbol: currencySymbol, locale: settings?.locale })})
-                        </span>
+                  {/* Credit Limit utilization progress bar (balance = outstanding debt) */}
+                  {card.creditLimit && card.creditLimit > 0 && (() => {
+                    const utilization = Math.max(0, Math.round((card.balance / card.creditLimit) * 100));
+                    const overLimit = utilization > 100;
+                    return (
+                      <div className="my-0.5 relative z-10 space-y-0.5">
+                        <div className="flex justify-between text-[8px] font-mono opacity-80">
+                          <span className={subTextColor}>UTILIZATION{overLimit ? ' · OVER LIMIT' : ''}</span>
+                          <span className={`font-bold ${overLimit ? 'text-red-500' : textColor}`}>
+                            {utilization}% ({formatMoney(card.balance, { symbol: currencySymbol, locale: settings?.locale })})
+                          </span>
+                        </div>
+                        <div className="w-full h-1 bg-black/20 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-300 ${overLimit ? 'bg-red-600 animate-pulse' : utilization >= 80 ? 'bg-amber-500' : 'bg-red-500'}`}
+                            style={{ width: `${Math.min(100, utilization)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="w-full h-1 bg-black/20 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-red-500 rounded-full transition-all duration-300"
-                          style={{ width: `${Math.min(100, Math.round((card.balance / card.creditLimit) * 100))}%` }}
-                        />
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Card Bottom Info */}
                   <div className="pt-1.5 border-t border-black/10 relative z-10 flex items-end justify-between text-[10px]">
@@ -624,7 +658,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-[#222] border border-[#333] hover:border-red-500 rounded-lg text-white cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white cursor-pointer flex items-center justify-center shadow-sm"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (
@@ -641,7 +675,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           onTouchEnd={handleKpiTouchEnd}
           className={`transition-all duration-300 ease-in-out ${
             isKpiStacked
-              ? 'space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
+              ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
           }`}
         >
@@ -870,7 +904,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               accountTxns.map((tx) => (
                 <div
                   key={tx.id}
-                  className="p-3 bg-[#0a0a0a] border border-[#222] hover:border-[#333] hover:bg-[#121212] rounded-xl flex items-center justify-between text-xs transition-all tactile-lift cursor-pointer"
+                  className="p-3 bg-[#0a0a0a] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-xl flex items-center justify-between text-xs transition-all tactile-lift cursor-pointer"
                 >
                   <div>
                     <div className="font-bold text-white">{tx.title}</div>
@@ -1137,7 +1171,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               {/* Header */}
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 bg-[#18181f] border border-[#2d2d35] rounded-2xl shrink-0">
+                  <div className="p-2.5 bg-surface-1 border border-line rounded-2xl shrink-0">
                     <AlertTriangle className="w-5 h-5 text-red-500" />
                   </div>
                   <div>
@@ -1182,16 +1216,29 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               </div>
 
               {/* Data Warning Alert */}
-              <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-2xl text-[11px] font-mono text-red-300 leading-relaxed">
-                Deleting this account will remove it from your linked accounts and payment methods. Any previous transaction records will be preserved safely.
-              </div>
+              {(() => {
+                const linked = linkedTxnCount(accountToDelete);
+                return (
+                  <div className="p-3 bg-red-950/30 border border-red-900/50 rounded-2xl text-[11px] font-mono text-red-300 leading-relaxed">
+                    {linked > 0 ? (
+                      <>
+                        <span className="font-bold">{linked} transaction{linked === 1 ? '' : 's'}</span> reference this account. They will be
+                        kept, but will no longer appear under any account and their balance effect can't be reversed. Consider editing
+                        them to another account first.
+                      </>
+                    ) : (
+                      'No transactions reference this account. It will be removed from your linked accounts and payment methods.'
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setAccountToDelete(null)}
-                  className="px-4 py-2 bg-[#18181f] hover:bg-[#222] border border-[#2d2d35] text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
+                  className="px-4 py-2 bg-surface-1 hover:bg-surface-3 border border-line text-xs font-mono text-[#888] hover:text-white rounded-xl uppercase font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>

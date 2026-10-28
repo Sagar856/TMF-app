@@ -1,4 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { isOperatingExpense } from '../utils/transactionKind';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import React, { useState, useMemo, useRef } from 'react';
 import {
   ResponsiveContainer,
@@ -57,6 +59,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
   onToggleExpand: externalToggleExpand,
 }) => {
   const formatAmount = useMoneyFormatter();
+  const reduceMotion = useReducedMotion();
   // Self-managed scroll focus if not controlled by parent group
   const selfScroll = useScrollFocusSection({
     enabled: !carouselState,
@@ -235,7 +238,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
           <button
             type="button"
             onClick={handleToggleExpand}
-            className={`p-1.5 px-2.5 bg-[#18181c] hover:bg-[#222226] border rounded-xl hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
+            className={`p-1.5 px-2.5 bg-[#18181c] hover:bg-surface-3 border rounded-xl hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
               effectiveState.isFocused ? 'border-red-500 text-white' : 'border-[#333] text-[#aaa]'
             }`}
             title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse 7-Day Spending Trend" : "Expand 7-Day Spending Trend"}
@@ -354,12 +357,13 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
                 stroke="#ef4444"
                 strokeWidth={2.5}
                 fill="url(#spendGradient)"
+                isAnimationActive={!reduceMotion}
                 activeDot={{
                   r: 6,
                   fill: '#ffffff',
                   stroke: '#ef4444',
                   strokeWidth: 3,
-                  className: 'animate-pulse cursor-pointer'
+                  className: reduceMotion ? 'cursor-pointer' : 'animate-pulse cursor-pointer'
                 }}
                 dot={{
                   r: 3.5,
@@ -423,7 +427,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             {activeDay.transactions.map((tx) => (
               <div
                 key={tx.id}
-                className="p-2 bg-[#121216] border border-[#222] hover:border-[#333] hover:bg-[#16161c] rounded-lg flex items-center justify-between gap-2 text-xs transition-all tactile-lift cursor-pointer"
+                className="p-2 bg-[#121216] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-lg flex items-center justify-between gap-2 text-xs transition-all tactile-lift cursor-pointer"
               >
                 <div className="min-w-0">
                   <div className="font-bold text-white truncate text-[11px]">{tx.title}</div>

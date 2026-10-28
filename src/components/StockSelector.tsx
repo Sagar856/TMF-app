@@ -87,7 +87,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-3 py-2.5 bg-[#181820] hover:bg-[#1e1e28] border border-[#333] hover:border-[#555] rounded-xl text-left flex items-center justify-between transition-colors cursor-pointer group"
+        className="w-full px-3 py-2.5 bg-[#181820] hover:bg-surface-3 border border-[#333] hover:border-line-strong rounded-xl text-left flex items-center justify-between transition-colors cursor-pointer group"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="w-7 h-7 rounded-lg bg-red-950/60 border border-red-700/50 flex items-center justify-center text-red-400 shrink-0">
@@ -97,7 +97,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
             {currentSelectedStock ? (
               <div className="flex items-center gap-2 truncate">
                 <span className="text-xs font-bold text-white truncate">{currentSelectedStock.name}</span>
-                <span className="text-[10px] px-1.5 py-0.2 bg-[#252535] text-cyan-400 rounded font-mono font-bold shrink-0">
+                <span className="text-[10px] px-1.5 py-0.2 bg-surface-2 text-cyan-400 rounded font-mono font-bold shrink-0">
                   {currentSelectedStock.exchange}: {currentSelectedStock.symbol}
                 </span>
               </div>
@@ -124,7 +124,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
 
       {/* Dropdown panel */}
       {isOpen && (
-        <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#14141c] border border-[#2e2e3e] rounded-2xl shadow-2xl z-50 p-3 max-h-[360px] flex flex-col font-mono animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute top-full left-0 right-0 mt-1.5 bg-surface-1 border border-line rounded-2xl shadow-2xl z-50 p-3 max-h-[360px] flex flex-col font-mono animate-in fade-in zoom-in-95 duration-100">
           {/* Search Bar */}
           <div className="relative mb-2 shrink-0">
             <Search className="w-3.5 h-3.5 text-[#777] absolute left-3 top-1/2 -translate-y-1/2" />
@@ -134,12 +134,12 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by name, symbol, or alias (e.g. NALCO, Tata, HDFC)..."
-              className="w-full pl-9 pr-3 py-2 bg-[#1b1b26] border border-[#37374a] rounded-xl text-xs text-white placeholder-[#666] focus:outline-none focus:border-red-500"
+              className="w-full pl-9 pr-3 py-2 bg-surface-2 border border-line rounded-xl text-xs text-white placeholder-content-3 focus:outline-none focus:border-red-500"
             />
           </div>
 
           {/* Sector Filter Chips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2 scrollbar-none shrink-0 border-b border-[#252533]">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-2 mb-2 scrollbar-none shrink-0 border-b border-line">
             {SECTOR_PILLS.map((sec) => (
               <button
                 key={sec}
@@ -148,7 +148,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
                 className={`px-2 py-0.5 rounded-lg text-[9px] whitespace-nowrap transition-colors cursor-pointer ${
                   selectedSector === sec
                     ? 'bg-red-600 text-white font-bold'
-                    : 'bg-[#1e1e2c] text-[#888] hover:text-white hover:bg-[#28283a]'
+                    : 'bg-surface-2 text-[#888] hover:text-white hover:bg-surface-3'
                 }`}
               >
                 {sec}
@@ -182,13 +182,13 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
                     className={`w-full p-2.5 rounded-xl text-left flex items-center justify-between gap-3 transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-red-950/40 border border-red-700/60 text-white'
-                        : 'bg-[#181824] hover:bg-[#202030] text-[#ccc] border border-transparent'
+                        : 'bg-surface-2 hover:bg-surface-3 text-[#ccc] border border-transparent'
                     }`}
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-white truncate">{stock.name}</span>
-                        <span className="text-[9px] px-1.5 py-0.2 bg-[#222232] text-cyan-400 rounded uppercase font-bold shrink-0">
+                        <span className="text-[9px] px-1.5 py-0.2 bg-surface-2 text-cyan-400 rounded uppercase font-bold shrink-0">
                           {stock.exchange}: {stock.symbol}
                         </span>
                       </div>

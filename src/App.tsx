@@ -17,7 +17,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import type { CategoryType } from './components/EditTransactionModal';
+import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { BottomNav } from './components/BottomNav';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
@@ -39,6 +39,7 @@ import {
   LocationTag,
   PaymentSource,
   SavingsGoal,
+  TransactionKind,
 } from './types/finance';
 
 import {
@@ -78,6 +79,7 @@ import {
   deleteMultipleInvestmentsFromSupabase,
   deleteMultipleLoansFromSupabase,
   deleteAllUserDataFromSupabase,
+  fetchCloudTombstones,
   SyncResult,
 } from './services/supabaseClient';
 
@@ -86,11 +88,13 @@ import { resetDuplicateMemory } from './services/notification/DuplicateDetector'
 import { newId } from './utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
+import { inferTransactionKind, normalizeTransactions } from './utils/transactionKind';
 import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
 import { BackupRestoreData } from './utils/backup';
 import { isSavingsGoalArray } from './utils/savingsGoals';
 import { formatMoney, getCurrencyLocale } from './utils/money';
-import { createPasscodeCredentials, PasscodeCredentials, verifyPasscode } from './utils/passcode';
+import { createPasscodeCredentials, isLegacyPasscodeHash, PasscodeCredentials, verifyPasscode } from './utils/passcode';
+import { isBiometricAvailable, isBiometricEnrolled, verifyBiometric } from './services/biometric';
 import { deleteAllReceiptAttachments, deleteReceiptAttachmentsForTransaction } from './utils/receiptStorage';
 import { 
   LayoutDashboard, 
@@ -103,7 +107,8 @@ import {
   Lock, 
   Key, 
   Smartphone,
-  Bell
+  Bell,
+  Fingerprint
 } from 'lucide-react';
 
 const DashboardView = lazy(() => import('./components/DashboardView').then((module) => ({ default: module.DashboardView })));
@@ -363,7 +368,12 @@ export default function App() {
   const lastPushedRef = useRef<Record<string, string>>({});
   // Surfaces the most recent backend sync outcome (success or a real error
   // message) so failures are visible instead of vanishing into the console.
-  const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; timestamp: number } | null>(null);
+  const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; warning?: string; schemaOutdated?: boolean; timestamp: number } | null>(null);
+  // Schema-outdated warnings are shown once per session so a stale cloud schema
+  // doesn't nag on every debounced sync.
+  const schemaWarningShownRef = useRef(false);
+  // Set when a sync failed because we were offline; cleared by the online retry.
+  const pendingRetryRef = useRef(false);
 
   const acknowledgeCloudDeletion = (key: string, ids: string[], result: SyncResult): boolean => {
     if (!result.success) {
@@ -456,6 +466,19 @@ export default function App() {
     safeSetItem('tmf_settings', JSON.stringify(settings));
   }, [settings, passcodeMigrationPending]);
 
+  // Each tab is a separate page: start it at the top instead of inheriting the
+  // previous tab's scroll offset.
+  useEffect(() => {
+    mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [activeTab]);
+
+  // One-time local migration: back-fill `kind` and canonical `accountId` on
+  // records created before those fields existed.
+  useEffect(() => {
+    setTransactions((prev) => normalizeTransactions(prev, accounts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Theme sync to HTML element
   useEffect(() => {
     const root = document.documentElement;
@@ -486,6 +509,23 @@ export default function App() {
   // backend — there is no per-user Supabase URL/Key to "connect" anymore.
   const cloudReady = isCloudBackendConfigured() && isAuthenticated;
 
+  const reportSyncResult = (collection: string, result: SyncResult) => {
+    const timestamp = Date.now();
+    if (!result.success) {
+      // Remember that something failed so we can retry as soon as connectivity returns.
+      if (/offline|unreachable/i.test(result.error || '')) pendingRetryRef.current = true;
+      setSyncStatus({ collection, ...result, timestamp });
+      return;
+    }
+    if (result.warning && !schemaWarningShownRef.current) {
+      schemaWarningShownRef.current = true;
+      setSyncStatus({ collection, success: true, warning: result.warning, schemaOutdated: result.schemaOutdated, timestamp });
+      return;
+    }
+    // Keep a visible schema warning on screen until the user dismisses it.
+    setSyncStatus((prev) => (prev?.success && prev.warning ? prev : { collection, success: true, timestamp }));
+  };
+
   useEffect(() => {
     safeSetItem('tmf_categories', JSON.stringify(categories));
     if (!cloudReady || !cloudHydrated) return;
@@ -494,10 +534,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       lastPushedRef.current['categories'] = snapshot;
-      syncCategoriesToSupabase(categories).then((result) => {
-        if (!result.success) setSyncStatus({ collection: 'categories', ...result, timestamp: Date.now() });
-        else setSyncStatus({ collection: 'categories', success: true, timestamp: Date.now() });
-      });
+      syncCategoriesToSupabase(categories).then((result) => reportSyncResult('categories', result));
     }, 400);
 
     return () => clearTimeout(timer);
@@ -511,10 +548,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       lastPushedRef.current['accounts'] = snapshot;
-      syncAccountsToSupabase(accounts).then((result) => {
-        if (!result.success) setSyncStatus({ collection: 'accounts', ...result, timestamp: Date.now() });
-        else setSyncStatus({ collection: 'accounts', success: true, timestamp: Date.now() });
-      });
+      syncAccountsToSupabase(accounts).then((result) => reportSyncResult('accounts', result));
     }, 400);
 
     return () => clearTimeout(timer);
@@ -528,10 +562,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       lastPushedRef.current['transactions'] = snapshot;
-      syncTransactionsToSupabase(transactions).then((result) => {
-        if (!result.success) setSyncStatus({ collection: 'transactions', ...result, timestamp: Date.now() });
-        else setSyncStatus({ collection: 'transactions', success: true, timestamp: Date.now() });
-      });
+      syncTransactionsToSupabase(transactions).then((result) => reportSyncResult('transactions', result));
     }, 400);
 
     return () => clearTimeout(timer);
@@ -545,10 +576,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       lastPushedRef.current['investments'] = snapshot;
-      syncInvestmentsToSupabase(investments).then((result) => {
-        if (!result.success) setSyncStatus({ collection: 'investments', ...result, timestamp: Date.now() });
-        else setSyncStatus({ collection: 'investments', success: true, timestamp: Date.now() });
-      });
+      syncInvestmentsToSupabase(investments).then((result) => reportSyncResult('investments', result));
     }, 400);
 
     return () => clearTimeout(timer);
@@ -562,10 +590,7 @@ export default function App() {
 
     const timer = setTimeout(() => {
       lastPushedRef.current['loans'] = snapshot;
-      syncLoansToSupabase(loans).then((result) => {
-        if (!result.success) setSyncStatus({ collection: 'loans', ...result, timestamp: Date.now() });
-        else setSyncStatus({ collection: 'loans', success: true, timestamp: Date.now() });
-      });
+      syncLoansToSupabase(loans).then((result) => reportSyncResult('loans', result));
     }, 400);
 
     return () => clearTimeout(timer);
@@ -595,6 +620,22 @@ export default function App() {
     return { success: true };
   };
 
+  // When connectivity returns after an offline failure, push everything once
+  // so changes made offline aren't stranded until the next edit.
+  useEffect(() => {
+    if (!cloudReady) return;
+    const handleOnline = () => {
+      if (!pendingRetryRef.current) return;
+      pendingRetryRef.current = false;
+      handleForceSyncNow().then((result) => {
+        if (result.success) showToast('Back online — changes synced to cloud.', 'success');
+      });
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudReady, categories, accounts, transactions, investments, loans]);
+
   // Shared cloud data loader. Guarded by a ref so the initial-mount fetch and
   // the post-auth fetch can never run concurrently and race/overwrite each other.
   const loadCloudData = async () => {
@@ -603,17 +644,30 @@ export default function App() {
     setCloudHydrated(false);
     let fetchThrewError = false;
     try {
-      const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
+      const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans, tombstones] = await Promise.all([
         fetchTransactionsFromSupabase(),
         fetchAccountsFromSupabase(),
         fetchCategoriesFromSupabase(),
         fetchInvestmentsFromSupabase(),
         fetchLoansFromSupabase(),
+        fetchCloudTombstones(),
       ]);
 
       if (cloudTx === null || cloudAcc === null || cloudCat === null || cloudInv === null || cloudLoans === null) {
         throw new Error('Could not load cloud data — local changes are not being pushed');
       }
+
+      // Rows deleted on another device arrive as tombstones: remember them
+      // locally so this device drops its copy and never re-uploads it.
+      const mergeTombstones = (key: string, ids: string[]) => {
+        if (ids.length === 0) return;
+        const merged = new Set([...safeGetStringArray(key), ...ids]);
+        safeSetItem(key, JSON.stringify(Array.from(merged)));
+      };
+      mergeTombstones('tmf_deleted_tx_ids', tombstones.transactions);
+      mergeTombstones('tmf_deleted_account_ids', tombstones.accounts);
+      mergeTombstones('tmf_deleted_investment_ids', tombstones.investments);
+      mergeTombstones('tmf_deleted_loan_ids', tombstones.loans);
 
       const isCloudEmpty =
         cloudTx.length === 0 &&
@@ -642,9 +696,13 @@ export default function App() {
       if (cloudTx) {
         const filteredTx = (isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)))
           .filter((t) => !deletedTxIds.has(t.id));
+        // Snapshot the raw cloud rows so that any back-filled kind/accountId
+        // fields are pushed back to the cloud on the next sync pass.
         lastPushedRef.current['transactions'] = JSON.stringify(filteredTx);
-        setTransactions(filteredTx);
-        safeSetItem('tmf_transactions', JSON.stringify(filteredTx));
+        const accountsForResolution = cloudAcc && cloudAcc.length > 0 ? cloudAcc : accounts;
+        const normalizedTx = normalizeTransactions(filteredTx, accountsForResolution);
+        setTransactions(normalizedTx);
+        safeSetItem('tmf_transactions', JSON.stringify(normalizedTx));
       }
       if (cloudAcc) {
         const filteredAcc = (isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)))
@@ -887,6 +945,60 @@ export default function App() {
     return () => clearInterval(interval);
   }, [passcodeLockedUntil]);
 
+  // Auto-lock: when the app has been hidden/backgrounded for longer than the
+  // configured grace period, require the PIN/biometric again on return.
+  const hiddenAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!settings.passcodeEnabled || settings.autoLockMinutes === undefined) return;
+    const graceMs = Math.max(0, settings.autoLockMinutes) * 60_000;
+    const handleVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        hiddenAtRef.current = Date.now();
+        if (graceMs === 0) setIsUnlocked(false);
+        return;
+      }
+      if (hiddenAtRef.current !== null && Date.now() - hiddenAtRef.current >= graceMs) {
+        setIsUnlocked(false);
+      }
+      hiddenAtRef.current = null;
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [settings.passcodeEnabled, settings.autoLockMinutes]);
+
+  // Biometric unlock (WebAuthn platform authenticator), offered when enabled & enrolled on this device.
+  const [biometricReady, setBiometricReady] = useState(false);
+  const [biometricBusy, setBiometricBusy] = useState(false);
+  useEffect(() => {
+    if (!settings.passcodeEnabled || !settings.biometricUnlockEnabled || isUnlocked) {
+      setBiometricReady(false);
+      return;
+    }
+    let active = true;
+    isBiometricAvailable().then((available) => {
+      if (active) setBiometricReady(available && isBiometricEnrolled());
+    });
+    return () => { active = false; };
+  }, [settings.passcodeEnabled, settings.biometricUnlockEnabled, isUnlocked]);
+
+  const handleBiometricUnlock = async () => {
+    if (biometricBusy || passcodeLockedUntil > Date.now()) return;
+    setBiometricBusy(true);
+    setPasscodeOperationError('');
+    try {
+      if (await verifyBiometric()) {
+        setIsUnlocked(true);
+        setPasscodeError(false);
+        setPasscodeAttempts(0);
+        setInputPasscode('');
+      } else {
+        setPasscodeOperationError('Biometric check did not complete. Use your PIN instead.');
+      }
+    } finally {
+      setBiometricBusy(false);
+    }
+  };
+
   useEffect(() => {
     safeSetItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
   }, [pendingNotifications]);
@@ -914,6 +1026,16 @@ export default function App() {
         localStorage.removeItem('tmf_passcode_lock_until');
         setPasscodeError(false);
         setPasscodeAttempts(0);
+        // Transparently upgrade legacy SHA-256 credentials to PBKDF2 now that
+        // we hold the correct PIN in memory.
+        if (isLegacyPasscodeHash(settings.passcodeHash)) {
+          try {
+            const upgraded = await createPasscodeCredentials(inputPasscode);
+            setSettings((previous) => ({ ...previous, ...upgraded }));
+          } catch (upgradeError) {
+            console.warn('Could not upgrade passcode hash:', upgradeError);
+          }
+        }
         setInputPasscode('');
       } else {
         const nextAttempts = passcodeAttempts + 1;
@@ -1042,6 +1164,7 @@ export default function App() {
       title: notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
+      kind: inferTransactionKind({ type: notif.type, category: resolvedCat, subcategory: resolvedSubcat, title: notif.payeeOrPayer, note: notif.rawText }),
       category: resolvedCat,
       subcategory: resolvedSubcat,
       date: notif.date,
@@ -1049,6 +1172,7 @@ export default function App() {
       location: notif.location,
       source: 'UPI',
       payeeOrPayer: notif.payeeOrPayer,
+      accountId: resolvedAccId || undefined,
       paymentMethod: finalPaymentMethod,
       rawText: notif.rawText,
       refNumber: notif.refNumber,
@@ -1125,10 +1249,18 @@ export default function App() {
   };
 
   // Transaction Actions
-  const handleSaveTransaction = (tx: Transaction) => {
-    const oldTx = transactions.find(t => t.id === tx.id);
-    const newTarget = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
-    const oldTarget = oldTx && (resolveAccountId(accounts, oldTx.paymentMethod) || oldTx.paymentMethod);
+  const handleSaveTransaction = (incoming: Transaction) => {
+    const oldTx = transactions.find(t => t.id === incoming.id);
+    const newTarget = resolveAccountId(accounts, incoming.accountId || incoming.paymentMethod) || incoming.paymentMethod;
+    const oldTarget = oldTx && (resolveAccountId(accounts, oldTx.accountId || oldTx.paymentMethod) || oldTx.paymentMethod);
+    const resolvedAccountId = resolveAccountId(accounts, incoming.accountId || incoming.paymentMethod) || undefined;
+    // Re-derive the semantic kind unless the editor set one explicitly, so a
+    // category change (e.g. to Investment) is reflected in dashboard metrics.
+    const tx: Transaction = {
+      ...incoming,
+      accountId: resolvedAccountId,
+      kind: incoming.kind ?? inferTransactionKind(incoming),
+    };
     setAccounts(previous => {
       const reverted = oldTx
         ? adjustAccountBalance(previous, oldTarget, oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount)
@@ -1142,28 +1274,40 @@ export default function App() {
   };
 
   const handleDeleteTransaction = (id: string) => {
-    // Record locally deleted ID so it is never reloaded from cloud or initial state
+    const primary = transactions.find(t => t.id === id);
+    // A transfer is two linked legs sharing a refNumber; removing one must remove both.
+    const idsToDelete =
+      primary && primary.kind === 'transfer' && primary.refNumber
+        ? transactions.filter((t) => t.kind === 'transfer' && t.refNumber === primary.refNumber).map((t) => t.id)
+        : [id];
+
+    // Record locally deleted IDs so they are never reloaded from cloud or initial state
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
-    deletedIds.add(id);
+    idsToDelete.forEach((txId) => deletedIds.add(txId));
     safeSetItem('tmf_deleted_tx_ids', JSON.stringify(Array.from(deletedIds)));
 
-    const tx = transactions.find(t => t.id === id);
-    if (tx) {
-      const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
-      const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
-      setAccounts(previous => adjustAccountBalance(previous, target, revertDelta));
-    }
-    setTransactions(previous => previous.filter(t => t.id !== id));
-    deleteReceiptAttachmentsForTransaction(id).catch((error: unknown) => {
-      showToast(
-        `Transaction deleted, but its local receipt image could not be removed: ${error instanceof Error ? error.message : 'Unknown storage error'}`,
-        'warning'
-      );
-    });
+    setAccounts((previous) =>
+      idsToDelete.reduce((accs, txId) => {
+        const tx = transactions.find((t) => t.id === txId);
+        if (!tx) return accs;
+        const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
+        const target = resolveAccountId(accs, tx.accountId || tx.paymentMethod) || tx.paymentMethod;
+        return adjustAccountBalance(accs, target, revertDelta);
+      }, previous)
+    );
+    setTransactions(previous => previous.filter(t => !idsToDelete.includes(t.id)));
+    idsToDelete.forEach((txId) =>
+      deleteReceiptAttachmentsForTransaction(txId).catch((error: unknown) => {
+        showToast(
+          `Transaction deleted, but its local receipt image could not be removed: ${error instanceof Error ? error.message : 'Unknown storage error'}`,
+          'warning'
+        );
+      })
+    );
 
     if (isCloudBackendConfigured()) {
-      deleteTransactionFromSupabase(id).then((result) => {
-        acknowledgeCloudDeletion('tmf_deleted_tx_ids', [id], result);
+      deleteMultipleTransactionsFromSupabase(idsToDelete).then((result) => {
+        acknowledgeCloudDeletion('tmf_deleted_tx_ids', idsToDelete, result);
       });
     }
   };
@@ -1205,11 +1349,26 @@ export default function App() {
   };
 
   // Category Actions
+  // Category names are the join key for transactions and budgets, so they
+  // must be unique (case-insensitive) within a type.
+  const findDuplicateCategory = (name: string, type: Category['type'], excludeId?: string) =>
+    categories.find((c) => c.id !== excludeId && c.type === type && c.name.trim().toLowerCase() === name.trim().toLowerCase());
+
   const handleAddCategory = (cat: Category) => {
+    const duplicate = findDuplicateCategory(cat.name, cat.type);
+    if (duplicate) {
+      showToast(`A ${cat.type} category named "${duplicate.name}" already exists.`, 'error');
+      return;
+    }
     setCategories((prev) => [...prev, cat]);
   };
 
   const handleUpdateCategory = (cat: Category) => {
+    const duplicate = findDuplicateCategory(cat.name, cat.type, cat.id);
+    if (duplicate) {
+      showToast(`A ${cat.type} category named "${duplicate.name}" already exists.`, 'error');
+      return;
+    }
     const prevCat = categories.find((c) => c.id === cat.id);
     const oldName = prevCat?.name;
     const nameChanged = Boolean(oldName && oldName !== cat.name);
@@ -1354,9 +1513,11 @@ export default function App() {
     title,
     amount,
     type,
+    kind,
     category,
     subcategory,
     accountId,
+    toAccountId,
     date,
     note,
     source = 'Manual',
@@ -1364,9 +1525,11 @@ export default function App() {
     title: string;
     amount: number;
     type: TransactionType;
+    kind?: TransactionKind;
     category: string;
     subcategory: string;
     accountId?: string;
+    toAccountId?: string;
     date?: string;
     note?: string;
     source?: PaymentSource;
@@ -1377,11 +1540,14 @@ export default function App() {
       title,
       amount,
       type,
+      kind: kind ?? inferTransactionKind({ type, category, subcategory, title, note }),
       category,
       subcategory,
       date: date || todayLocalISO(),
       time: nowLocalTimeHHMM(),
       source,
+      accountId: finalAccountId || undefined,
+      toAccountId,
       paymentMethod: finalAccountId,
       note,
     };
@@ -1392,6 +1558,65 @@ export default function App() {
       const delta = type === 'credit' ? amount : -amount;
       setAccounts(previous => adjustAccountBalance(previous, finalAccountId, delta));
     }
+  };
+
+  // Account-to-account transfer: two linked ledger legs with kind='transfer'.
+  // Both balances move; neither leg counts as income or spend anywhere.
+  // adjustAccountBalance already inverts the sign for credit cards, so
+  // "transfer to card" naturally reduces the card's outstanding balance.
+  const handleAddTransfer = ({ fromAccountId, toAccountId, amount, date, time, note }: TransferRequest) => {
+    const from = accounts.find((a) => a.id === fromAccountId);
+    const to = accounts.find((a) => a.id === toAccountId);
+    if (!from || !to || from.id === to.id || !(amount > 0)) return;
+
+    const transferId = newId('xfer');
+    const isCardPayment = to.type === 'Credit Card';
+    const title = isCardPayment ? `Card payment: ${to.name}` : `Transfer to ${to.name}`;
+    const baseNote = note || `${from.name} → ${to.name}`;
+
+    const outLeg: Transaction = {
+      id: `${transferId}_out`,
+      title,
+      amount,
+      type: 'debit',
+      kind: 'transfer',
+      category: 'Transfer',
+      subcategory: isCardPayment ? 'Card Payment' : 'Self Transfer',
+      date,
+      time,
+      source: 'Manual',
+      accountId: from.id,
+      toAccountId: to.id,
+      paymentMethod: from.id,
+      payeeOrPayer: to.name,
+      note: baseNote,
+      refNumber: transferId,
+    };
+    const inLeg: Transaction = {
+      id: `${transferId}_in`,
+      title: isCardPayment ? `Card payment from ${from.name}` : `Transfer from ${from.name}`,
+      amount,
+      type: 'credit',
+      kind: 'transfer',
+      category: 'Transfer',
+      subcategory: isCardPayment ? 'Card Payment' : 'Self Transfer',
+      date,
+      time,
+      source: 'Manual',
+      accountId: to.id,
+      toAccountId: from.id,
+      paymentMethod: to.id,
+      payeeOrPayer: from.name,
+      note: baseNote,
+      refNumber: transferId,
+    };
+
+    setTransactions((previous) => [outLeg, inLeg, ...previous]);
+    setAccounts((previous) => adjustAccountBalance(adjustAccountBalance(previous, from.id, -amount), to.id, amount));
+    showToast(
+      `${formatMoney(amount, { symbol: settings.currencySymbol, locale: settings.locale })} moved ${from.name} → ${to.name}.`,
+      'success'
+    );
   };
 
   // Investment Actions
@@ -1655,14 +1880,21 @@ export default function App() {
           return s;
         });
 
+        const paidInst = (l.schedule || []).find((s) => s.installmentNumber === installmentNumber);
         const newRepayment: Repayment = {
           id: newId('rep'),
           amount,
           date: paidDate,
           note: notes || `EMI Installment #${installmentNumber}`,
+          installmentNumber,
+          principalComponent: paidInst?.principalComponent,
+          interestComponent: paidInst?.interestComponent,
         };
         const newRepayments = [newRepayment, ...(l.repayments || [])];
-        const newRemaining = Math.max(0, l.remainingAmount - amount);
+        // remainingAmount tracks outstanding principal, so only the principal
+        // part of an amortised installment reduces it (interest is a cost).
+        const principalPaid = paidInst && paidInst.principalComponent > 0 ? paidInst.principalComponent : amount;
+        const newRemaining = Math.max(0, Math.round((l.remainingAmount - principalPaid) * 100) / 100);
         const isFullyPaid = newRemaining === 0 || newSchedule.every((s) => s.status === 'paid');
 
         const updated: LoanRecord = {
@@ -1868,9 +2100,12 @@ export default function App() {
 
   // Data Reset & Export Backup
   const handleExportBackupJSON = () => {
+    // Device security material never leaves the device: the backup carries
+    // preferences only, not the PIN hash/salt.
+    const { passcodeHash: _hash, passcodeSalt: _salt, ...exportableSettings } = settings;
     const backupData = {
       formatVersion: 1,
-      settings,
+      settings: { ...exportableSettings, passcodeEnabled: false },
       categories,
       accounts,
       transactions,
@@ -1928,7 +2163,13 @@ export default function App() {
         tombstoneKeys.forEach((key) => safeSetItem(key, JSON.stringify([])));
         lastPushedRef.current = {};
 
-        setSettings(backup.settings);
+        // Keep this device's lock configuration; a backup never carries PIN material.
+        setSettings({
+          ...backup.settings,
+          passcodeEnabled: settings.passcodeEnabled,
+          passcodeHash: settings.passcodeHash,
+          passcodeSalt: settings.passcodeSalt,
+        });
         setCategories(restoredCategories);
         setAccounts(restoredAccounts);
         setTransactions(backup.transactions);
@@ -2150,6 +2391,18 @@ export default function App() {
             >
               Unlock Application
             </button>
+
+            {biometricReady && (
+              <button
+                type="button"
+                onClick={handleBiometricUnlock}
+                disabled={biometricBusy || passcodeLockedUntil > Date.now()}
+                className="w-full py-3 bg-obsidian border border-nothing text-white font-mono font-bold text-xs uppercase rounded-xl hover:border-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <Fingerprint className="w-4 h-4 text-red-500" />
+                {biometricBusy ? 'Checking…' : 'Unlock with device biometrics'}
+              </button>
+            )}
           </form>
         </motion.div>
       </div>
@@ -2224,17 +2477,27 @@ export default function App() {
           onToggleTheme={handleToggleTheme}
         />
 
-        {/* Backend Sync Error Banner — surfaces real Supabase errors instead of
-            failing silently, wherever the user currently is in the app. */}
-        {syncStatus && !syncStatus.success && (
-          <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-red-400 text-xs font-mono flex items-start justify-between gap-3">
+        {/* Backend Sync Banner — surfaces real Supabase errors (red) and
+            non-fatal schema warnings (amber) instead of failing silently. */}
+        {syncStatus && (!syncStatus.success || syncStatus.warning) && (
+          <div
+            role={syncStatus.success ? 'status' : 'alert'}
+            className={`mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 border rounded-xl text-xs font-mono flex items-start justify-between gap-3 ${
+              syncStatus.success
+                ? 'bg-amber-50 dark:bg-amber-950/50 border-amber-300 dark:border-amber-800/80 text-amber-800 dark:text-amber-300'
+                : 'bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-800/80 text-red-700 dark:text-red-400'
+            }`}
+          >
             <span>
-              Backend sync failed ({syncStatus.collection}): {syncStatus.error || 'Unknown error'}
+              {syncStatus.success
+                ? `Cloud sync warning (${syncStatus.collection}): ${syncStatus.warning}`
+                : `Backend sync failed (${syncStatus.collection}): ${syncStatus.error || 'Unknown error'}`}
             </span>
             <button
               type="button"
-              onClick={() => setSyncStatus(null)}
-              className="shrink-0 text-red-300 hover:text-white font-bold"
+              onClick={() => setSyncStatus((prev) => (prev ? { ...prev, success: true, warning: undefined } : null))}
+              aria-label="Dismiss sync message"
+              className="shrink-0 font-bold hover:opacity-70 cursor-pointer"
             >
               ✕
             </button>
@@ -2291,6 +2554,7 @@ export default function App() {
             <TransactionsView
               transactions={transactions}
               categories={categories}
+              accounts={accounts}
               onAddTransaction={() => handleOpenAddModal('Expense')}
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
@@ -2385,6 +2649,9 @@ export default function App() {
               onForceSyncNow={handleForceSyncNow}
               isAuthenticated={isAuthenticated}
               authUserEmail={authUser?.email || null}
+              onSignOut={handleSignOut}
+              onOpenProfile={() => setIsProfileModalOpen(true)}
+              onNavigateToTab={setActiveTab}
             />
           )}
             </motion.div>
@@ -2532,10 +2799,16 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* 4. Add / Edit Record Modal */}
+      {/* 4. Add / Edit Record Modal — keyed so switching between add/edit or
+          between two transactions always starts from fresh form state. */}
       {(isAddModalOpen || Boolean(editingTransaction)) && (
         <Suspense fallback={null}>
           <EditTransactionModal
+            key={
+              editingTransaction
+                ? editingTransaction.id || `prefill-${editingTransaction.refNumber || ''}-${editingTransaction.amount}-${editingTransaction.date}-${editingTransaction.time}`
+                : `new-${modalInitialCategoryType}`
+            }
             transaction={editingTransaction}
             categories={categories}
             accounts={accounts}
@@ -2544,6 +2817,7 @@ export default function App() {
             onSave={handleSaveTransaction}
             onAddInvestment={handleAddInvestment}
             onAddLoan={handleAddLoan}
+            onAddTransfer={handleAddTransfer}
             onClose={() => {
               setIsAddModalOpen(false);
               setEditingTransaction(null);
