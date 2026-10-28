@@ -3,29 +3,26 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react';
+import {
+  safeGetItem,
+  safeGetJson,
+  safeGetStringArray,
+  safeSetItem,
+  removeDeletedIds,
+  consumePendingStorageReadFailure,
+  STORAGE_READ_FAILED_EVENT,
+  STORAGE_WRITE_FAILED_EVENT,
+} from './utils/storage';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { DashboardView } from './components/DashboardView';
-import { TransactionsView } from './components/TransactionsView';
-import { InvestmentsView } from './components/InvestmentsView';
-import { LoansView } from './components/LoansView';
-import { AccountsView } from './components/AccountsView';
-import { UserProfileModal } from './components/UserProfileModal';
-import { CustomisationsView } from './components/CustomisationsView';
-import { SettingsView } from './components/SettingsView';
-import { NotificationPromptModal } from './components/NotificationPromptModal';
-import { SmsSimulatorWidget } from './components/SmsSimulatorWidget';
-import { EditTransactionModal, CategoryType } from './components/EditTransactionModal';
+import type { CategoryType } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { BottomNav } from './components/BottomNav';
-import { AuthModal } from './components/AuthModal';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
-import { ConfirmationModal, ConfirmDialogConfig } from './components/ConfirmationModal';
-import { BudgetPushNotificationBanner } from './components/BudgetPushNotificationBanner';
+import type { ConfirmDialogConfig } from './components/ConfirmationModal';
 import { BudgetAlertPayload, checkBudgetThresholds } from './services/budgetAlertService';
-import { EmiConfirmationPromptModal } from './components/EmiConfirmationPromptModal';
 
 import {
   Transaction,
@@ -41,6 +38,7 @@ import {
   EmiConfirmationRequest,
   LocationTag,
   PaymentSource,
+  SavingsGoal,
 } from './types/finance';
 
 import {
@@ -80,16 +78,20 @@ import {
   deleteMultipleInvestmentsFromSupabase,
   deleteMultipleLoansFromSupabase,
   deleteAllUserDataFromSupabase,
+  SyncResult,
 } from './services/supabaseClient';
 
-import { parseNotification } from './services/notification/ParserManager';
-import { getCurrentDeviceLocation } from './services/locationService';
-import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { startNotificationListener } from './services/notificationListener';
+import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
-import { notifyTransactionDetected } from './services/localNotifications';
+import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
+import { BackupRestoreData } from './utils/backup';
+import { isSavingsGoalArray } from './utils/savingsGoals';
+import { formatMoney, getCurrencyLocale } from './utils/money';
+import { createPasscodeCredentials, PasscodeCredentials, verifyPasscode } from './utils/passcode';
+import { deleteAllReceiptAttachments, deleteReceiptAttachmentsForTransaction } from './utils/receiptStorage';
 import { 
   LayoutDashboard, 
   ReceiptText, 
@@ -103,6 +105,22 @@ import {
   Smartphone,
   Bell
 } from 'lucide-react';
+
+const DashboardView = lazy(() => import('./components/DashboardView').then((module) => ({ default: module.DashboardView })));
+const TransactionsView = lazy(() => import('./components/TransactionsView').then((module) => ({ default: module.TransactionsView })));
+const InvestmentsView = lazy(() => import('./components/InvestmentsView').then((module) => ({ default: module.InvestmentsView })));
+const LoansView = lazy(() => import('./components/LoansView').then((module) => ({ default: module.LoansView })));
+const AccountsView = lazy(() => import('./components/AccountsView').then((module) => ({ default: module.AccountsView })));
+const CustomisationsView = lazy(() => import('./components/CustomisationsView').then((module) => ({ default: module.CustomisationsView })));
+const SettingsView = lazy(() => import('./components/SettingsView').then((module) => ({ default: module.SettingsView })));
+const UserProfileModal = lazy(() => import('./components/UserProfileModal').then((module) => ({ default: module.UserProfileModal })));
+const NotificationPromptModal = lazy(() => import('./components/NotificationPromptModal').then((module) => ({ default: module.NotificationPromptModal })));
+const SmsSimulatorWidget = lazy(() => import('./components/SmsSimulatorWidget').then((module) => ({ default: module.SmsSimulatorWidget })));
+const EditTransactionModal = lazy(() => import('./components/EditTransactionModal').then((module) => ({ default: module.EditTransactionModal })));
+const AuthModal = lazy(() => import('./components/AuthModal').then((module) => ({ default: module.AuthModal })));
+const ConfirmationModal = lazy(() => import('./components/ConfirmationModal').then((module) => ({ default: module.ConfirmationModal })));
+const BudgetPushNotificationBanner = lazy(() => import('./components/BudgetPushNotificationBanner').then((module) => ({ default: module.BudgetPushNotificationBanner })));
+const EmiConfirmationPromptModal = lazy(() => import('./components/EmiConfirmationPromptModal').then((module) => ({ default: module.EmiConfirmationPromptModal })));
 
 // Max wrong passcode attempts before a cooldown lockout kicks in.
 const MAX_PASSCODE_ATTEMPTS = 5;
@@ -138,14 +156,22 @@ export default function App() {
   // Navigation Tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
+  const legacyPasscodeRef = useRef<string | null>(null);
+  const migrationRef = useRef<Promise<PasscodeCredentials> | null>(null);
   // App Data with LocalStorage Persistence
   const [settings, setSettings] = useState<UserSettings>(() => {
-    const saved = localStorage.getItem('tmf_settings');
-    if (saved) {
-      const parsed = JSON.parse(saved);
+    const parsed = safeGetJson<(UserSettings & { passcode?: unknown }) | null>(
+      'tmf_settings',
+      null,
+      (value): value is UserSettings & { passcode?: unknown } =>
+        typeof value === 'object' && value !== null && !Array.isArray(value)
+    );
+    if (parsed) {
+      const { passcode: legacyPasscode, ...savedSettings } = parsed;
+      legacyPasscodeRef.current = typeof legacyPasscode === 'string' ? legacyPasscode : null;
       return {
-        ...parsed,
-        locale: parsed.locale || ['en', 'IN'].join('-'),
+        ...savedSettings,
+        locale: parsed.locale || getCurrencyLocale(parsed.currencyCode),
         sampleDataLoaded: parsed.sampleDataLoaded !== undefined ? parsed.sampleDataLoaded : true,
         skipDeleteConfirmation: parsed.skipDeleteConfirmation !== undefined ? parsed.skipDeleteConfirmation : false,
         skipInvestmentDeleteConfirmation: parsed.skipInvestmentDeleteConfirmation !== undefined ? parsed.skipInvestmentDeleteConfirmation : false,
@@ -162,7 +188,6 @@ export default function App() {
       locale: ['en', 'IN'].join('-'),
       theme: 'dark',
       passcodeEnabled: false,
-      passcode: '1234',
       locationTracking: true,
       autoExtractSms: true,
       notificationsEnabled: true,
@@ -176,87 +201,78 @@ export default function App() {
   });
 
   const [categories, setCategories] = useState<Category[]>(() => {
-    const saved = localStorage.getItem('tmf_categories');
-    const parsed: Category[] = saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
+    const parsed = safeGetJson<Category[]>('tmf_categories', INITIAL_CATEGORIES, Array.isArray);
     const ensured = ensureMandatoryCategories(parsed);
-    if (saved && ensured.length !== parsed.length) {
-      localStorage.setItem('tmf_categories', JSON.stringify(ensured));
-    }
     return ensured;
   });
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
-    const saved = localStorage.getItem('tmf_accounts');
-    if (saved !== null) {
-      try {
-        const parsed: FinancialAccount[] = JSON.parse(saved);
-        return parsed.filter((a) => !deletedIds.has(a.id));
-      } catch {
-        return [];
-      }
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
+    const parsed = safeGetJson<FinancialAccount[] | null>('tmf_accounts', null, Array.isArray);
+    if (parsed !== null) {
+      return parsed.filter((a) => !deletedIds.has(a.id));
     }
-    const savedSettings = localStorage.getItem('tmf_settings');
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const parsedSettings = safeGetJson<UserSettings | null>(
+      'tmf_settings',
+      null,
+      (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
+    );
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
     return isLoaded ? INITIAL_ACCOUNTS.filter((a) => !deletedIds.has(a.id)) : [];
   });
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
-    const saved = localStorage.getItem('tmf_transactions');
-    if (saved !== null) {
-      try {
-        const parsed: Transaction[] = JSON.parse(saved);
-        return parsed.filter((t) => !deletedIds.has(t.id));
-      } catch {
-        return [];
-      }
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
+    const parsed = safeGetJson<Transaction[] | null>('tmf_transactions', null, Array.isArray);
+    if (parsed !== null) {
+      return parsed.filter((t) => !deletedIds.has(t.id));
     }
-    const savedSettings = localStorage.getItem('tmf_settings');
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const parsedSettings = safeGetJson<UserSettings | null>(
+      'tmf_settings',
+      null,
+      (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
+    );
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
     return isLoaded ? INITIAL_TRANSACTIONS.filter((t) => !deletedIds.has(t.id)) : [];
   });
 
   const [investments, setInvestments] = useState<InvestmentRecord[]>(() => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
-    const saved = localStorage.getItem('tmf_investments');
-    if (saved !== null) {
-      try {
-        const parsed: InvestmentRecord[] = JSON.parse(saved);
-        return parsed.filter((i) => !deletedIds.has(i.id));
-      } catch {
-        return [];
-      }
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_investment_ids'));
+    const parsed = safeGetJson<InvestmentRecord[] | null>('tmf_investments', null, Array.isArray);
+    if (parsed !== null) {
+      return parsed.filter((i) => !deletedIds.has(i.id));
     }
-    const savedSettings = localStorage.getItem('tmf_settings');
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const parsedSettings = safeGetJson<UserSettings | null>(
+      'tmf_settings',
+      null,
+      (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
+    );
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
     return isLoaded ? INITIAL_INVESTMENTS.filter((i) => !deletedIds.has(i.id)) : [];
   });
 
   const [loans, setLoans] = useState<LoanRecord[]>(() => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
-    const saved = localStorage.getItem('tmf_loans');
-    if (saved !== null) {
-      try {
-        const parsed: LoanRecord[] = JSON.parse(saved);
-        return parsed.filter((l) => !deletedIds.has(l.id));
-      } catch {
-        return [];
-      }
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_loan_ids'));
+    const parsed = safeGetJson<LoanRecord[] | null>('tmf_loans', null, Array.isArray);
+    if (parsed !== null) {
+      return parsed.filter((l) => !deletedIds.has(l.id));
     }
-    const savedSettings = localStorage.getItem('tmf_settings');
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : null;
+    const parsedSettings = safeGetJson<UserSettings | null>(
+      'tmf_settings',
+      null,
+      (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
+    );
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
     return isLoaded ? INITIAL_LOANS.filter((l) => !deletedIds.has(l.id)) : [];
   });
 
+  const [savingsGoals, setSavingsGoals] = useState<SavingsGoal[]>(() =>
+    safeGetJson<SavingsGoal[]>('tmf_savings_goals', [], isSavingsGoalArray)
+  );
+
   // Pending SMS / UPI Intercepted Notifications Queue
   const [pendingNotifications, setPendingNotifications] = useState<ParsedNotification[]>(() => {
-    const saved = localStorage.getItem('tmf_pending_notifications');
-    return saved ? JSON.parse(saved) : [];
+    return safeGetJson<ParsedNotification[]>('tmf_pending_notifications', [], Array.isArray);
   });
 
   // Modals & UI States
@@ -322,14 +338,21 @@ export default function App() {
   };
 
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
-    if (!settings.passcodeEnabled) return true;
-    return sessionStorage.getItem('tmf_session_unlocked') === 'true';
+    return !settings.passcodeEnabled;
   });
+  const [passcodeMigrationPending, setPasscodeMigrationPending] = useState(legacyPasscodeRef.current !== null);
+  const [passcodeMigrationError, setPasscodeMigrationError] = useState(false);
+  const [migrationRetry, setMigrationRetry] = useState(0);
+  const [passcodeBusy, setPasscodeBusy] = useState(false);
+  const passcodeBusyRef = useRef(false);
+  const [passcodeOperationError, setPasscodeOperationError] = useState('');
+  const previouslyEnabledRef = useRef(settings.passcodeEnabled);
+  const storageWarningTimeRef = useRef(0);
   const [inputPasscode, setInputPasscode] = useState<string>('');
   const [passcodeError, setPasscodeError] = useState<boolean>(false);
   const [passcodeAttempts, setPasscodeAttempts] = useState<number>(0);
   const [passcodeLockedUntil, setPasscodeLockedUntil] = useState<number>(() => {
-    const saved = localStorage.getItem('tmf_passcode_lock_until');
+    const saved = safeGetItem('tmf_passcode_lock_until');
     const until = saved ? parseInt(saved, 10) : 0;
     return until > Date.now() ? until : 0;
   });
@@ -341,6 +364,23 @@ export default function App() {
   // Surfaces the most recent backend sync outcome (success or a real error
   // message) so failures are visible instead of vanishing into the console.
   const [syncStatus, setSyncStatus] = useState<{ collection: string; success: boolean; error?: string; timestamp: number } | null>(null);
+
+  const acknowledgeCloudDeletion = (key: string, ids: string[], result: SyncResult): boolean => {
+    if (!result.success) {
+      setSyncStatus({ collection: 'cloud-delete', ...result, timestamp: Date.now() });
+      return false;
+    }
+    removeDeletedIds(key, ids);
+    return true;
+  };
+
+  const trackDeletedIds = (key: string, ids: string[]): string[] => {
+    const pending = new Set(safeGetStringArray(key));
+    ids.forEach(id => pending.add(id));
+    const result = Array.from(pending);
+    safeSetItem(key, JSON.stringify(result));
+    return result;
+  };
 
   // Helper to open modal with contextual Category Type based on active tab
   const handleOpenAddModal = (overrideCategoryType?: CategoryType) => {
@@ -365,10 +405,56 @@ export default function App() {
     setIsAddModalOpen(true);
   };
 
+  useEffect(() => {
+    const handleStorageFailure = (event: Event) => {
+      if (Date.now() - storageWarningTimeRef.current < 5000) return;
+      storageWarningTimeRef.current = Date.now();
+      const message = event.type === STORAGE_READ_FAILED_EVENT
+        ? 'Saved local data could not be read. A recovery copy was attempted; export your backup before resetting data.'
+        : 'Local storage is full — changes may not persist';
+      queueMicrotask(() => showToast(message, 'warning'));
+    };
+    window.addEventListener(STORAGE_WRITE_FAILED_EVENT, handleStorageFailure);
+    window.addEventListener(STORAGE_READ_FAILED_EVENT, handleStorageFailure);
+    if (consumePendingStorageReadFailure()) {
+      handleStorageFailure(new Event(STORAGE_READ_FAILED_EVENT));
+    }
+    return () => {
+      window.removeEventListener(STORAGE_WRITE_FAILED_EVENT, handleStorageFailure);
+      window.removeEventListener(STORAGE_READ_FAILED_EVENT, handleStorageFailure);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (legacyPasscodeRef.current === null) return;
+    let active = true;
+    migrationRef.current ??= createPasscodeCredentials(legacyPasscodeRef.current);
+    migrationRef.current.then(credentials => {
+      if (!active) return;
+      legacyPasscodeRef.current = null;
+      setSettings(previous => ({ ...previous, ...credentials }));
+      setPasscodeMigrationPending(false);
+    }).catch(error => {
+      if (!active) return;
+      console.warn('Could not migrate legacy passcode:', error);
+      migrationRef.current = null;
+      setPasscodeMigrationError(true);
+    });
+    return () => { active = false; };
+  }, [migrationRetry]);
+
+  useEffect(() => {
+    if (!settings.passcodeEnabled || !previouslyEnabledRef.current) {
+      setIsUnlocked(true);
+    }
+    previouslyEnabledRef.current = settings.passcodeEnabled;
+  }, [settings.passcodeEnabled]);
+
   // Sync state changes to local storage
   useEffect(() => {
-    localStorage.setItem('tmf_settings', JSON.stringify(settings));
-  }, [settings]);
+    if (passcodeMigrationPending) return;
+    safeSetItem('tmf_settings', JSON.stringify(settings));
+  }, [settings, passcodeMigrationPending]);
 
   // Theme sync to HTML element
   useEffect(() => {
@@ -401,7 +487,7 @@ export default function App() {
   const cloudReady = isCloudBackendConfigured() && isAuthenticated;
 
   useEffect(() => {
-    localStorage.setItem('tmf_categories', JSON.stringify(categories));
+    safeSetItem('tmf_categories', JSON.stringify(categories));
     if (!cloudReady || !cloudHydrated) return;
     const snapshot = JSON.stringify(categories);
     if (lastPushedRef.current['categories'] === snapshot) return;
@@ -418,7 +504,7 @@ export default function App() {
   }, [categories, cloudReady, cloudHydrated]);
 
   useEffect(() => {
-    localStorage.setItem('tmf_accounts', JSON.stringify(accounts));
+    safeSetItem('tmf_accounts', JSON.stringify(accounts));
     if (!cloudReady || !cloudHydrated) return;
     const snapshot = JSON.stringify(accounts);
     if (lastPushedRef.current['accounts'] === snapshot) return;
@@ -435,7 +521,7 @@ export default function App() {
   }, [accounts, cloudReady, cloudHydrated]);
 
   useEffect(() => {
-    localStorage.setItem('tmf_transactions', JSON.stringify(transactions));
+    safeSetItem('tmf_transactions', JSON.stringify(transactions));
     if (!cloudReady || !cloudHydrated) return;
     const snapshot = JSON.stringify(transactions);
     if (lastPushedRef.current['transactions'] === snapshot) return;
@@ -452,7 +538,7 @@ export default function App() {
   }, [transactions, cloudReady, cloudHydrated]);
 
   useEffect(() => {
-    localStorage.setItem('tmf_investments', JSON.stringify(investments));
+    safeSetItem('tmf_investments', JSON.stringify(investments));
     if (!cloudReady || !cloudHydrated) return;
     const snapshot = JSON.stringify(investments);
     if (lastPushedRef.current['investments'] === snapshot) return;
@@ -469,7 +555,7 @@ export default function App() {
   }, [investments, cloudReady, cloudHydrated]);
 
   useEffect(() => {
-    localStorage.setItem('tmf_loans', JSON.stringify(loans));
+    safeSetItem('tmf_loans', JSON.stringify(loans));
     if (!cloudReady || !cloudHydrated) return;
     const snapshot = JSON.stringify(loans);
     if (lastPushedRef.current['loans'] === snapshot) return;
@@ -484,6 +570,10 @@ export default function App() {
 
     return () => clearTimeout(timer);
   }, [loans, cloudReady, cloudHydrated]);
+
+  useEffect(() => {
+    safeSetItem('tmf_savings_goals', JSON.stringify(savingsGoals));
+  }, [savingsGoals]);
 
   // Manually re-runs every sync call immediately and reports aggregated result
   // — lets the user verify right now whether the backend connection actually
@@ -510,6 +600,7 @@ export default function App() {
   const loadCloudData = async () => {
     if (cloudLoadInFlightRef.current) return;
     cloudLoadInFlightRef.current = true;
+    setCloudHydrated(false);
     let fetchThrewError = false;
     try {
       const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans] = await Promise.all([
@@ -531,54 +622,47 @@ export default function App() {
         cloudLoans.length === 0;
 
       if (isCloudEmpty) {
-        setSettings((prev) => {
-          const updated = { ...prev, sampleDataLoaded: false };
-          localStorage.setItem('tmf_settings', JSON.stringify(updated));
-          return updated;
-        });
+        setSettings(previous => ({ ...previous, sampleDataLoaded: false }));
       }
 
-      const savedSettings = localStorage.getItem('tmf_settings');
+      const savedSettings = safeGetJson<UserSettings | null>(
+        'tmf_settings',
+        null,
+        (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
+      );
       const isSampleLoaded = isCloudEmpty
         ? false
-        : (savedSettings ? JSON.parse(savedSettings).sampleDataLoaded !== false : true);
+        : (savedSettings ? savedSettings.sampleDataLoaded !== false : true);
 
-      const deletedTxIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
-      const deletedAccIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
-      const deletedInvIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
-      const deletedLoanIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
+      const deletedTxIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
+      const deletedAccIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
+      const deletedInvIds = new Set(safeGetStringArray('tmf_deleted_investment_ids'));
+      const deletedLoanIds = new Set(safeGetStringArray('tmf_deleted_loan_ids'));
 
       if (cloudTx) {
         const filteredTx = (isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)))
           .filter((t) => !deletedTxIds.has(t.id));
         lastPushedRef.current['transactions'] = JSON.stringify(filteredTx);
         setTransactions(filteredTx);
-        localStorage.setItem('tmf_transactions', JSON.stringify(filteredTx));
+        safeSetItem('tmf_transactions', JSON.stringify(filteredTx));
       }
       if (cloudAcc) {
         const filteredAcc = (isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)))
           .filter((a) => !deletedAccIds.has(a.id));
         lastPushedRef.current['accounts'] = JSON.stringify(filteredAcc);
         setAccounts(filteredAcc);
-        localStorage.setItem('tmf_accounts', JSON.stringify(filteredAcc));
+        safeSetItem('tmf_accounts', JSON.stringify(filteredAcc));
       }
       if (cloudCat && cloudCat.length > 0) {
         const ensuredCat = ensureMandatoryCategories(cloudCat);
         lastPushedRef.current['categories'] = JSON.stringify(ensuredCat);
         setCategories(ensuredCat);
-        localStorage.setItem('tmf_categories', JSON.stringify(ensuredCat));
+        safeSetItem('tmf_categories', JSON.stringify(ensuredCat));
       }
       if (cloudInv) {
         const localInvMap = new Map<string, InvestmentRecord>();
-        try {
-          const localSaved = localStorage.getItem('tmf_investments');
-          if (localSaved) {
-            const parsed: InvestmentRecord[] = JSON.parse(localSaved);
-            parsed.forEach((inv) => localInvMap.set(inv.id, inv));
-          }
-        } catch {
-          // ignore error
-        }
+        const parsedLocalInvestments = safeGetJson<InvestmentRecord[]>('tmf_investments', [], Array.isArray);
+        parsedLocalInvestments.forEach((inv) => localInvMap.set(inv.id, inv));
 
         const mergedInv = cloudInv.map((cloudRecord) => {
           const localRecord = localInvMap.get(cloudRecord.id);
@@ -612,19 +696,12 @@ export default function App() {
           .filter((i) => !deletedInvIds.has(i.id));
         lastPushedRef.current['investments'] = JSON.stringify(filteredInv);
         setInvestments(filteredInv);
-        localStorage.setItem('tmf_investments', JSON.stringify(filteredInv));
+        safeSetItem('tmf_investments', JSON.stringify(filteredInv));
       }
       if (cloudLoans) {
         const localLoansMap = new Map<string, LoanRecord>();
-        try {
-          const localSaved = localStorage.getItem('tmf_loans');
-          if (localSaved) {
-            const parsed: LoanRecord[] = JSON.parse(localSaved);
-            parsed.forEach((l) => localLoansMap.set(l.id, l));
-          }
-        } catch {
-          // ignore error
-        }
+        const parsedLocalLoans = safeGetJson<LoanRecord[]>('tmf_loans', [], Array.isArray);
+        parsedLocalLoans.forEach((loan) => localLoansMap.set(loan.id, loan));
 
         const mergedLoans = cloudLoans.map((cloudRecord) => {
           const localRecord = localLoansMap.get(cloudRecord.id);
@@ -654,22 +731,20 @@ export default function App() {
           .filter((l) => !deletedLoanIds.has(l.id));
         lastPushedRef.current['loans'] = JSON.stringify(filteredLoans);
         setLoans(filteredLoans);
-        localStorage.setItem('tmf_loans', JSON.stringify(filteredLoans));
+        safeSetItem('tmf_loans', JSON.stringify(filteredLoans));
       }
 
-      // Cleanup any pending deletions in cloud database if deleted while offline
-      if (deletedTxIds.size > 0) {
-        deleteMultipleTransactionsFromSupabase(Array.from(deletedTxIds));
-      }
-      if (deletedAccIds.size > 0) {
-        deleteMultipleAccountsFromSupabase(Array.from(deletedAccIds));
-      }
-      if (deletedInvIds.size > 0) {
-        deleteMultipleInvestmentsFromSupabase(Array.from(deletedInvIds));
-      }
-      if (deletedLoanIds.size > 0) {
-        deleteMultipleLoansFromSupabase(Array.from(deletedLoanIds));
-      }
+      // Only acknowledge the snapshot sent to the server; newer offline deletions must survive.
+      const cleanup = [
+        { key: 'tmf_deleted_tx_ids', ids: Array.from(deletedTxIds), remove: deleteMultipleTransactionsFromSupabase },
+        { key: 'tmf_deleted_account_ids', ids: Array.from(deletedAccIds), remove: deleteMultipleAccountsFromSupabase },
+        { key: 'tmf_deleted_investment_ids', ids: Array.from(deletedInvIds), remove: deleteMultipleInvestmentsFromSupabase },
+        { key: 'tmf_deleted_loan_ids', ids: Array.from(deletedLoanIds), remove: deleteMultipleLoansFromSupabase },
+      ];
+      const results = await Promise.all(cleanup.filter(item => item.ids.length > 0).map(async item =>
+        acknowledgeCloudDeletion(item.key, item.ids, await item.remove(item.ids))
+      ));
+      if (results.some(success => !success)) fetchThrewError = true;
     } catch (err) {
       fetchThrewError = true;
       console.warn('Cloud data fetch failed:', err);
@@ -706,11 +781,11 @@ export default function App() {
     setLoans([]);
     setCategories(INITIAL_CATEGORIES);
     setPendingNotifications([]);
-    localStorage.setItem('tmf_transactions', '[]');
-    localStorage.setItem('tmf_accounts', '[]');
-    localStorage.setItem('tmf_investments', '[]');
-    localStorage.setItem('tmf_loans', '[]');
-    localStorage.setItem('tmf_pending_notifications', '[]');
+    safeSetItem('tmf_transactions', '[]');
+    safeSetItem('tmf_accounts', '[]');
+    safeSetItem('tmf_investments', '[]');
+    safeSetItem('tmf_loans', '[]');
+    safeSetItem('tmf_pending_notifications', '[]');
     sessionStorage.removeItem('tmf_session_unlocked');
     resetDuplicateMemory();
   };
@@ -764,6 +839,7 @@ export default function App() {
       let locationTag: LocationTag | null = null;
       if (settings.locationTracking) {
         try {
+          const { getCurrentDeviceLocation } = await import('./services/locationService');
           const locPromise = getCurrentDeviceLocation();
           const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
           const devLoc = await Promise.race([locPromise, timeoutPromise]);
@@ -779,17 +855,19 @@ export default function App() {
         }
       }
 
+      const { parseNotification } = await import('./services/notification/ParserManager');
       const { parsed, isDuplicate } = parseNotification(rawText, locationTag, transactions, pendingNotifications);
       if (isDuplicate) return; // Silently drop duplicates
 
       setPendingNotifications((prev) => [parsed, ...prev]);
       if (settings.notificationsEnabled) {
-        notifyTransactionDetected(parsed, settings.currencySymbol);
+        const { notifyTransactionDetected } = await import('./services/localNotifications');
+        await notifyTransactionDetected(parsed, settings.currencySymbol, settings.locale);
       }
     });
     return stopListening;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.currencySymbol, transactions, pendingNotifications]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.currencySymbol, settings.locale, transactions, pendingNotifications]);
 
 
   // Passcode lockout cooldown ticker
@@ -810,40 +888,50 @@ export default function App() {
   }, [passcodeLockedUntil]);
 
   useEffect(() => {
-    localStorage.setItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
+    safeSetItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
   }, [pendingNotifications]);
 
   // Real-time Push-Style Budget Notification Monitor (80% and 100% Thresholds)
   useEffect(() => {
     if (!settings.notificationsEnabled || settings.budgetAlertsEnabled === false) return;
-    const newAlerts = checkBudgetThresholds(transactions, categories, settings.currencySymbol);
+    const newAlerts = checkBudgetThresholds(transactions, categories, settings.currencySymbol, undefined, settings.locale);
     if (newAlerts && newAlerts.length > 0) {
       setActiveBudgetPushAlert(newAlerts[0]);
     }
-  }, [transactions, categories, settings.currencySymbol, settings.notificationsEnabled, settings.budgetAlertsEnabled]);
+  }, [transactions, categories, settings.currencySymbol, settings.locale, settings.notificationsEnabled, settings.budgetAlertsEnabled]);
 
   // Passcode verification with brute-force lockout protection
-  const handlePasscodeUnlock = (e: React.FormEvent) => {
+  const handlePasscodeUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (passcodeLockedUntil > Date.now()) return;
+    if (passcodeLockedUntil > Date.now() || passcodeBusyRef.current) return;
+    passcodeBusyRef.current = true;
+    setPasscodeBusy(true);
+    setPasscodeOperationError('');
 
-    if (inputPasscode === settings.passcode) {
-      setIsUnlocked(true);
-      sessionStorage.setItem('tmf_session_unlocked', 'true');
-      localStorage.removeItem('tmf_passcode_lock_until');
-      setPasscodeError(false);
-      setPasscodeAttempts(0);
-      setInputPasscode('');
-    } else {
-      const nextAttempts = passcodeAttempts + 1;
-      setPasscodeAttempts(nextAttempts);
-      setPasscodeError(true);
-      setInputPasscode('');
-      if (nextAttempts >= MAX_PASSCODE_ATTEMPTS) {
-        const lockUntil = Date.now() + PASSCODE_LOCKOUT_MS;
-        setPasscodeLockedUntil(lockUntil);
-        localStorage.setItem('tmf_passcode_lock_until', lockUntil.toString());
+    try {
+      if (await verifyPasscode(inputPasscode, settings)) {
+        setIsUnlocked(true);
+        localStorage.removeItem('tmf_passcode_lock_until');
+        setPasscodeError(false);
+        setPasscodeAttempts(0);
+        setInputPasscode('');
+      } else {
+        const nextAttempts = passcodeAttempts + 1;
+        setPasscodeAttempts(nextAttempts);
+        setPasscodeError(true);
+        setInputPasscode('');
+        if (nextAttempts >= MAX_PASSCODE_ATTEMPTS) {
+          const lockUntil = Date.now() + PASSCODE_LOCKOUT_MS;
+          setPasscodeLockedUntil(lockUntil);
+          safeSetItem('tmf_passcode_lock_until', lockUntil.toString());
+        }
       }
+    } catch (error) {
+      console.warn('Could not verify passcode:', error);
+      setPasscodeOperationError('Could not verify your PIN. Please try again on a secure connection.');
+    } finally {
+      passcodeBusyRef.current = false;
+      setPasscodeBusy(false);
     }
   };
 
@@ -914,11 +1002,7 @@ export default function App() {
         iconName: 'Tag',
         subcategories: ['General'],
       };
-      setCategories((prev) => {
-        const updated = [...prev, newUncat];
-        localStorage.setItem('tmf_categories', JSON.stringify(updated));
-        return updated;
-      });
+      setCategories(previous => [...previous, newUncat]);
     }
 
     return {
@@ -1042,57 +1126,44 @@ export default function App() {
 
   // Transaction Actions
   const handleSaveTransaction = (tx: Transaction) => {
-    setTransactions((prev) => {
-      const idx = prev.findIndex((t) => t.id === tx.id);
-      if (idx >= 0) {
-        const oldTx = prev[idx];
-        const revertDelta = oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount;
-        const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
-        const oldTarget = resolveAccountId(accounts, oldTx.paymentMethod) || oldTx.paymentMethod;
-        const newTarget = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
-        setAccounts((prevAccs) => {
-          let updated = adjustAccountBalance(prevAccs, oldTarget, revertDelta);
-          updated = adjustAccountBalance(updated, newTarget, newDelta);
-          return updated;
-        });
-
-        const copy = [...prev];
-        copy[idx] = tx;
-        return copy;
-      }
-
-      // New Transaction
-      const newDelta = tx.type === 'credit' ? tx.amount : -tx.amount;
-      const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
-      setAccounts((prevAccs) => adjustAccountBalance(prevAccs, target, newDelta));
-      return [tx, ...prev];
+    const oldTx = transactions.find(t => t.id === tx.id);
+    const newTarget = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
+    const oldTarget = oldTx && (resolveAccountId(accounts, oldTx.paymentMethod) || oldTx.paymentMethod);
+    setAccounts(previous => {
+      const reverted = oldTx
+        ? adjustAccountBalance(previous, oldTarget, oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount)
+        : previous;
+      return adjustAccountBalance(reverted, newTarget, tx.type === 'credit' ? tx.amount : -tx.amount);
     });
+    setTransactions(previous => previous.some(t => t.id === tx.id)
+      ? previous.map(t => t.id === tx.id ? tx : t)
+      : [tx, ...previous]);
     setEditingTransaction(null);
   };
 
   const handleDeleteTransaction = (id: string) => {
     // Record locally deleted ID so it is never reloaded from cloud or initial state
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_tx_ids') || '[]'));
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
     deletedIds.add(id);
-    localStorage.setItem('tmf_deleted_tx_ids', JSON.stringify(Array.from(deletedIds)));
+    safeSetItem('tmf_deleted_tx_ids', JSON.stringify(Array.from(deletedIds)));
 
-    setTransactions((prev) => {
-      const tx = prev.find((t) => t.id === id);
-      if (tx) {
-        const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
-        const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
-        setAccounts((prevAccs) => adjustAccountBalance(prevAccs, target, revertDelta));
-      }
-      const updated = prev.filter((t) => t.id !== id);
-      localStorage.setItem('tmf_transactions', JSON.stringify(updated));
-      return updated;
+    const tx = transactions.find(t => t.id === id);
+    if (tx) {
+      const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
+      const target = resolveAccountId(accounts, tx.paymentMethod) || tx.paymentMethod;
+      setAccounts(previous => adjustAccountBalance(previous, target, revertDelta));
+    }
+    setTransactions(previous => previous.filter(t => t.id !== id));
+    deleteReceiptAttachmentsForTransaction(id).catch((error: unknown) => {
+      showToast(
+        `Transaction deleted, but its local receipt image could not be removed: ${error instanceof Error ? error.message : 'Unknown storage error'}`,
+        'warning'
+      );
     });
 
     if (isCloudBackendConfigured()) {
       deleteTransactionFromSupabase(id).then((result) => {
-        if (!result.success) {
-          setSyncStatus({ collection: 'delete-transaction', ...result, timestamp: Date.now() });
-        }
+        acknowledgeCloudDeletion('tmf_deleted_tx_ids', [id], result);
       });
     }
   };
@@ -1118,24 +1189,17 @@ export default function App() {
   };
 
   const handleDeleteAccount = (id: string) => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_account_ids') || '[]'));
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
     deletedIds.add(id);
-    localStorage.setItem('tmf_deleted_account_ids', JSON.stringify(Array.from(deletedIds)));
+    safeSetItem('tmf_deleted_account_ids', JSON.stringify(Array.from(deletedIds)));
 
-    setAccounts((prev) => {
-      const accToDelete = prev.find((a) => a.id === id);
-      const accName = accToDelete ? accToDelete.name : 'Account';
-      showToast(`${accName} deleted`, 'warning');
-      const updated = prev.filter((a) => a.id !== id);
-      localStorage.setItem('tmf_accounts', JSON.stringify(updated));
-      return updated;
-    });
+    const accName = accounts.find(a => a.id === id)?.name || 'Account';
+    setAccounts(previous => previous.filter(a => a.id !== id));
+    showToast(`${accName} deleted`, 'warning');
 
     if (isCloudBackendConfigured()) {
       deleteAccountFromSupabase(id).then((result) => {
-        if (!result.success) {
-          setSyncStatus({ collection: 'delete-account', ...result, timestamp: Date.now() });
-        }
+        acknowledgeCloudDeletion('tmf_deleted_account_ids', [id], result);
       });
     }
   };
@@ -1189,18 +1253,13 @@ export default function App() {
         });
 
         if (hasChanges) {
-          localStorage.setItem('tmf_transactions', JSON.stringify(updated));
           return updated;
         }
         return prevTx;
       });
     }
 
-    setCategories((prev) => {
-      const updated = prev.map((c) => (c.id === cat.id ? cat : c));
-      localStorage.setItem('tmf_categories', JSON.stringify(updated));
-      return updated;
-    });
+    setCategories(previous => previous.map(c => c.id === cat.id ? cat : c));
   };
 
   const handleDeleteCategory = (id: string) => {
@@ -1246,7 +1305,6 @@ export default function App() {
               }
               return tx;
             });
-            localStorage.setItem('tmf_transactions', JSON.stringify(updated));
             return updated;
           });
         }
@@ -1267,11 +1325,9 @@ export default function App() {
               subcategories: ['General'],
             };
             const updated = [...filtered, uncategorizedCategory];
-            localStorage.setItem('tmf_categories', JSON.stringify(updated));
             return updated;
           }
 
-          localStorage.setItem('tmf_categories', JSON.stringify(filtered));
           return filtered;
         });
 
@@ -1330,19 +1386,11 @@ export default function App() {
       note,
     };
 
-    setTransactions((prev) => {
-      const updated = [newTx, ...prev];
-      localStorage.setItem('tmf_transactions', JSON.stringify(updated));
-      return updated;
-    });
+    setTransactions(previous => [newTx, ...previous]);
 
     if (finalAccountId) {
       const delta = type === 'credit' ? amount : -amount;
-      setAccounts((prevAccs) => {
-        const updated = adjustAccountBalance(prevAccs, finalAccountId, delta);
-        localStorage.setItem('tmf_accounts', JSON.stringify(updated));
-        return updated;
-      });
+      setAccounts(previous => adjustAccountBalance(previous, finalAccountId, delta));
     }
   };
 
@@ -1376,21 +1424,15 @@ export default function App() {
   };
 
   const handleDeleteInvestment = (id: string) => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_investment_ids') || '[]'));
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_investment_ids'));
     deletedIds.add(id);
-    localStorage.setItem('tmf_deleted_investment_ids', JSON.stringify(Array.from(deletedIds)));
+    safeSetItem('tmf_deleted_investment_ids', JSON.stringify(Array.from(deletedIds)));
 
-    setInvestments((prev) => {
-      const updated = prev.filter((inv) => inv.id !== id);
-      localStorage.setItem('tmf_investments', JSON.stringify(updated));
-      return updated;
-    });
+    setInvestments(previous => previous.filter(inv => inv.id !== id));
 
     if (isCloudBackendConfigured()) {
       deleteInvestmentFromSupabase(id).then((result) => {
-        if (!result.success) {
-          setSyncStatus({ collection: 'delete-investment', ...result, timestamp: Date.now() });
-        }
+        acknowledgeCloudDeletion('tmf_deleted_investment_ids', [id], result);
       });
     }
   };
@@ -1559,21 +1601,15 @@ export default function App() {
   };
 
   const handleDeleteLoan = (loanId: string) => {
-    const deletedIds = new Set<string>(JSON.parse(localStorage.getItem('tmf_deleted_loan_ids') || '[]'));
+    const deletedIds = new Set(safeGetStringArray('tmf_deleted_loan_ids'));
     deletedIds.add(loanId);
-    localStorage.setItem('tmf_deleted_loan_ids', JSON.stringify(Array.from(deletedIds)));
+    safeSetItem('tmf_deleted_loan_ids', JSON.stringify(Array.from(deletedIds)));
 
-    setLoans((prev) => {
-      const updated = prev.filter((l) => l.id !== loanId);
-      localStorage.setItem('tmf_loans', JSON.stringify(updated));
-      return updated;
-    });
+    setLoans(previous => previous.filter(loan => loan.id !== loanId));
 
     if (isCloudBackendConfigured()) {
       deleteLoanFromSupabase(loanId).then((result) => {
-        if (!result.success) {
-          setSyncStatus({ collection: 'delete-loan', ...result, timestamp: Date.now() });
-        }
+        acknowledgeCloudDeletion('tmf_deleted_loan_ids', [loanId], result);
       });
     }
   };
@@ -1662,7 +1698,7 @@ export default function App() {
       source: 'Manual',
     });
 
-    showToast(`EMI payment of ${settings.currencySymbol}${amount.toLocaleString('en-IN')} confirmed and recorded!`, 'success');
+    showToast(`EMI payment of ${formatMoney(amount, { symbol: settings.currencySymbol, locale: settings.locale })} confirmed and recorded!`, 'success');
   };
 
   const handleSkipInstallment = (loanId: string, installmentNumber: number) => {
@@ -1706,13 +1742,13 @@ export default function App() {
         subcategory: 'Redemption',
         accountId: redemption.creditedAccountId,
         date: redemption.date,
-        note: `Gross proceeds: ${settings.currencySymbol}${redemption.grossProceeds.toLocaleString('en-IN')}, Fees: ${settings.currencySymbol}${(redemption.charges || 0).toLocaleString('en-IN')}, Tax: ${settings.currencySymbol}${(redemption.taxes || 0).toLocaleString('en-IN')}, Realized P&L: ${redemption.realizedGainLoss >= 0 ? '+' : ''}${settings.currencySymbol}${redemption.realizedGainLoss.toLocaleString('en-IN')}`,
+        note: `Gross proceeds: ${formatMoney(redemption.grossProceeds, { symbol: settings.currencySymbol, locale: settings.locale })}, Fees: ${formatMoney(redemption.charges || 0, { symbol: settings.currencySymbol, locale: settings.locale })}, Tax: ${formatMoney(redemption.taxes || 0, { symbol: settings.currencySymbol, locale: settings.locale })}, Realized P&L: ${redemption.realizedGainLoss >= 0 ? '+' : ''}${formatMoney(redemption.realizedGainLoss, { symbol: settings.currencySymbol, locale: settings.locale })}`,
         source: 'Manual',
       });
     }
 
     showToast(
-      `Redeemed successfully! ${settings.currencySymbol}${redemption.netCredited.toLocaleString('en-IN')} credited to account.`,
+      `Redeemed successfully! ${formatMoney(redemption.netCredited, { symbol: settings.currencySymbol, locale: settings.locale })} credited to account.`,
       'success'
     );
   };
@@ -1766,11 +1802,11 @@ export default function App() {
         const newSettings = { ...settings, sampleDataLoaded: true };
         setSettings(newSettings);
 
-        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
-        localStorage.setItem('tmf_accounts', JSON.stringify(INITIAL_ACCOUNTS));
-        localStorage.setItem('tmf_transactions', JSON.stringify(INITIAL_TRANSACTIONS));
-        localStorage.setItem('tmf_investments', JSON.stringify(INITIAL_INVESTMENTS));
-        localStorage.setItem('tmf_loans', JSON.stringify(INITIAL_LOANS));
+        safeSetItem('tmf_settings', JSON.stringify(newSettings));
+        safeSetItem('tmf_accounts', JSON.stringify(INITIAL_ACCOUNTS));
+        safeSetItem('tmf_transactions', JSON.stringify(INITIAL_TRANSACTIONS));
+        safeSetItem('tmf_investments', JSON.stringify(INITIAL_INVESTMENTS));
+        safeSetItem('tmf_loans', JSON.stringify(INITIAL_LOANS));
 
         if (isCloudBackendConfigured()) {
           syncAccountsToSupabase(INITIAL_ACCOUNTS);
@@ -1793,6 +1829,13 @@ export default function App() {
       intent: 'warning',
       icon: 'trash',
       onConfirm: async () => {
+        const removals = [
+          { key: 'tmf_deleted_tx_ids', ids: Array.from(SAMPLE_TRANSACTION_IDS), remove: deleteMultipleTransactionsFromSupabase },
+          { key: 'tmf_deleted_account_ids', ids: Array.from(SAMPLE_ACCOUNT_IDS), remove: deleteMultipleAccountsFromSupabase },
+          { key: 'tmf_deleted_investment_ids', ids: Array.from(SAMPLE_INVESTMENT_IDS), remove: deleteMultipleInvestmentsFromSupabase },
+          { key: 'tmf_deleted_loan_ids', ids: Array.from(SAMPLE_LOAN_IDS), remove: deleteMultipleLoansFromSupabase },
+        ];
+        removals.forEach(item => trackDeletedIds(item.key, item.ids));
         const nextTx = transactions.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id));
         const nextAcc = accounts.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id));
         const nextInv = investments.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id));
@@ -1806,17 +1849,16 @@ export default function App() {
         const newSettings = { ...settings, sampleDataLoaded: false };
         setSettings(newSettings);
 
-        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
-        localStorage.setItem('tmf_transactions', JSON.stringify(nextTx));
-        localStorage.setItem('tmf_accounts', JSON.stringify(nextAcc));
-        localStorage.setItem('tmf_investments', JSON.stringify(nextInv));
-        localStorage.setItem('tmf_loans', JSON.stringify(nextLoans));
+        safeSetItem('tmf_settings', JSON.stringify(newSettings));
+        safeSetItem('tmf_transactions', JSON.stringify(nextTx));
+        safeSetItem('tmf_accounts', JSON.stringify(nextAcc));
+        safeSetItem('tmf_investments', JSON.stringify(nextInv));
+        safeSetItem('tmf_loans', JSON.stringify(nextLoans));
 
         if (isCloudBackendConfigured()) {
-          deleteMultipleTransactionsFromSupabase(Array.from(SAMPLE_TRANSACTION_IDS));
-          deleteMultipleAccountsFromSupabase(Array.from(SAMPLE_ACCOUNT_IDS));
-          deleteMultipleInvestmentsFromSupabase(Array.from(SAMPLE_INVESTMENT_IDS));
-          deleteMultipleLoansFromSupabase(Array.from(SAMPLE_LOAN_IDS));
+          await Promise.all(removals.map(async item =>
+            acknowledgeCloudDeletion(item.key, item.ids, await item.remove(item.ids))
+          ));
         }
 
         showToast('Sample demo data removed', 'warning');
@@ -1827,60 +1869,169 @@ export default function App() {
   // Data Reset & Export Backup
   const handleExportBackupJSON = () => {
     const backupData = {
+      formatVersion: 1,
       settings,
       categories,
+      accounts,
       transactions,
       investments,
       loans,
+      savingsGoals,
       exportDate: new Date().toISOString(),
     };
-    const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(backupData, null, 2))}`;
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
-    downloadAnchor.setAttribute('href', jsonString);
+    downloadAnchor.setAttribute('href', url);
     downloadAnchor.setAttribute('download', `MTracker_Backup_${todayLocalISO()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
     showToast('Financial backup downloaded (JSON)', 'info');
+  };
+
+  const handleRestoreBackupJSON = (backup: BackupRestoreData) => {
+    const restoredCategories = ensureMandatoryCategories(backup.categories);
+    const restoredAccounts = backup.accounts ?? accounts;
+    const restoredSavingsGoals = backup.savingsGoals ?? savingsGoals;
+    const legacyAccountNote = backup.accounts === undefined
+      ? ' This older backup does not include accounts, so current accounts will be kept.'
+      : '';
+    const legacyGoalsNote = backup.savingsGoals === undefined
+      ? ' This backup does not include savings goals, so current goals will be kept.'
+      : '';
+
+    setConfirmConfig({
+      title: 'Replace Data With This Backup?',
+      description: `This will replace ${transactions.length} transactions, ${accounts.length} accounts, ${investments.length} investments, ${loans.length} loans, ${savingsGoals.length} savings goals, and ${categories.length} categories with ${backup.transactions.length} transactions, ${restoredAccounts.length} accounts, ${backup.investments.length} investments, ${backup.loans.length} loans, ${restoredSavingsGoals.length} savings goals, and ${restoredCategories.length} categories from the selected backup. This action cannot be undone.${legacyAccountNote}${legacyGoalsNote}${cloudReady ? ' Your signed-in cloud data will also be replaced.' : ''}`,
+      confirmLabel: 'Replace With Backup',
+      cancelLabel: 'Cancel',
+      intent: 'danger',
+      icon: 'warning',
+      onConfirm: async () => {
+        if (cloudReady) {
+          const deletion = await deleteAllUserDataFromSupabase();
+          if (!deletion.success) {
+            setSyncStatus({ collection: 'backup-restore', ...deletion, timestamp: Date.now() });
+            showToast(`Could not restore backup because cloud data could not be cleared: ${deletion.error || 'Unknown error'}`, 'error');
+            return;
+          }
+        }
+
+        const tombstoneKeys = [
+          'tmf_deleted_tx_ids',
+          'tmf_deleted_account_ids',
+          'tmf_deleted_investment_ids',
+          'tmf_deleted_loan_ids',
+        ];
+        tombstoneKeys.forEach((key) => safeSetItem(key, JSON.stringify([])));
+        lastPushedRef.current = {};
+
+        setSettings(backup.settings);
+        setCategories(restoredCategories);
+        setAccounts(restoredAccounts);
+        setTransactions(backup.transactions);
+        setInvestments(backup.investments);
+        setLoans(backup.loans);
+        setSavingsGoals(restoredSavingsGoals);
+        setPendingNotifications([]);
+
+        showToast('Backup restored successfully.', 'success');
+      },
+    });
+  };
+
+  const handleImportTransactions = (imported: Transaction[]) => {
+    const existingIds = new Set(transactions.map((transaction) => transaction.id));
+    const importedIds = new Set<string>();
+    const added = imported.filter((transaction) => {
+      if (existingIds.has(transaction.id) || importedIds.has(transaction.id)) return false;
+      importedIds.add(transaction.id);
+      return true;
+    });
+
+    if (added.length > 0) {
+      removeDeletedIds('tmf_deleted_tx_ids', added.map((transaction) => transaction.id));
+      setTransactions((current) => [...added.filter((transaction) => !current.some((item) => item.id === transaction.id)), ...current]);
+    }
+
+    return { added: added.length, duplicates: imported.length - added.length };
   };
 
   const handleRequestResetAllData = () => {
     setConfirmConfig({
       title: 'Reset All Financial Records?',
-      description: 'Are you sure you want to delete all financial records? All transactions, accounts, investments, loans, and notifications will be permanently erased.',
+      description: 'Are you sure you want to delete all financial records? All transactions, accounts, investments, loans, savings goals, and notifications will be permanently erased.',
       confirmLabel: 'Clear Everything',
       cancelLabel: 'Keep Data',
       intent: 'danger',
       icon: 'warning',
       onConfirm: async () => {
+        let receiptCleanupError: string | null = null;
+        try {
+          await deleteAllReceiptAttachments();
+        } catch (error) {
+          receiptCleanupError = error instanceof Error ? error.message : 'Unknown storage error';
+        }
+        const deletedSnapshots = [
+          { key: 'tmf_deleted_tx_ids', ids: transactions.map(item => item.id) },
+          { key: 'tmf_deleted_account_ids', ids: accounts.map(item => item.id) },
+          { key: 'tmf_deleted_investment_ids', ids: investments.map(item => item.id) },
+          { key: 'tmf_deleted_loan_ids', ids: loans.map(item => item.id) },
+        ].map(item => ({ key: item.key, ids: trackDeletedIds(item.key, item.ids) }));
         const newSettings = { ...settings, sampleDataLoaded: false };
         setSettings(newSettings);
 
-        localStorage.setItem('tmf_settings', JSON.stringify(newSettings));
-        localStorage.setItem('tmf_transactions', '[]');
-        localStorage.setItem('tmf_accounts', '[]');
-        localStorage.setItem('tmf_investments', '[]');
-        localStorage.setItem('tmf_loans', '[]');
-        localStorage.setItem('tmf_pending_notifications', '[]');
+        safeSetItem('tmf_settings', JSON.stringify(newSettings));
+        safeSetItem('tmf_transactions', '[]');
+        safeSetItem('tmf_accounts', '[]');
+        safeSetItem('tmf_investments', '[]');
+        safeSetItem('tmf_loans', '[]');
+        safeSetItem('tmf_savings_goals', '[]');
+        safeSetItem('tmf_pending_notifications', '[]');
 
         setTransactions([]);
         setAccounts([]);
         setInvestments([]);
         setLoans([]);
+        setSavingsGoals([]);
         setPendingNotifications([]);
         resetDuplicateMemory();
 
         if (isCloudBackendConfigured()) {
-          await deleteAllUserDataFromSupabase();
+          const result = await deleteAllUserDataFromSupabase();
+          if (result.success) {
+            deletedSnapshots.forEach(item => acknowledgeCloudDeletion(item.key, item.ids, result));
+          } else {
+            setSyncStatus({ collection: 'delete-all-data', ...result, timestamp: Date.now() });
+          }
         }
 
-        showToast('All local financial records cleared', 'error');
+        showToast(
+          receiptCleanupError
+            ? `Financial records were cleared, but local receipt images could not be removed: ${receiptCleanupError}`
+            : 'All local financial records cleared',
+          receiptCleanupError ? 'warning' : 'error'
+        );
       },
     });
   };
 
+  if (passcodeMigrationError) {
+    return (
+      <div className="min-h-screen bg-obsidian text-white font-mono flex flex-col items-center justify-center gap-4 p-6">
+        <p role="alert">Could not secure your existing passcode. Your app remains locked.</p>
+        <button type="button" className="bg-red-600 rounded-xl px-4 py-2" onClick={() => {
+          setPasscodeMigrationError(false);
+          setMigrationRetry(previous => previous + 1);
+        }}>Retry</button>
+      </div>
+    );
+  }
+
   // 0. App Launch Motion Loader
-  if (isAppLoading) {
+  if (isAppLoading || passcodeMigrationPending) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-obsidian text-white font-mono p-6 relative overflow-hidden select-none">
         {/* Ambient Glowing Red Backdrop */}
@@ -1939,13 +2090,15 @@ export default function App() {
   // password-recovery link).
   if (!authLoading && (!authUser || isPasswordRecovery) && isCloudBackendConfigured()) {
     return (
-      <AuthModal
-        initialMode={isPasswordRecovery ? 'set_new_password' : 'login'}
-        canClose={false}
-        onClose={() => {}}
-        onSuccess={handleAuthSuccess}
-        settings={settings}
-      />
+      <Suspense fallback={<div role="status" className="min-h-screen bg-black" />}>
+        <AuthModal
+          initialMode={isPasswordRecovery ? 'set_new_password' : 'login'}
+          canClose={false}
+          onClose={() => {}}
+          onSuccess={handleAuthSuccess}
+          settings={settings}
+        />
+      </Suspense>
     );
   }
 
@@ -1970,13 +2123,14 @@ export default function App() {
               type="password"
               maxLength={6}
               autoFocus
-              disabled={passcodeLockedUntil > Date.now()}
+              disabled={passcodeBusy || passcodeLockedUntil > Date.now()}
               value={inputPasscode}
               onChange={(e) => setInputPasscode(e.target.value)}
               placeholder="••••"
               className="w-full text-center tracking-[0.5em] text-2xl py-3 bg-obsidian border border-nothing rounded-2xl font-mono text-white focus:outline-none focus:border-red-600 disabled:opacity-40"
             />
 
+            {passcodeOperationError && <p role="alert" className="text-xs text-red-400">{passcodeOperationError}</p>}
             {passcodeLockedUntil > Date.now() ? (
               <div className="text-xs font-mono text-red-500">
                 Too many incorrect attempts. Try again in {passcodeLockRemaining}s.
@@ -1991,7 +2145,7 @@ export default function App() {
 
             <button
               type="submit"
-              disabled={passcodeLockedUntil > Date.now()}
+              disabled={passcodeBusy || passcodeLockedUntil > Date.now()}
               className="w-full py-3 bg-white text-black font-mono font-bold text-xs uppercase rounded-xl hover:bg-neutral-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Unlock Application
@@ -2004,7 +2158,9 @@ export default function App() {
 
 
   return (
-    <div className="flex h-screen bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
+    <MoneyLocaleContext.Provider value={settings.locale}>
+    <div className="app-viewport flex bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       {/* Nothing Desktop Navigation Sidebar */}
       <div className="hidden lg:block h-full shrink-0">
         <Sidebar
@@ -2086,7 +2242,14 @@ export default function App() {
         )}
 
         {/* Scrollable View Content */}
-        <main ref={mainScrollRef} className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
+        <main id="main-content" ref={mainScrollRef} tabIndex={-1} aria-label="Main content" className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative">
+          <Suspense
+            fallback={
+              <div role="status" className="py-8 text-center text-xs font-mono text-[#888]">
+                Loading section…
+              </div>
+            }
+          >
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -2102,6 +2265,8 @@ export default function App() {
               investments={investments}
               loans={loans}
               accounts={accounts}
+              savingsGoals={savingsGoals}
+              onSavingsGoalsChange={setSavingsGoals}
               pendingNotifications={pendingNotifications}
               onOpenNotifications={() => setIsNotificationModalOpen(true)}
               onOpenAddTransaction={() => handleOpenAddModal()}
@@ -2129,6 +2294,7 @@ export default function App() {
               onAddTransaction={() => handleOpenAddModal('Expense')}
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
+              onImportTransactions={handleImportTransactions}
               currencySymbol={settings.currencySymbol}
               settings={settings}
               onUpdateSettings={setSettings}
@@ -2211,6 +2377,7 @@ export default function App() {
               onUpdateAccount={handleUpdateAccount}
               onDeleteAccount={handleDeleteAccount}
               onExportBackupJSON={handleExportBackupJSON}
+              onRestoreBackupJSON={handleRestoreBackupJSON}
               onResetAllData={handleRequestResetAllData}
               onLoadSampleData={handleRequestLoadSampleData}
               onRemoveSampleData={handleRequestRemoveSampleData}
@@ -2222,6 +2389,7 @@ export default function App() {
           )}
             </motion.div>
           </AnimatePresence>
+          </Suspense>
         </main>
 
         {/* Global Floating Action Button for Home, Txns, Invest, Loans */}
@@ -2253,25 +2421,29 @@ export default function App() {
       {/* Real-time Push-Style Budget Notification Banner (80% / 100% Thresholds) */}
       <AnimatePresence>
         {activeBudgetPushAlert && (
-          <BudgetPushNotificationBanner
-            alert={activeBudgetPushAlert}
-            currencySymbol={settings.currencySymbol}
-            onDismiss={() => setActiveBudgetPushAlert(null)}
-            onNavigateToCustomisations={() => {
-              setActiveBudgetPushAlert(null);
-              setActiveTab('customisations');
-            }}
-          />
+          <Suspense fallback={null}>
+            <BudgetPushNotificationBanner
+              alert={activeBudgetPushAlert}
+              currencySymbol={settings.currencySymbol}
+              onDismiss={() => setActiveBudgetPushAlert(null)}
+              onNavigateToCustomisations={() => {
+                setActiveBudgetPushAlert(null);
+                setActiveTab('customisations');
+              }}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
       {/* Confirmation Modal Dialog for Destructive / Data Actions */}
       <AnimatePresence>
         {confirmConfig && (
-          <ConfirmationModal
-            config={confirmConfig}
-            onClose={() => setConfirmConfig(null)}
-          />
+          <Suspense fallback={null}>
+            <ConfirmationModal
+              config={confirmConfig}
+              onClose={() => setConfirmConfig(null)}
+            />
+          </Suspense>
         )}
       </AnimatePresence>
 
@@ -2279,98 +2451,109 @@ export default function App() {
 
       {/* 1. User Profile Modal */}
       {isProfileModalOpen && (
-        <UserProfileModal
-          settings={settings}
-          accounts={accounts}
-          onClose={() => setIsProfileModalOpen(false)}
-          onUpdateSettings={setSettings}
-          onExportData={handleExportBackupJSON}
-          onSignOut={handleSignOut}
-        />
+        <Suspense fallback={null}>
+          <UserProfileModal
+            settings={settings}
+            accounts={accounts}
+            onClose={() => setIsProfileModalOpen(false)}
+            onUpdateSettings={setSettings}
+            onExportData={handleExportBackupJSON}
+            onSignOut={handleSignOut}
+          />
+        </Suspense>
       )}
 
       {/* 2. UPI/SMS Intercept Notification Prompt Modal (The core requested feature!) */}
       {isNotificationModalOpen && (
-        <NotificationPromptModal
-          notifications={pendingNotifications}
-          onConfirmAdd={handleConfirmAddNotification}
-          onConfirmEdit={handleConfirmEditNotification}
-          onIgnore={handleIgnoreNotification}
-          onClose={() => setIsNotificationModalOpen(false)}
-          currencySymbol={settings.currencySymbol}
-        />
+        <Suspense fallback={null}>
+          <NotificationPromptModal
+            notifications={pendingNotifications}
+            onConfirmAdd={handleConfirmAddNotification}
+            onConfirmEdit={handleConfirmEditNotification}
+            onIgnore={handleIgnoreNotification}
+            onClose={() => setIsNotificationModalOpen(false)}
+            currencySymbol={settings.currencySymbol}
+          />
+        </Suspense>
       )}
 
       {/* 2.5 EMI Repayment Installment Confirmation Prompt Modal */}
       {isEmiModalOpen && pendingEmiRequests.length > 0 && (
-        <EmiConfirmationPromptModal
-          requests={pendingEmiRequests}
-          accounts={accounts}
-          currencySymbol={settings.currencySymbol}
-          onConfirm={(reqId, accountId, notes) => {
-            const req = pendingEmiRequests.find((r) => r.id === reqId);
-            if (req) {
-              handleConfirmInstallmentPayment(
-                req.loanId,
-                req.installmentNumber,
-                accountId,
-                req.amount,
-                todayLocalISO(),
-                notes
-              );
-            }
-            if (pendingEmiRequests.length <= 1) {
+        <Suspense fallback={null}>
+          <EmiConfirmationPromptModal
+            requests={pendingEmiRequests}
+            accounts={accounts}
+            currencySymbol={settings.currencySymbol}
+            onConfirm={(reqId, accountId, notes) => {
+              const req = pendingEmiRequests.find((r) => r.id === reqId);
+              if (req) {
+                handleConfirmInstallmentPayment(
+                  req.loanId,
+                  req.installmentNumber,
+                  accountId,
+                  req.amount,
+                  todayLocalISO(),
+                  notes
+                );
+              }
+              if (pendingEmiRequests.length <= 1) {
+                setIsEmiModalOpen(false);
+              }
+            }}
+            onSkip={(reqId) => {
+              const req = pendingEmiRequests.find((r) => r.id === reqId);
+              if (req) {
+                handleSkipInstallment(req.loanId, req.installmentNumber);
+              }
+              if (pendingEmiRequests.length <= 1) {
+                setIsEmiModalOpen(false);
+              }
+            }}
+            onRemindLater={() => {
               setIsEmiModalOpen(false);
-            }
-          }}
-          onSkip={(reqId) => {
-            const req = pendingEmiRequests.find((r) => r.id === reqId);
-            if (req) {
-              handleSkipInstallment(req.loanId, req.installmentNumber);
-            }
-            if (pendingEmiRequests.length <= 1) {
-              setIsEmiModalOpen(false);
-            }
-          }}
-          onRemindLater={() => {
-            setIsEmiModalOpen(false);
-            showToast('EMI payment confirmation deferred.', 'info');
-          }}
-          onClose={() => setIsEmiModalOpen(false)}
-        />
+              showToast('EMI payment confirmation deferred.', 'info');
+            }}
+            onClose={() => setIsEmiModalOpen(false)}
+          />
+        </Suspense>
       )}
 
       {/* 3. Simulator Widget for testing notifications */}
       {isSimulatorOpen && (
-        <SmsSimulatorWidget
-          transactions={transactions}
-          pendingNotifications={pendingNotifications}
-          onInterceptNotification={handleInterceptedFromSimulator}
-          onClose={() => setIsSimulatorOpen(false)}
-          currencySymbol={settings.currencySymbol}
-          locationTracking={Boolean(settings.locationTracking)}
-        />
+        <Suspense fallback={null}>
+          <SmsSimulatorWidget
+            transactions={transactions}
+            pendingNotifications={pendingNotifications}
+            onInterceptNotification={handleInterceptedFromSimulator}
+            onClose={() => setIsSimulatorOpen(false)}
+            currencySymbol={settings.currencySymbol}
+            locationTracking={Boolean(settings.locationTracking)}
+          />
+        </Suspense>
       )}
 
       {/* 4. Add / Edit Record Modal */}
       {(isAddModalOpen || Boolean(editingTransaction)) && (
-        <EditTransactionModal
-          transaction={editingTransaction}
-          categories={categories}
-          accounts={accounts}
-          loans={loans}
-          initialCategoryType={modalInitialCategoryType}
-          onSave={handleSaveTransaction}
-          onAddInvestment={handleAddInvestment}
-          onAddLoan={handleAddLoan}
-          onClose={() => {
-            setIsAddModalOpen(false);
-            setEditingTransaction(null);
-          }}
-          currencySymbol={settings.currencySymbol}
-          locationTracking={Boolean(settings.locationTracking)}
-        />
+        <Suspense fallback={null}>
+          <EditTransactionModal
+            transaction={editingTransaction}
+            categories={categories}
+            accounts={accounts}
+            loans={loans}
+            initialCategoryType={modalInitialCategoryType}
+            onSave={handleSaveTransaction}
+            onAddInvestment={handleAddInvestment}
+            onAddLoan={handleAddLoan}
+            onClose={() => {
+              setIsAddModalOpen(false);
+              setEditingTransaction(null);
+            }}
+            currencySymbol={settings.currencySymbol}
+            locationTracking={Boolean(settings.locationTracking)}
+          />
+        </Suspense>
       )}
     </div>
+    </MoneyLocaleContext.Provider>
   );
 }

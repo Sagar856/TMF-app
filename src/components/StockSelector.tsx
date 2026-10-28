@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, TrendingUp, Sparkles, Building2 } from 'lucide-react';
 import { StockItem, POPULAR_STOCKS_CATALOG, searchStocksCatalog } from '../services/stocksDatabase';
@@ -29,6 +30,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
   onSelect,
   onCustomSymbolChange,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSector, setSelectedSector] = useState('All');
@@ -113,7 +115,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           {currentSelectedStock && (
             <span className="text-xs font-bold text-emerald-400">
-              {currencySymbol}{currentSelectedStock.basePrice.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+              {currencySymbol}{formatAmount(currentSelectedStock.basePrice)}
             </span>
           )}
           <ChevronDown className={`w-4 h-4 text-[#888] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -203,7 +205,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
 
                     <div className="text-right shrink-0">
                       <div className="text-xs font-bold text-emerald-400">
-                        {currencySymbol}{stock.basePrice.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                        {currencySymbol}{formatAmount(stock.basePrice)}
                       </div>
                       <div className="text-[9px] text-[#666]">
                         Prev {currencySymbol}{stock.previousClose}

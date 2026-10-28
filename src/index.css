@@ -66,6 +66,38 @@ body {
   min-height: 100vh;
 }
 
+.app-viewport {
+  height: 100vh;
+  height: 100dvh;
+}
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 200;
+  transform: translateY(calc(-100% - 1rem));
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #111;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+:focus-visible {
+  outline: 3px solid #fb7185 !important;
+  outline-offset: 3px;
+}
+
+main:focus {
+  outline: none;
+}
+
 /* Custom Nothing theme scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
@@ -154,6 +186,7 @@ body {
 .light .bg-\[\#080808\],
 .light .bg-\[\#0a0a0a\],
 .light .bg-\[\#0a0a0c\],
+.light .bg-\[\#0c0c10\]\/95,
 .light .bg-\[\#0c0c0c\],
 .light .bg-\[\#0d0d0d\],
 .light .bg-\[\#0d0d0e\],
@@ -161,19 +194,29 @@ body {
 .light .bg-\[\#0e0e0e\],
 .light .bg-\[\#111\],
 .light .bg-\[\#111111\],
+.light .bg-\[\#111114\],
 .light .bg-\[\#111113\],
 .light .bg-\[\#121212\],
+.light .bg-\[\#121215\],
+.light .bg-\[\#121216\],
+.light .bg-\[\#121217\],
+.light .bg-\[\#121218\],
 .light .bg-\[\#141414\],
 .light .bg-\[\#141416\],
 .light .bg-\[\#141418\],
 .light .bg-\[\#151515\],
+.light .bg-\[\#16161c\],
+.light .bg-\[\#16161e\],
 .light .bg-\[\#18181a\],
+.light .bg-\[\#181818\],
 .light .bg-\[\#18181c\],
+.light .bg-\[\#181822\],
 .light .bg-\[\#181820\],
 .light .bg-\[\#181820\]\/75,
 .light .bg-\[\#181820\]\/80,
 .light .bg-\[\#181820\]\/90,
 .light .bg-\[\#1a1a1a\],
+.light .bg-\[\#1a1a1e\],
 .light .bg-\[\#1f1f1f\],
 .light .bg-\[\#222\],
 .light .bg-\[\#222222\],
@@ -223,12 +266,28 @@ body {
 .light .text-\[\#ddd\],
 .light .text-neutral-100,
 .light .text-slate-100,
-.light .text-zinc-100 {
+.light .text-zinc-100,
+.light .text-neutral-200,
+.light .text-slate-200,
+.light .text-zinc-200 {
   color: #0f172a !important;
+}
+
+.light .text-neutral-300,
+.light .text-slate-300,
+.light .text-zinc-300 {
+  color: #334155 !important;
+}
+
+.light .text-neutral-400,
+.light .text-slate-400,
+.light .text-zinc-400 {
+  color: #475569 !important;
 }
 
 /* 5. Subtitles & Dimmed Text in Light Mode (High Contrast & Legibility) */
 .light .text-\[\#aaa\],
+.light .text-\[\#bbb\],
 .light .text-\[\#ccc\],
 .light .text-\[\#888\],
 .light .text-\[\#777\] {
@@ -292,13 +351,39 @@ body {
 }
 
 /* 7. Modal backdrop overlay in Light Mode */
-.light .bg-black\/85,
-.light .bg-black\/80,
-.light .bg-black\/75,
-.light .bg-black\/70,
-.light .bg-black\/60,
-.light .bg-black\/50 {
+.light .fixed.inset-0.bg-black\/85,
+.light .fixed.inset-0.bg-black\/80,
+.light .fixed.inset-0.bg-black\/75,
+.light .fixed.inset-0.bg-black\/70,
+.light .fixed.inset-0.bg-black\/60,
+.light .absolute.inset-0.bg-black\/85,
+.light .absolute.inset-0.bg-black\/80,
+.light .absolute.inset-0.bg-black\/75,
+.light .absolute.inset-0.bg-black\/70,
+.light .absolute.inset-0.bg-black\/60 {
   background-color: rgba(15, 23, 42, 0.45) !important;
+}
+
+.light .bg-black\/50:not(.fixed):not(.absolute),
+.light .bg-black\/60:not(.fixed):not(.absolute) {
+  background-color: #f1f5f9 !important;
+  color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+}
+
+.light .bg-black {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+.light .bg-black\/80:not(.fixed):not(.absolute) {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+  border-color: #fde68a !important;
+}
+
+.light .bg-black\/80:not(.fixed):not(.absolute) * {
+  color: #92400e !important;
 }
 
 /* 8. Colored buttons & badges MUST retain WHITE text in Light Mode */
@@ -314,12 +399,21 @@ body {
   color: #ffffff !important;
 }
 
+/* Deepen button fills that otherwise fail contrast with white labels. */
+.light .bg-emerald-600 {
+  background-color: #047857 !important;
+}
+
+.light .bg-amber-600 {
+  background-color: #b45309 !important;
+}
+
 /* 9. Key text accents in Light Mode */
 .light .text-emerald-400 { color: #047857 !important; }
-.light .text-emerald-500 { color: #059669 !important; }
-.light .text-red-400 { color: #dc2626 !important; }
-.light .text-red-500 { color: #ef4444 !important; }
-.light .text-red-600 { color: #dc2626 !important; }
+.light .text-emerald-500 { color: #047857 !important; }
+.light .text-red-400 { color: #b91c1c !important; }
+.light .text-red-500 { color: #dc2626 !important; }
+.light .text-red-600 { color: #b91c1c !important; }
 .light .text-amber-400 { color: #b45309 !important; }
 .light .text-blue-400 { color: #1d4ed8 !important; }
 .light .text-cyan-400 { color: #0e7490 !important; }
@@ -404,6 +498,24 @@ body {
   border-color: #fde68a !important;
 }
 
+.light .bg-purple-900,
+.light .bg-purple-900\/50,
+.light .bg-purple-900\/60,
+.light .bg-purple-900\/70,
+.light .bg-purple-900\/80 {
+  background-color: #f3e8ff !important;
+  color: #6b21a8 !important;
+  border-color: #ddd6fe !important;
+}
+
+.light .bg-purple-900 *,
+.light .bg-purple-900\/50 *,
+.light .bg-purple-900\/60 *,
+.light .bg-purple-900\/70 *,
+.light .bg-purple-900\/80 * {
+  color: #6b21a8 !important;
+}
+
 /* 11. Select dropdown options and interactive controls in Light Mode */
 .light select option {
   background-color: #ffffff !important;
@@ -468,6 +580,7 @@ body {
   transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease, background-color 0.2s ease;
   will-change: transform;
 }
+
 .tactile-lift:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px -4px rgba(0, 0, 0, 0.15), 0 2px 6px -2px rgba(0, 0, 0, 0.1);
@@ -490,3 +603,21 @@ body {
   transform: translateY(0px) scale(0.96);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-timeline-duration: 0.01ms !important;
+  }
+
+  .tactile-lift:hover,
+  .tactile-lift:active,
+  .nav-lift:hover,
+  .nav-lift:active {
+    transform: none !important;
+  }
+}

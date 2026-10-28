@@ -1,3 +1,4 @@
+import { safeSetItem } from '../utils/storage';
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   Repeat, 
@@ -32,11 +33,11 @@ import { useScrollFocusSection } from '../hooks/useScrollFocusSection';
 import { CarouselSectionState } from '../hooks/useScrollCarouselGroup';
 import { InfoButton } from './InfoButton';
 import { EmptyState } from './EmptyState';
-import { formatMoney } from '../utils/money';
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 
 import { Transaction, Category, LoanRecord } from '../types/finance';
 import { newId } from '../utils/ids';
-import { todayLocalISO, toLocalISODate, nowLocalTimeHHMM } from '../utils/dates';
+import { todayLocalISO, toLocalISODate, nowLocalTimeHHMM, parseLocalDate } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
 
 export interface CustomRecurringBill {
@@ -93,6 +94,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   contentRef: externalContentRef,
   onToggleExpand: externalToggleExpand,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Self-managed scroll focus if not controlled by parent group
   const selfScroll = useScrollFocusSection({
     enabled: !carouselState,
@@ -347,7 +349,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
         if (scheduleInMonth.length > 0) {
           scheduleInMonth.forEach((inst) => {
-            const dueDateObj = new Date(inst.dueDate);
+            const dueDateObj = parseLocalDate(inst.dueDate);
             const diffTime = dueDateObj.getTime() - referenceDateObj.getTime();
             const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
@@ -541,7 +543,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
     const updated = [newBill, ...customBills];
     setCustomBills(updated);
-    localStorage.setItem('tmf_custom_recurring_bills', JSON.stringify(updated));
+    safeSetItem('tmf_custom_recurring_bills', JSON.stringify(updated));
 
     // Reset Form
     setNewTitle('');
@@ -623,7 +625,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             <div className="text-[10px] text-[#888] mt-0.5 flex items-center gap-2 flex-wrap">
               <span>{monthlyMetrics.totalBillsCount} Monthly Bills</span>
               <span>•</span>
-              <span>Projected Outflow: <strong className="text-red-400">{formatMoney(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}</strong></span>
+              <span>Projected Outflow: <strong className="text-red-400">{formatAmount(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}</strong></span>
             </div>
           </div>
         </div>
@@ -757,28 +759,28 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                   <div className="p-2.5 bg-carbon border border-red-900/40 rounded-xl space-y-0.5">
                     <div className="text-[9px] uppercase font-bold text-[#888]">Total Projected Outflow</div>
                     <div className="text-sm sm:text-base font-bold text-red-400">
-                      {formatMoney(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}
+                      {formatAmount(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-carbon border border-emerald-900/40 rounded-xl space-y-0.5">
                     <div className="text-[9px] uppercase font-bold text-[#888]">Paid Outflows</div>
                     <div className="text-sm sm:text-base font-bold text-emerald-400">
-                      {formatMoney(monthlyMetrics.paidOutflows, { symbol: currencySymbol })}
+                      {formatAmount(monthlyMetrics.paidOutflows, { symbol: currencySymbol })}
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-carbon border border-amber-900/40 rounded-xl space-y-0.5">
                     <div className="text-[9px] uppercase font-bold text-[#888]">Remaining Pending</div>
                     <div className="text-sm sm:text-base font-bold text-amber-400">
-                      {formatMoney(monthlyMetrics.remainingOutflows, { symbol: currencySymbol })}
+                      {formatAmount(monthlyMetrics.remainingOutflows, { symbol: currencySymbol })}
                     </div>
                   </div>
 
                   <div className="p-2.5 bg-carbon border border-nothing rounded-xl space-y-0.5">
                     <div className="text-[9px] uppercase font-bold text-[#888]">Projected Inflows</div>
                     <div className="text-sm sm:text-base font-bold text-blue-400">
-                      {formatMoney(monthlyMetrics.totalProjectedInflows, { symbol: currencySymbol })}
+                      {formatAmount(monthlyMetrics.totalProjectedInflows, { symbol: currencySymbol })}
                     </div>
                   </div>
                 </div>
@@ -837,11 +839,18 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                   const totalDayExpense = dayBills
                     .filter((b) => b.type === 'debit')
                     .reduce((s, b) => s + b.amount, 0);
+                  const calendarDay = `${selectedMonth}-${String(dayNum).padStart(2, '0')}`;
+                  const daySummary = dayBills.length === 0
+                    ? 'no scheduled payments'
+                    : dayBills.map((bill) => `${bill.title}, ${bill.status.toLowerCase().replace('_', ' ')}`).join('; ');
 
                   return (
                     <button
                       key={`day_${dayNum}`}
                       type="button"
+                      aria-label={`${calendarDay}: ${daySummary}`}
+                      aria-pressed={isSelected}
+                      disabled={dayBills.length === 0}
                       onClick={() => {
                         if (dayBills.length > 0) {
                           setSelectedCalendarDay(isSelected ? null : dayNum);
@@ -890,7 +899,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                           <div className={`text-[9px] sm:text-[10px] font-bold ${
                             hasOverdueOrToday ? 'text-red-400' : allPaid ? 'text-emerald-400' : 'text-amber-300'
                           }`}>
-                            {formatMoney(totalDayExpense, { symbol: currencySymbol })}
+                            {formatAmount(totalDayExpense, { symbol: currencySymbol })}
                           </div>
                           {dayBills.length > 1 && (
                             <div className="text-[8px] text-[#888] hidden sm:block">
@@ -1050,7 +1059,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                               : 'text-white'
                           }`}
                         >
-                          {item.type === 'credit' ? '+' : '-'}{formatMoney(item.amount, { symbol: currencySymbol })}
+                          {item.type === 'credit' ? '+' : '-'}{formatAmount(item.amount, { symbol: currencySymbol })}
                         </div>
 
                         {/* Status Label Tag */}

@@ -43,7 +43,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <nav className="w-[240px] bg-carbon border-r border-nothing flex flex-col p-5 shrink-0 h-full select-none">
+    <nav aria-label="Primary navigation" className="w-[240px] bg-carbon border-r border-nothing flex flex-col p-5 shrink-0 h-full select-none">
       {/* Brand Logo Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
@@ -91,7 +91,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               key={item.id}
+              type="button"
+              id={`sidebar-btn-${item.id}`}
               onClick={() => setActiveTab(item.id)}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all nav-lift cursor-pointer ${
                 isActive
                   ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-md -translate-y-0.5'
@@ -119,7 +122,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           return (
             <button
               key={item.id}
+              type="button"
+              id={`sidebar-btn-${item.id}`}
               onClick={() => setActiveTab(item.id)}
+              aria-current={isActive ? 'page' : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-xs font-medium transition-all nav-lift cursor-pointer ${
                 isActive
                   ? 'bg-slate-900 text-white dark:bg-white dark:text-black font-semibold shadow-md -translate-y-0.5'

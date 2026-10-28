@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { PieChart } from 'lucide-react';
@@ -14,6 +15,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
   categories,
   currencySymbol,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
   // Filter debit transactions only
@@ -137,7 +139,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
             </div>
             <div className="text-sm sm:text-base font-mono font-bold text-white mt-0.5">
               {currencySymbol}
-              {(activeCategory ? activeCategory.amount : totalDebit).toLocaleString('en-IN')}
+              {formatAmount((activeCategory ? activeCategory.amount : totalDebit))}
             </div>
             <div className="text-[10px] font-mono text-red-500 font-bold mt-0.5">
               {activeCategory ? `${activeCategory.percent.toFixed(1)}% share` : `${debitTransactions.length} Txns`}
@@ -177,7 +179,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
 
                 <div className="text-right">
                   <div className="text-xs font-mono font-bold text-white">
-                    {currencySymbol}{cat.amount.toLocaleString('en-IN')}
+                    {currencySymbol}{formatAmount(cat.amount)}
                   </div>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+import { safeSetItem } from '../utils/storage';
 import { Category, Transaction } from '../types/finance';
 import { notifyBudgetThresholdReached } from './localNotifications';
 import { currentMonthLocal } from '../utils/dates';
@@ -34,7 +35,7 @@ function getTriggeredAlerts(): Record<string, number> {
 
 function saveTriggeredAlerts(records: Record<string, number>): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+    safeSetItem(STORAGE_KEY, JSON.stringify(records));
   } catch (err) {
     console.warn('Failed to save triggered budget alerts:', err);
   }
@@ -59,7 +60,8 @@ export function checkBudgetThresholds(
   transactions: Transaction[],
   categories: Category[],
   currencySymbol: string,
-  targetMonth?: string
+  targetMonth?: string,
+  locale?: string
 ): BudgetAlertPayload[] {
   const currentMonth = targetMonth || currentMonthLocal();
 
@@ -104,7 +106,7 @@ export function checkBudgetThresholds(
         };
 
         newAlerts.push(payload);
-        notifyBudgetThresholdReached(cat.name, spent, limit, percent, currencySymbol, '100', payload.monthLabel);
+        notifyBudgetThresholdReached(cat.name, spent, limit, percent, currencySymbol, '100', payload.monthLabel, locale);
       }
     } 
     // Check 80% threshold (if not already 100%)
@@ -130,7 +132,7 @@ export function checkBudgetThresholds(
         };
 
         newAlerts.push(payload);
-        notifyBudgetThresholdReached(cat.name, spent, limit, percent, currencySymbol, '80', payload.monthLabel);
+        notifyBudgetThresholdReached(cat.name, spent, limit, percent, currencySymbol, '80', payload.monthLabel, locale);
       }
     }
   }
@@ -148,7 +150,8 @@ export function checkBudgetThresholds(
 export function createSimulatedBudgetAlert(
   category: Category,
   level: '80' | '100',
-  currencySymbol: string
+  currencySymbol: string,
+  locale?: string
 ): BudgetAlertPayload {
   const limit = category.budgetLimit || 15000;
   const percent = level === '100' ? 104.5 : 84.0;
@@ -170,7 +173,7 @@ export function createSimulatedBudgetAlert(
     timestamp: Date.now(),
   };
 
-  notifyBudgetThresholdReached(category.name, spent, limit, percent, currencySymbol, level, payload.monthLabel);
+  notifyBudgetThresholdReached(category.name, spent, limit, percent, currencySymbol, level, payload.monthLabel, locale);
   return payload;
 }
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord, ConnectedDematAccount } from '../types/finance';
+import { BackupRestoreData, parseBackupJson } from '../utils/backup';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
 import { 
   Shield, 
@@ -37,6 +38,8 @@ import { CustomisationsView } from './CustomisationsView';
 import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
 import { formatMoney } from '../utils/money';
+import { PasscodeSetupModal } from './PasscodeSetupModal';
+import { requestPushNotificationPermission } from '../services/localNotifications';
 
 interface SettingsViewProps {
   settings: UserSettings;
@@ -52,6 +55,7 @@ interface SettingsViewProps {
   onUpdateAccount?: (acc: FinancialAccount) => void;
   onDeleteAccount?: (id: string) => void;
   onExportBackupJSON: () => void;
+  onRestoreBackupJSON: (backup: BackupRestoreData) => void;
   onResetAllData: () => void;
   onLoadSampleData?: () => void;
   onRemoveSampleData?: () => void;
@@ -75,6 +79,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateAccount,
   onDeleteAccount,
   onExportBackupJSON,
+  onRestoreBackupJSON,
   onResetAllData,
   onLoadSampleData,
   onRemoveSampleData,
@@ -84,16 +89,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   authUserEmail = null,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'system' | 'personalisation'>('system');
-  const [currencySymbol, setCurrencySymbol] = useState<string>(settings?.currencySymbol || '₹');
+  const [activeSystemSection, setActiveSystemSection] = useState<'general' | 'connections' | 'security' | 'data'>('general');
+  const currencySymbol = settings.currencySymbol;
 
   // Security
-  const [passcodeEnabled, setPasscodeEnabled] = useState<boolean>(Boolean(settings?.passcodeEnabled));
-  const [passcode, setPasscode] = useState<string>(settings?.passcode || '1234');
+  const passcodeEnabled = settings.passcodeEnabled;
+  const [showPasscodeSetup, setShowPasscodeSetup] = useState(false);
 
   // UPI/SMS Interceptor & Notifications
-  const [autoExtractSms, setAutoExtractSms] = useState<boolean>(settings?.autoExtractSms ?? true);
-  const [notificationsEnabled, setNotificationsEnabled] = useState<boolean>(settings?.notificationsEnabled ?? true);
-  const [locationTracking, setLocationTracking] = useState<boolean>(Boolean(settings?.locationTracking));
+  const { autoExtractSms, notificationsEnabled, locationTracking } = settings;
+  const [notificationPermissionError, setNotificationPermissionError] = useState('');
+  const [requestingNotificationPermission, setRequestingNotificationPermission] = useState(false);
+  const latestSettingsRef = React.useRef(settings);
+  latestSettingsRef.current = settings;
   const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
 
   // Demat & Connected Accounts State
@@ -103,11 +111,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
   const [editingDemat, setEditingDemat] = useState<ConnectedDematAccount | null>(null);
 
-  // Demat Link Form fields
+  // Manual portfolio form fields
   const [modalBrokerCode, setModalBrokerCode] = useState<string>('Zerodha');
   const [modalBrokerName, setModalBrokerName] = useState<string>('Zerodha Kite');
-  const [modalMockValue, setModalMockValue] = useState<string>('0');
-  const [modalMockReturns, setModalMockReturns] = useState<string>('0');
+  const [modalPortfolioValue, setModalPortfolioValue] = useState<string>('0');
+  const [modalPortfolioReturns, setModalPortfolioReturns] = useState<string>('0');
+  const [modalHoldingCount, setModalHoldingCount] = useState<string>('0');
+  const [modalValidationError, setModalValidationError] = useState<string>('');
+  const backupFileInputRef = React.useRef<HTMLInputElement>(null);
+  const [backupRestoreMessage, setBackupRestoreMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isNativeAndroid()) return;
@@ -120,6 +132,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ...settings,
       theme: newTheme,
     });
+  };
+
+  const handleBackupFileSelection = async (file?: File) => {
+    if (!file) return;
+    setBackupRestoreMessage(null);
+    try {
+      if (file.size > 25 * 1024 * 1024) {
+        setBackupRestoreMessage('Backup file is too large. Maximum file size is 25 MB.');
+        return;
+      }
+      const backup = parseBackupJson(await file.text());
+      onRestoreBackupJSON(backup);
+      setBackupRestoreMessage('Backup validated. Review the confirmation before replacing data.');
+    } catch (error) {
+      console.error('Could not validate backup file:', error);
+      setBackupRestoreMessage(error instanceof Error ? error.message : 'Could not read this backup file.');
+    } finally {
+      if (backupFileInputRef.current) backupFileInputRef.current.value = '';
+    }
   };
 
   // Connected Demat Accounts list
@@ -199,7 +230,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           ...acc,
           isConnected: nextConnected,
           connectedAt: nextConnected ? now : acc.connectedAt,
-          lastSyncedAt: nextConnected ? now : acc.lastSyncedAt,
           mockPortfolioValue: acc.mockPortfolioValue || 0,
           mockReturnsPercent: acc.mockReturnsPercent || 0,
           totalHoldingsCount: acc.totalHoldingsCount || 0,
@@ -216,8 +246,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const isNowConnected = !account.isConnected;
     setFeedbackMessage(
       isNowConnected
-        ? `Linked portfolio for ${account.brokerName}.`
-        : `Unlinked ${account.brokerName}.`
+        ? `Resumed manual tracking for ${account.brokerName}.`
+        : `Paused manual tracking for ${account.brokerName}.`
     );
     setTimeout(() => setFeedbackMessage(null), 3000);
   };
@@ -238,7 +268,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       connectedDematAccounts: updated,
     });
     setSyncingBrokerId(null);
-    setFeedbackMessage('Portfolio quotes refreshed successfully.');
+    setFeedbackMessage('Manual portfolio totals recalculated. No external data was fetched.');
     setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
@@ -256,31 +286,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       connectedDematAccounts: updated,
     });
     setIsSyncingAll(false);
-    setFeedbackMessage('All broker portfolios synchronized.');
+    setFeedbackMessage('Manual portfolio totals recalculated. No external data was fetched.');
     setTimeout(() => setFeedbackMessage(null), 3000);
   };
 
   const handleOpenLinkModal = (existing?: ConnectedDematAccount) => {
+    setModalValidationError('');
     if (existing) {
       setEditingDemat(existing);
       setModalBrokerCode(existing.brokerCode);
       setModalBrokerName(existing.brokerName);
-      setModalMockValue((existing.mockPortfolioValue || 0).toString());
-      setModalMockReturns((existing.mockReturnsPercent || 0).toString());
+      setModalPortfolioValue((existing.mockPortfolioValue || 0).toString());
+      setModalPortfolioReturns((existing.mockReturnsPercent || 0).toString());
+      setModalHoldingCount((existing.totalHoldingsCount || 0).toString());
     } else {
       setEditingDemat(null);
       setModalBrokerCode('Zerodha');
       setModalBrokerName('Zerodha Kite');
-      setModalMockValue('0');
-      setModalMockReturns('0');
+      setModalPortfolioValue('0');
+      setModalPortfolioReturns('0');
+      setModalHoldingCount('0');
     }
     setShowLinkModal(true);
   };
 
   const handleSaveLinkedAccount = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(modalMockValue) || 0;
-    const ret = parseFloat(modalMockReturns) || 0;
+    const val = Number(modalPortfolioValue);
+    const ret = Number(modalPortfolioReturns);
+    const holdings = Number(modalHoldingCount);
+    if (!Number.isFinite(val) || val < 0) {
+      setModalValidationError('Portfolio valuation must be a non-negative number.');
+      return;
+    }
+    if (!Number.isFinite(ret) || ret < -100) {
+      setModalValidationError('Estimated return must be at least -100%.');
+      return;
+    }
+    if (!Number.isInteger(holdings) || holdings < 0) {
+      setModalValidationError('Holdings count must be a whole number of zero or more.');
+      return;
+    }
     const now = new Date().toISOString();
 
     const brokerColors: Record<string, string> = {
@@ -302,8 +348,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             brokerCode: modalBrokerCode,
             mockPortfolioValue: val,
             mockReturnsPercent: ret,
+            totalHoldingsCount: holdings,
             color: brokerColors[modalBrokerCode] || acc.color || '#387ed1',
-            lastSyncedAt: now,
           };
         }
         return acc;
@@ -314,12 +360,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         id: newId('broker'),
         brokerName: modalBrokerName,
         brokerCode: modalBrokerCode,
+        clientId: '',
         isConnected: true,
         connectedAt: now,
-        lastSyncedAt: now,
         mockPortfolioValue: val,
         mockReturnsPercent: ret,
-        totalHoldingsCount: 0,
+        totalHoldingsCount: holdings,
         color: brokerColors[modalBrokerCode] || '#387ed1',
       };
       updated = [...dematAccounts, newAcc];
@@ -347,7 +393,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <InfoButton
             id="settings-header-info"
             title="Settings & Preferences"
-            content="Configure system preferences, appearance, security PIN, categories, budgets, accounts and data backup."
+            content="Browse General, Connections, Security, and Data & Backup settings, or open Personalisation for categories, budgets, and accounts."
             align="left"
           />
         </div>
@@ -396,7 +442,36 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         />
       ) : (
         <div className="space-y-6">
+          <div
+            role="group"
+            aria-label="Settings sections"
+            className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+          >
+            {([
+              ['general', 'General'],
+              ['connections', 'Connections'],
+              ['security', 'Security'],
+              ['data', 'Data & Backup'],
+            ] as const).map(([section, label]) => (
+              <button
+                key={section}
+                type="button"
+                aria-pressed={activeSystemSection === section}
+                onClick={() => setActiveSystemSection(section)}
+                className={`shrink-0 rounded-xl border px-3.5 py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                  activeSystemSection === section
+                    ? 'border-red-600 bg-red-600 text-white shadow-sm'
+                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50 dark:border-[#2a2a34] dark:bg-[#141418] dark:text-[#aaa] dark:hover:bg-[#1c1c24]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
           {/* ==================== 1. APPEARANCE & DISPLAY ==================== */}
+          {activeSystemSection === 'general' && (
+            <>
           <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
               <Palette className="w-4 h-4 text-red-500" />
@@ -581,7 +656,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="button"
                     key={c.symbol}
                     onClick={() => {
-                      setCurrencySymbol(c.symbol);
                       onUpdateSettings({
                         ...settings,
                         currencySymbol: c.symbol,
@@ -601,8 +675,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
           </div>
+            </>
+          )}
 
           {/* ==================== 3. MANUAL BROKER PORTFOLIOS ==================== */}
+          {activeSystemSection === 'connections' && (
+            <>
           <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-[#222]">
               <div className="flex items-center gap-2.5">
@@ -611,13 +689,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-xs sm:text-sm font-bold font-mono text-slate-900 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                    <span>Manual Broker Portfolios (no live connection)</span>
+                    <span>Manual Broker Portfolios</span>
                     <span className="text-[9px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800">
-                      {aggregatedStats.activeCount} LINKED
+                      {aggregatedStats.activeCount} TRACKED
                     </span>
                   </h3>
                   <p className="text-[10px] text-slate-500 dark:text-[#888]">
-                    Track manual broker portfolios to aggregate holdings and track portfolio valuation without live credentials
+                    Record portfolio valuations and estimated returns here. Live broker connections are coming soon.
                   </p>
                 </div>
               </div>
@@ -626,7 +704,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <InfoButton
                   id="connected-demat-info"
                   title="Manual Broker Portfolios"
-                  content="Track manual broker portfolio valuations without live credentials. Aggregates current valuation, cost basis, and holdings across external brokerages."
+                  content="Manually record each brokerage portfolio's total valuation, estimated return, and holding count. Live broker connections are coming soon."
                   align="right"
                 />
                 <button
@@ -666,14 +744,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <div className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-emerald-400" />
                   <span className="text-[10px] font-mono uppercase tracking-widest text-emerald-400 font-bold">
-                    Aggregated External Portfolio Summary
+                    Aggregated Manual Portfolio Summary
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-mono text-slate-400">
                     {aggregatedStats.activeCount > 0
-                      ? `${aggregatedStats.activeCount} Brokerage${aggregatedStats.activeCount > 1 ? 's' : ''} Linked`
-                      : 'No Brokers Linked'}
+                      ? `${aggregatedStats.activeCount} Portfolio${aggregatedStats.activeCount > 1 ? 's' : ''} Tracked`
+                      : 'No Portfolios Tracked'}
                   </span>
                   <button
                     type="button"
@@ -682,7 +760,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     className="px-2.5 py-1 bg-white/10 hover:bg-white/20 border border-white/15 rounded-lg text-[10px] font-mono font-bold flex items-center gap-1.5 transition-colors disabled:opacity-40 cursor-pointer"
                   >
                     <RefreshCw className={`w-3 h-3 text-emerald-400 ${isSyncingAll ? 'animate-spin' : ''}`} />
-                    <span>{isSyncingAll ? 'Syncing...' : 'Sync All'}</span>
+                    <span>{isSyncingAll ? 'Updating...' : 'Recalculate Totals'}</span>
                   </button>
                 </div>
               </div>
@@ -691,7 +769,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="relative z-10 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
                 <div className="sm:col-span-2 space-y-1">
                   <div className="text-[10px] text-slate-400 uppercase tracking-wider font-mono">
-                    Total External Demat Valuation
+                    Total Portfolio Valuation
                   </div>
                   <div className="flex items-baseline gap-3 flex-wrap">
                     <div className="text-2xl sm:text-3xl font-extrabold font-mono tracking-tight text-white">
@@ -721,13 +799,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-mono text-[10px] uppercase">External Holdings:</span>
+                    <span className="text-slate-400 font-mono text-[10px] uppercase">Holdings:</span>
                     <span className="font-mono font-bold text-white">
                       {aggregatedStats.totalHoldings} Assets
                     </span>
                   </div>
                   <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400 font-mono text-[10px] uppercase">Linked Portfolios:</span>
+                    <span className="text-slate-400 font-mono text-[10px] uppercase">Portfolios:</span>
                     <span className="font-mono font-bold text-emerald-400 truncate max-w-[120px]">
                       {aggregatedStats.activeBrokers.map(b => b.brokerCode).join(', ') || 'None'}
                     </span>
@@ -736,13 +814,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
             </div>
 
-            {/* Demat Broker Cards */}
+            {/* Manual Portfolio Cards */}
             <div className="space-y-3">
               <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-[#888]">
                 <span className="uppercase text-[10px] font-bold tracking-wider">
-                  Configured Demat Accounts ({dematAccounts.length})
+                  Manual Portfolios ({dematAccounts.length})
                 </span>
-                <span className="text-[10px]">Mock API • Live sync simulation</span>
+                <span className="text-[10px]">Live broker sync coming soon</span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
@@ -791,7 +869,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                               : 'bg-slate-200 dark:bg-[#1f1f26] text-slate-600 dark:text-[#777] border-slate-300 dark:border-[#333]'
                           }`}
                         >
-                          {account.isConnected ? 'LINKED' : 'UNLINKED'}
+                          {account.isConnected ? 'TRACKING' : 'PAUSED'}
                         </span>
                       </div>
 
@@ -799,7 +877,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       <div className="py-3 flex items-center justify-between">
                         <div>
                           <div className="text-[10px] text-slate-500 dark:text-[#888] font-mono">
-                            {account.isConnected ? 'PORTFOLIO VALUATION' : 'MOCK PREVIEW'}
+                            {stats.isRealData ? 'TRACKED INVESTMENT TOTAL' : 'MANUAL VALUATION'}
                           </div>
                           <div className="text-base font-bold font-mono text-slate-900 dark:text-white">
                             {formatMoney(stats.value, { symbol: currencySymbol, locale: settings?.locale })}
@@ -812,7 +890,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                             {stats.returnsPercent >= 0 ? '+' : ''}{stats.returnsPercent}%
                           </div>
                           <div className="text-[10px] text-slate-500 dark:text-[#888] font-mono">
-                            {stats.holdingsCount} Holdings {stats.isRealData ? '(Tracked)' : '(Mocked)'}
+                            {stats.holdingsCount} Holdings {stats.isRealData ? '(Investment records)' : '(Entered manually)'}
                           </div>
                         </div>
                       </div>
@@ -820,7 +898,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       {/* Action Buttons */}
                       <div className="pt-2 border-t border-slate-200/80 dark:border-[#1a1a24] flex items-center justify-between gap-2">
                         <div className="text-[9px] font-mono text-slate-400 truncate max-w-[120px]">
-                          {account.lastSyncedAt ? `Synced ${new Date(account.lastSyncedAt).toLocaleDateString()}` : 'Never synced'}
+                          {account.lastSyncedAt ? `Updated ${new Date(account.lastSyncedAt).toLocaleDateString()}` : 'Manual valuation'}
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
@@ -831,16 +909,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                 disabled={isSyncing}
                                 onClick={() => handleSyncBroker(account.id)}
                                 className="px-2.5 py-1 bg-white dark:bg-[#1a1a24] hover:bg-slate-100 dark:hover:bg-[#252535] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-[#ccc] hover:text-slate-900 dark:hover:text-white rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 cursor-pointer"
-                                title="Sync holdings and prices"
+                                title="Recalculate from saved manual values; no market or broker data is fetched"
                               >
                                 <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-emerald-500' : ''}`} />
-                                <span>{isSyncing ? 'Syncing...' : 'Sync'}</span>
+                                <span>{isSyncing ? 'Updating...' : 'Recalculate'}</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleOpenLinkModal(account)}
                                 className="px-2 py-1 bg-white dark:bg-[#1a1a24] hover:bg-slate-100 dark:hover:bg-[#252535] border border-slate-200 dark:border-[#333] text-slate-700 dark:text-[#ccc] hover:text-slate-900 dark:hover:text-white rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer"
-                                title="Configure mock balance or client ID"
+                                title="Edit the manually tracked portfolio snapshot"
                               >
                                 Edit
                               </button>
@@ -848,7 +926,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                                 type="button"
                                 onClick={() => handleToggleConnect(account)}
                                 className="px-2 py-1 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg text-[10px] font-mono font-bold transition-colors cursor-pointer"
-                                title="Unlink Demat account"
+                                title="Pause manual tracking"
                               >
                                 Unlink
                               </button>
@@ -860,7 +938,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                               className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-mono font-bold transition-all flex items-center gap-1 cursor-pointer shadow-sm"
                             >
                               <Link2 className="w-3 h-3" />
-                              <span>Connect &amp; Mock Link</span>
+                              <span>Resume Tracking</span>
                             </button>
                           )}
                         </div>
@@ -937,7 +1015,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="button"
                 onClick={() => {
                   const updated = !autoExtractSms;
-                  setAutoExtractSms(updated);
                   onUpdateSettings({ ...settings, autoExtractSms: updated });
                 }}
                 className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
@@ -962,10 +1039,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  const updated = !notificationsEnabled;
-                  setNotificationsEnabled(updated);
-                  onUpdateSettings({ ...settings, notificationsEnabled: updated });
+                disabled={requestingNotificationPermission}
+                onClick={async () => {
+                  setNotificationPermissionError('');
+                  if (notificationsEnabled) {
+                    onUpdateSettings({ ...settings, notificationsEnabled: false });
+                    return;
+                  }
+                  setRequestingNotificationPermission(true);
+                  try {
+                    const granted = await requestPushNotificationPermission();
+                    if (!granted) {
+                      setNotificationPermissionError('Notification permission was not granted. Allow notifications in your browser or device settings.');
+                      return;
+                    }
+                    onUpdateSettings({ ...latestSettingsRef.current, notificationsEnabled: true });
+                  } catch (error) {
+                    console.warn('Could not request notification permission:', error);
+                    setNotificationPermissionError('Could not request notification permission. Please try again.');
+                  } finally {
+                    setRequestingNotificationPermission(false);
+                  }
                 }}
                 className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
                   notificationsEnabled 
@@ -976,6 +1070,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {notificationsEnabled ? 'ENABLED' : 'DISABLED'}
               </button>
             </div>
+
+            {notificationPermissionError && <p role="alert" className="text-xs text-red-400">{notificationPermissionError}</p>}
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
               <div className="flex items-center gap-2">
@@ -991,7 +1087,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 type="button"
                 onClick={() => {
                   const updated = !locationTracking;
-                  setLocationTracking(updated);
                   onUpdateSettings({ ...settings, locationTracking: updated });
                 }}
                 className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
@@ -1004,8 +1099,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
           </div>
+            </>
+          )}
 
           {/* ==================== 4. SECURITY & PASSCODE ==================== */}
+          {activeSystemSection === 'security' && (
           <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-[#222]">
               <Lock className="w-4 h-4 text-red-500" />
@@ -1027,9 +1125,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const updated = !passcodeEnabled;
-                  setPasscodeEnabled(updated);
-                  onUpdateSettings({ ...settings, passcodeEnabled: updated, passcode });
+                  if (passcodeEnabled) {
+                    onUpdateSettings({ ...settings, passcodeEnabled: false });
+                  } else {
+                    setShowPasscodeSetup(true);
+                  }
                 }}
                 className={`px-4 py-1.5 font-mono text-xs font-bold rounded-xl transition-colors cursor-pointer shrink-0 ${
                   passcodeEnabled 
@@ -1042,42 +1142,22 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             {passcodeEnabled && (
-              <div className="p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-[10px] text-slate-500 dark:text-[#888] uppercase tracking-wider font-mono font-bold">
-                    Set Your Passcode (4-6 digits)
-                  </label>
-                  <InfoButton
-                    id="pin-setup-info"
-                    title="Passcode Setup"
-                    content="Numeric PIN used to encrypt screen access. Make sure not to forget it."
-                    align="right"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    value={passcode}
-                    onChange={(e) => setPasscode(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Enter new PIN"
-                    className="flex-1 px-3 py-2 bg-white dark:bg-[#181820] border border-slate-200 dark:border-[#333] rounded-xl text-xs font-mono tracking-[0.3em] text-slate-900 dark:text-white focus:outline-none focus:border-red-600"
-                  />
-                  <button
-                    type="button"
-                    disabled={passcode.length < 4}
-                    onClick={() => onUpdateSettings({ ...settings, passcodeEnabled, passcode })}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-mono font-bold text-xs uppercase rounded-xl transition-colors disabled:opacity-40 cursor-pointer shadow-sm"
-                  >
-                    Save PIN
-                  </button>
-                </div>
-              </div>
+              <button type="button" onClick={() => setShowPasscodeSetup(true)}
+                className="px-4 py-2 bg-red-600 text-white font-mono text-xs rounded-xl">
+                Change PIN
+              </button>
+            )}
+            {showPasscodeSetup && (
+              <PasscodeSetupModal onClose={() => setShowPasscodeSetup(false)} onSave={credentials => {
+                onUpdateSettings({ ...settings, ...credentials, passcodeEnabled: true });
+                setShowPasscodeSetup(false);
+              }} />
             )}
           </div>
+          )}
 
           {/* ==================== 5. DATA MANAGEMENT & BACKUP ==================== */}
+          {activeSystemSection === 'data' && (
           <div className="bg-white dark:bg-[#14141a] border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-[#222]">
               <div className="flex items-center gap-2">
@@ -1111,6 +1191,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <span>Export Backup JSON</span>
               </button>
             </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-slate-900 dark:text-white">Restore From JSON Backup</span>
+                <InfoButton
+                  id="backup-restore-info"
+                  title="Restore JSON Backup"
+                  content="Validate a previously exported MTracker JSON backup, review the record counts, then confirm to replace the current records."
+                  align="left"
+                />
+              </div>
+              <input
+                ref={backupFileInputRef}
+                type="file"
+                accept=".json,application/json"
+                className="hidden"
+                aria-label="Select MTracker JSON backup"
+                onChange={(event) => {
+                  void handleBackupFileSelection(event.target.files?.[0]);
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setBackupRestoreMessage(null);
+                  backupFileInputRef.current?.click();
+                }}
+                className="px-4 py-2 bg-white dark:bg-[#1f1f1f] border border-slate-300 dark:border-[#333] hover:border-amber-500 text-xs font-mono font-bold text-slate-800 dark:text-white rounded-xl transition-all flex items-center gap-2 cursor-pointer shrink-0 shadow-sm"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span>Choose Backup to Restore</span>
+              </button>
+            </div>
+            {backupRestoreMessage && (
+              <p role="status" className="text-xs text-slate-700 dark:text-slate-300" aria-live="polite">
+                {backupRestoreMessage}
+              </p>
+            )}
 
             {/* Sample Demo Data Controls */}
             <div className="p-3.5 bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] rounded-xl space-y-3">
@@ -1191,10 +1309,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
           </div>
+          )}
         </div>
       )}
 
-      {/* Mock Link Demat Account Modal */}
+      {/* Manual Portfolio Modal */}
       {showLinkModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
           <div className="bg-[#121217] border border-[#2a2a34] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
@@ -1205,10 +1324,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
                 <div>
                   <h3 className="text-sm font-bold uppercase">
-                    {editingDemat ? 'Configure Demat Link' : 'Mock Link External Broker'}
+                    {editingDemat ? 'Edit Manual Portfolio' : 'Add Manual Portfolio'}
                   </h3>
                   <p className="text-[10px] text-[#888]">
-                    Zerodha, Dhan, Groww, Upstox API Sandbox
+                    Record a snapshot now; live broker connections are coming soon.
                   </p>
                 </div>
               </div>
@@ -1225,10 +1344,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
 
             <form onSubmit={handleSaveLinkedAccount} className="space-y-3.5">
-              {/* Select Brokerage */}
+              {/* Select Portfolio Provider */}
               <div>
                 <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                  Select Brokerage Platform
+                  Brokerage / Portfolio Name
                 </label>
                 <select
                   value={modalBrokerCode}
@@ -1256,18 +1375,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </select>
               </div>
 
-              {/* Portfolio Valuation & Return */}
+              {/* Manual Portfolio Snapshot */}
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div>
                   <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    Portfolio Valuation ({currencySymbol})
+                    Portfolio Value ({currencySymbol})
                   </label>
                   <input
                     type="number"
+                    min="0"
                     step="any"
-                    value={modalMockValue}
+                    required
+                    value={modalPortfolioValue}
                     onWheel={(e) => (e.target as HTMLElement).blur()}
-                    onChange={(e) => setModalMockValue(e.target.value)}
+                    onChange={(e) => {
+                      setModalPortfolioValue(e.target.value);
+                      setModalValidationError('');
+                    }}
                     placeholder="0"
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
@@ -1278,21 +1402,49 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </label>
                   <input
                     type="number"
+                    min="-100"
                     step="any"
-                    value={modalMockReturns}
+                    required
+                    value={modalPortfolioReturns}
                     onWheel={(e) => (e.target as HTMLElement).blur()}
-                    onChange={(e) => setModalMockReturns(e.target.value)}
+                    onChange={(e) => {
+                      setModalPortfolioReturns(e.target.value);
+                      setModalValidationError('');
+                    }}
+                    placeholder="0"
+                    className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
+                    Number of Holdings
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    required
+                    value={modalHoldingCount}
+                    onWheel={(e) => (e.target as HTMLElement).blur()}
+                    onChange={(e) => {
+                      setModalHoldingCount(e.target.value);
+                      setModalValidationError('');
+                    }}
                     placeholder="0"
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              {/* Security Note */}
+              {modalValidationError && (
+                <p role="alert" className="text-xs text-red-400">{modalValidationError}</p>
+              )}
+
+              {/* Manual Tracking Note */}
               <div className="p-3 bg-emerald-950/30 border border-emerald-800/40 rounded-xl flex items-start gap-2.5 text-[10px] text-emerald-300">
                 <Shield className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                 <span>
-                  Manual Portfolio Tracking: No credentials or API keys needed. Valuations are tracked locally in your settings.
+                  Values are entered manually and stored in app settings. No broker account access or price feed is connected.
                 </span>
               </div>
 

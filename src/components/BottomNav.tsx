@@ -70,6 +70,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               type="button"
               onClick={() => setActiveTab(item.id)}
               aria-current={isActive ? 'page' : undefined}
+              aria-label={item.badgeCount
+                ? `${item.label}, ${item.badgeCount} ${item.id === 'loans' ? 'pending EMI confirmations' : 'pending notifications'}`
+                : item.label}
               className={`relative flex-1 flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 rounded-2xl transition-all duration-200 cursor-pointer min-w-0 group ${
                 isActive
                   ? 'text-red-500 font-bold'

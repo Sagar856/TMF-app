@@ -89,6 +89,7 @@ export const Header: React.FC<HeaderProps> = ({
         {onToggleTheme && (
           <button
             onClick={onToggleTheme}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
             className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift flex items-center justify-center min-w-[38px] min-h-[38px] cursor-pointer"
             title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
@@ -103,6 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* SMS Simulator Button */}
         <button
           onClick={onOpenSimulator}
+          aria-label="Simulate SMS or UPI payment"
           className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Simulate SMS / UPI Payment"
         >
@@ -113,6 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
         {pendingEmiCount > 0 && onOpenEmiConfirmations && (
           <button
             onClick={onOpenEmiConfirmations}
+            aria-label={`${pendingEmiCount} pending loan EMI payment${pendingEmiCount === 1 ? '' : 's'} awaiting confirmation`}
             className="px-2.5 py-1.5 bg-red-950/80 hover:bg-red-900 border border-red-700/80 rounded-xl text-red-300 hover:text-white text-[11px] font-mono font-bold flex items-center gap-1.5 transition-all shadow-[0_0_12px_rgba(220,38,38,0.3)] animate-pulse cursor-pointer"
             title={`${pendingEmiCount} pending loan EMI payment(s) awaiting confirmation`}
           >
@@ -127,6 +130,9 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Pending Notification Bell Button */}
         <button
           onClick={onOpenNotifications}
+          aria-label={pendingNotificationsCount > 0
+            ? `Pending payment confirmations, ${pendingNotificationsCount} notifications`
+            : 'Pending payment confirmations'}
           className="p-2 sm:p-2.5 bg-graphite hover:bg-[#222] border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
           title="Pending Payment Confirmations"
         >
@@ -142,6 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           onClick={onOpenProfile}
+          aria-label={`Open profile for ${userName}`}
           className="p-0.5 bg-graphite border border-nothing/60 hover:border-red-600/80 rounded-full shadow-sm transition-all nav-lift cursor-pointer group shrink-0"
           title="Click to view/edit User Profile & Photo"
         >
@@ -161,4 +168,3 @@ export const Header: React.FC<HeaderProps> = ({
     </header>
   );
 };
-

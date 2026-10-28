@@ -1,8 +1,10 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useEffect, useMemo } from 'react';
-import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification, FinancialAccount } from '../types/finance';
+import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification, FinancialAccount, SavingsGoal } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { currentMonthLocal, todayLocalISO } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
+import { calculateSavingsRate } from '../utils/savingsRate';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
@@ -10,6 +12,8 @@ import { TopMerchantsCard } from './TopMerchantsCard';
 import { TopCategoriesCard } from './TopCategoriesCard';
 import { BudgetThresholdMonitor } from './BudgetThresholdMonitor';
 import { RecurringTransactionsCard } from './RecurringTransactionsCard';
+import { CashflowForecastCard } from './CashflowForecastCard';
+import { SavingsGoalsCard } from './SavingsGoalsCard';
 import { InfoButton } from './InfoButton';
 import { useScrollCarouselGroup } from '../hooks/useScrollCarouselGroup';
 
@@ -38,6 +42,8 @@ interface DashboardViewProps {
   investments: InvestmentRecord[];
   loans: LoanRecord[];
   accounts?: FinancialAccount[];
+  savingsGoals: SavingsGoal[];
+  onSavingsGoalsChange: (goals: SavingsGoal[]) => void;
   pendingNotifications: ParsedNotification[];
   onOpenNotifications: () => void;
   onOpenAddTransaction: () => void;
@@ -60,6 +66,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   investments,
   loans,
   accounts = [],
+  savingsGoals,
+  onSavingsGoalsChange,
   pendingNotifications,
   onOpenNotifications,
   onOpenAddTransaction,
@@ -75,6 +83,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   isCloudSynced = false,
   onOpenCloudSyncStatus,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Eye toggles for KPI amounts - initialized from settings
   const defaultMaskState = defaultNetWorthMasked !== false;
   const [isNetWorthHidden, setIsNetWorthHidden] = useState<boolean>(defaultMaskState);
@@ -178,12 +187,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     return monthDebitTxns.reduce((sum, t) => sum + t.amount, 0);
   }, [monthDebitTxns]);
 
-  // Current month savings rate: income > 0 ? (income - expense) / income : 0, clamped 0-100
-  const savingsRate = useMemo(() => {
-    if (monthCredit <= 0) return 0;
-    const rate = Math.round(((monthCredit - monthDebit) / monthCredit) * 100);
-    return Math.min(100, Math.max(0, rate));
-  }, [monthCredit, monthDebit]);
+  // Keep the rate signed so spending beyond income is visible.
+  const savingsRate = useMemo(
+    () => calculateSavingsRate(monthCredit, monthDebit),
+    [monthCredit, monthDebit]
+  );
 
   // Accounts & Net worth calculations
   const hasAccounts = Boolean(accounts && accounts.length > 0);
@@ -287,7 +295,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Overdue Payment Alert ({overdueLoans.length} {overdueLoans.length === 1 ? 'Loan/Lend' : 'Loans/Lends'})
               </div>
               <div className="text-xs text-white mt-0.5 truncate">
-                <span className="font-bold text-red-400">{overdueLoans[0].title || overdueLoans[0].personOrBank}</span> has overdue payment ({currencySymbol}{overdueLoans[0].remainingAmount.toLocaleString('en-IN')})
+                <span className="font-bold text-red-400">{overdueLoans[0].title || overdueLoans[0].personOrBank}</span> has overdue payment ({currencySymbol}{formatAmount(overdueLoans[0].remainingAmount)})
               </div>
             </div>
           </div>
@@ -325,7 +333,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2 mt-0.5 font-mono">
                 <span>NET WORTH:</span>
                 <span className="text-emerald-400 font-extrabold">
-                  {isNetWorthHidden ? '••••••••' : `${currencySymbol}${totalNetWorth.toLocaleString('en-IN')}`}
+                  {isNetWorthHidden ? '••••••••' : `${currencySymbol}${formatAmount(totalNetWorth)}`}
                 </span>
                 <button
                   type="button"
@@ -341,8 +349,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           <div className="flex items-center gap-2 text-xs font-mono bg-obsidian/70 border border-nothing px-3 py-1.5 rounded-xl self-start md:self-auto">
             <span className="text-[#888] uppercase text-[10px]">Savings Rate (This Mo):</span>
-            <span className={`font-bold ${savingsRate >= 20 ? 'text-emerald-400' : savingsRate > 0 ? 'text-amber-400' : 'text-[#888]'}`}>
-              {savingsRate}%
+            <span className={`font-bold ${savingsRate === null ? 'text-[#888]' : savingsRate < 0 ? 'text-red-500' : savingsRate >= 20 ? 'text-emerald-400' : savingsRate > 0 ? 'text-amber-400' : 'text-[#888]'}`}>
+              {savingsRate === null ? '—' : `${savingsRate}%${savingsRate < 0 ? ' · OVERSPENDING' : ''}`}
             </span>
           </div>
         </div>
@@ -355,7 +363,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <Wallet className="w-3 h-3 text-emerald-400" />
             </div>
             <div className="text-white font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${liquid.toLocaleString('en-IN')}`}
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(liquid)}`}
             </div>
           </div>
 
@@ -365,7 +373,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <TrendingUp className="w-3 h-3 text-cyan-400" />
             </div>
             <div className="text-cyan-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${investmentsValue.toLocaleString('en-IN')}`}
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(investmentsValue)}`}
             </div>
           </div>
 
@@ -375,7 +383,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <ArrowDownLeft className="w-3 h-3 text-emerald-400" />
             </div>
             <div className="text-emerald-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${receivables.toLocaleString('en-IN')}`}
+              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(receivables)}`}
             </div>
           </div>
 
@@ -385,7 +393,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <CreditCard className="w-3 h-3 text-red-400" />
             </div>
             <div className="text-red-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `-${currencySymbol}${totalLiabilities.toLocaleString('en-IN')}`}
+              {isNetWorthHidden ? '••••••' : `-${currencySymbol}${formatAmount(totalLiabilities)}`}
             </div>
           </div>
         </div>
@@ -494,7 +502,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
                 {showNetBalance
-                  ? `${currencySymbol}${(hasAccounts ? liquid : cashflowNetBalance).toLocaleString('en-IN')}`
+                  ? `${currencySymbol}${formatAmount((hasAccounts ? liquid : cashflowNetBalance))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
@@ -539,7 +547,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
                 {showCredit
-                  ? `+${currencySymbol}${(kpiTimeframe === 'month' ? monthCredit : totalCredit).toLocaleString('en-IN')}`
+                  ? `+${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthCredit : totalCredit))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
@@ -580,7 +588,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
                 {showDebit
-                  ? `-${currencySymbol}${(kpiTimeframe === 'month' ? monthDebit : totalDebit).toLocaleString('en-IN')}`
+                  ? `-${currencySymbol}${formatAmount((kpiTimeframe === 'month' ? monthDebit : totalDebit))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
@@ -625,7 +633,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
-                {showInvestments ? `${currencySymbol}${investmentsValue.toLocaleString('en-IN')}` : '••••••••'}
+                {showInvestments ? `${currencySymbol}${formatAmount(investmentsValue)}` : '••••••••'}
               </div>
               
               {/* Arrow at bottom right corner signifying show more / redirect */}
@@ -698,7 +706,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     tx.type === 'debit' ? 'text-red-400' : 'text-emerald-400'
                   }`}
                 >
-                  {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                  {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
                 </span>
               </div>
             </div>
@@ -718,6 +726,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         containerRef={carousel.registerContainer('budget')}
         contentRef={carousel.registerContent('budget')}
         onToggleExpand={() => carousel.toggleSection('budget')}
+      />
+
+      <CashflowForecastCard
+        transactions={transactions}
+        accounts={accounts}
+        categories={categories}
+        currencySymbol={currencySymbol}
+      />
+
+      <SavingsGoalsCard
+        goals={savingsGoals}
+        onChange={onSavingsGoalsChange}
+        currencySymbol={currencySymbol}
       />
 
       {/* ==================== RECURRING BILLS & UPCOMING PAYMENTS (COLLAPSIBLE) ==================== */}
@@ -758,4 +779,3 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     </div>
   );
 };
-

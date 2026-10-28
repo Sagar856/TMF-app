@@ -20,6 +20,15 @@ export interface FinancialAccount {
   isDefault?: boolean;
 }
 
+export interface SavingsGoal {
+  id: string;
+  title: string;
+  targetAmount: number;
+  savedAmount: number;
+  targetDate?: string;
+  createdAt: string;
+}
+
 export interface LocationTag {
   lat: number;
   lng: number;
@@ -275,7 +284,8 @@ export interface UserSettings {
   locale?: string;
   theme?: 'dark' | 'light';
   passcodeEnabled: boolean;
-  passcode: string;
+  passcodeHash?: string;
+  passcodeSalt?: string;
   locationTracking: boolean;
   autoExtractSms: boolean;
   notificationsEnabled: boolean;

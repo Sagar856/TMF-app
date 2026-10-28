@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { ParsedNotification } from '../types/finance';
 import { Check, Edit3, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio } from 'lucide-react';
@@ -19,6 +20,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   onClose,
   currencySymbol,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [showRawText, setShowRawText] = useState<boolean>(false);
 
@@ -83,7 +85,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
             <div className={`text-2xl font-mono font-bold ${
               activeNotif.type === 'debit' ? 'text-red-500' : 'text-green-400'
             }`}>
-              {activeNotif.type === 'debit' ? '-' : '+'}{currencySymbol}{activeNotif.amount.toLocaleString('en-IN')}
+              {activeNotif.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(activeNotif.amount)}
             </div>
           </div>
 

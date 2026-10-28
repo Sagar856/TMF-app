@@ -8,27 +8,28 @@ export interface FormatMoneyOptions {
 
 const DEFAULT_LOCALE = ['en', 'IN'].join('-');
 
+export function getCurrencyLocale(currencyCode: string): string {
+  const locales: Record<string, string> = {
+    INR: DEFAULT_LOCALE,
+    USD: 'en-US',
+    EUR: 'de-DE',
+    GBP: 'en-GB',
+  };
+  return locales[currencyCode] || DEFAULT_LOCALE;
+}
+
 export function formatMoney(
   amount: number | null | undefined,
-  options?: FormatMoneyOptions | { locale?: string; currencySymbol?: string; symbol?: string }
+  options?: FormatMoneyOptions
 ): string {
   const sym = options?.symbol ?? options?.currencySymbol ?? '';
   const locale = options?.locale || DEFAULT_LOCALE;
 
-  if (amount === null || amount === undefined || isNaN(amount)) {
-    return sym ? `${sym}0` : '0';
-  }
-
-  const isNeg = amount < 0;
-  const absAmount = Math.abs(amount);
-
-  const minDigits = options?.minimumFractionDigits !== undefined
-    ? options.minimumFractionDigits
-    : (absAmount % 1 !== 0 ? 2 : 0);
-
-  const maxDigits = options?.maximumFractionDigits !== undefined
-    ? options.maximumFractionDigits
-    : (absAmount % 1 !== 0 ? 2 : 0);
+  const value = amount == null || isNaN(amount) ? 0 : amount;
+  const isNeg = value < 0;
+  const absAmount = Math.abs(value);
+  const minDigits = options?.minimumFractionDigits ?? 2;
+  const maxDigits = options?.maximumFractionDigits ?? 2;
 
   const formatted = absAmount.toLocaleString(locale, {
     minimumFractionDigits: minDigits,

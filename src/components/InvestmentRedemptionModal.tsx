@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo } from 'react';
 import { InvestmentRecord, FinancialAccount, InvestmentRedemption } from '../types/finance';
 import { calculateRedemption, roundCurrency } from '../services/financialCalculations';
@@ -26,6 +27,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
   onClose,
   onConfirmRedemption,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const isFD = investment.type === 'Fixed Deposit';
   const isStock = investment.type === 'Stocks';
   const isMF = investment.type === 'Mutual Funds';
@@ -259,13 +261,13 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           <div>
             <span className="text-[#666] block text-[9px] uppercase">Total Cost Basis</span>
             <span className="font-bold text-[#ddd]">
-              {currencySymbol}{investment.amountInvested.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(investment.amountInvested)}
             </span>
           </div>
           <div>
             <span className="text-[#666] block text-[9px] uppercase">Market Value</span>
             <span className="font-bold text-emerald-400">
-              {currencySymbol}{investment.currentValue.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(investment.currentValue)}
             </span>
           </div>
           <div>
@@ -273,7 +275,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
               {isStock ? 'Total Shares' : isMF ? 'Total Units' : 'Tenure'}
             </span>
             <span className="font-bold text-white">
-              {isFD ? `${investment.tenureMonths || 12} Mos` : availableQuantity.toLocaleString('en-IN')}
+              {isFD ? `${investment.tenureMonths || 12} Mos` : formatAmount(availableQuantity, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
             </span>
           </div>
         </div>
@@ -391,7 +393,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
             >
               {accounts.map((acc) => (
                 <option key={acc.id} value={acc.id} className="bg-[#181820] text-white">
-                  {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                  {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{formatAmount(acc.balance)}
                 </option>
               ))}
             </select>
@@ -422,21 +424,21 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           <div className="flex justify-between text-xs text-[#bbb]">
             <span>Gross Liquidation Value:</span>
             <span className="font-bold text-white">
-              {currencySymbol}{calculationResult.grossProceeds.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(calculationResult.grossProceeds)}
             </span>
           </div>
 
           {calculationResult.charges > 0 && (
             <div className="flex justify-between text-xs text-red-400">
               <span>Less Charges / Exit Load:</span>
-              <span>-{currencySymbol}{calculationResult.charges.toLocaleString('en-IN')}</span>
+              <span>-{currencySymbol}{formatAmount(calculationResult.charges)}</span>
             </div>
           )}
 
           {calculationResult.taxes > 0 && (
             <div className="flex justify-between text-xs text-red-400">
               <span>Less Estimated Taxes / TDS:</span>
-              <span>-{currencySymbol}{calculationResult.taxes.toLocaleString('en-IN')}</span>
+              <span>-{currencySymbol}{formatAmount(calculationResult.taxes)}</span>
             </div>
           )}
 
@@ -448,7 +450,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
               </span>
             </div>
             <div className="text-base sm:text-lg font-bold text-emerald-400">
-              {currencySymbol}{calculationResult.netCreditedAmount.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(calculationResult.netCreditedAmount)}
             </div>
           </div>
 
@@ -461,7 +463,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
               }`}
             >
               {calculationResult.realizedProfitLoss >= 0 ? '+' : ''}
-              {currencySymbol}{calculationResult.realizedProfitLoss.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(calculationResult.realizedProfitLoss)}
             </span>
           </div>
         </div>

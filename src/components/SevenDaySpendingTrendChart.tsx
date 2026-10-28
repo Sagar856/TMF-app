@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef } from 'react';
 import {
   ResponsiveContainer,
@@ -10,7 +11,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Transaction } from '../types/finance';
-import { toLocalISODate } from '../utils/dates';
+import { parseLocalDate, toLocalISODate } from '../utils/dates';
 import {
   TrendingDown,
   TrendingUp,
@@ -55,6 +56,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
   contentRef: externalContentRef,
   onToggleExpand: externalToggleExpand,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Self-managed scroll focus if not controlled by parent group
   const selfScroll = useScrollFocusSection({
     enabled: !carouselState,
@@ -110,7 +112,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
     let referenceEndDate: Date;
     if (debitTxs.length > 0) {
       const dates = debitTxs
-        .map((t) => new Date(t.date).getTime())
+        .map((t) => parseLocalDate(t.date).getTime())
         .filter((timestamp) => !isNaN(timestamp));
       
       const maxTime = dates.length > 0 ? Math.max(...dates) : Date.now();
@@ -219,13 +221,13 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
           <div className="bg-obsidian border border-nothing px-2.5 py-1.5 rounded-xl text-right shrink-0">
             <div className="text-[9px] text-[#666] uppercase">7-Day Total</div>
             <div className="text-xs font-bold text-red-400">
-              {currencySymbol}{totalSevenDaySpend.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(totalSevenDaySpend)}
             </div>
           </div>
           <div className="bg-obsidian border border-nothing px-2.5 py-1.5 rounded-xl text-right shrink-0">
             <div className="text-[9px] text-[#666] uppercase">Daily Avg</div>
             <div className="text-xs font-bold text-white">
-              {currencySymbol}{Math.round(dailyAverage).toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(dailyAverage)}
             </div>
           </div>
 
@@ -313,7 +315,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
                         <div className="flex items-baseline justify-between gap-2 pt-0.5">
                           <span className="text-[10px] text-[#777]">Spent:</span>
                           <span className="font-extrabold text-red-400 text-xs sm:text-sm">
-                            {currencySymbol}{data.amount.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(data.amount)}
                           </span>
                         </div>
                         {data.count > 0 && (
@@ -377,7 +379,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             <div className="min-w-0">
               <span className="text-[#666] block truncate">Peak Day</span>
               <span className="font-bold text-white truncate block">
-                {peakDay ? `${peakDay.dayOfWeek} (${currencySymbol}${peakDay.amount.toLocaleString('en-IN')})` : 'N/A'}
+                {peakDay ? `${peakDay.dayOfWeek} (${currencySymbol}${formatAmount(peakDay.amount)})` : 'N/A'}
               </span>
             </div>
           </div>
@@ -397,7 +399,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             <div className="min-w-0">
               <span className="text-[#666] block truncate">Selected Day</span>
               <span className="font-bold text-white truncate block">
-                {activeDay.dateLabel}: {currencySymbol}{activeDay.amount.toLocaleString('en-IN')}
+                {activeDay.dateLabel}: {currencySymbol}{formatAmount(activeDay.amount)}
               </span>
             </div>
           </div>
@@ -413,7 +415,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
               Transactions on {activeDay.fullDateLabel}
             </span>
             <span className="text-red-400 font-bold">
-              Total: {currencySymbol}{activeDay.amount.toLocaleString('en-IN')}
+              Total: {currencySymbol}{formatAmount(activeDay.amount)}
             </span>
           </div>
 
@@ -428,7 +430,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
                   <div className="text-[9px] text-[#777] truncate">{tx.category} • {tx.paymentMethod}</div>
                 </div>
                 <div className="font-bold text-red-400 text-xs shrink-0">
-                  -{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                  -{currencySymbol}{formatAmount(tx.amount)}
                 </div>
               </div>
             ))}

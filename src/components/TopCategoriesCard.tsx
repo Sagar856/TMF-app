@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React from 'react';
 import { Transaction, Category } from '../types/finance';
 import { Flame, PieChart, ShieldCheck } from 'lucide-react';
@@ -14,6 +15,7 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
   categories,
   currencySymbol,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const debitTxs = transactions.filter((t) => t.type === 'debit');
   const totalDebitSum = debitTxs.reduce((sum, t) => sum + t.amount, 0);
 
@@ -157,10 +159,10 @@ export const TopCategoriesCard: React.FC<TopCategoriesCardProps> = ({
                   <div className={`text-xs sm:text-sm font-bold ${
                     item.isOverBudget ? 'text-red-400' : item.isOverThreshold ? 'text-amber-300' : 'text-white'
                   }`}>
-                    {currencySymbol}{item.spent.toLocaleString('en-IN')}
+                    {currencySymbol}{formatAmount(item.spent)}
                   </div>
                   <div className="text-[9px] text-[#666]">
-                    {item.limit > 0 ? `Limit: ${currencySymbol}${item.limit.toLocaleString('en-IN')}` : 'No limit set'}
+                    {item.limit > 0 ? `Limit: ${currencySymbol}${formatAmount(item.limit)}` : 'No limit set'}
                   </div>
                 </div>
               </div>

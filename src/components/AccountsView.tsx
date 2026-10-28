@@ -147,7 +147,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [creditLimit, setCreditLimit] = useState<string>('');
   const [approxMonthlyBill, setApproxMonthlyBill] = useState<string>('');
   const [dueDate, setDueDate] = useState<string>('');
-  const [cardHolderName, setCardHolderName] = useState<string>(settings?.userName || '');
+  const [cardHolderName, setCardHolderName] = useState<string>('');
   const [cardNetwork, setCardNetwork] = useState<'Visa' | 'Mastercard' | 'RuPay' | 'Amex'>('Visa');
   const [cardTheme, setCardTheme] = useState<'silver' | 'dark' | 'emerald' | 'gold' | 'midnight'>('silver');
   const [isDefault, setIsDefault] = useState<boolean>(false);
@@ -208,7 +208,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setCreditLimit('');
     setApproxMonthlyBill('');
     setDueDate('');
-    setCardHolderName(settings?.userName || '');
+    setCardHolderName('');
     setCardNetwork('Visa');
     setCardTheme('silver');
     setIsDefault(false);
@@ -227,7 +227,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setCreditLimit(acc.creditLimit ? acc.creditLimit.toString() : '');
     setApproxMonthlyBill(acc.approxMonthlyBill ? acc.approxMonthlyBill.toString() : '');
     setDueDate(acc.dueDate || '');
-    setCardHolderName(acc.cardHolderName || settings?.userName || '');
+    setCardHolderName(acc.cardHolderName || '');
     setCardNetwork(acc.cardNetwork || 'Visa');
     setCardTheme(acc.cardColorTheme || 'silver');
     setIsDefault(Boolean(acc.isDefault));
@@ -258,7 +258,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       creditLimit: accType === 'Credit Card' ? limitNum : undefined,
       approxMonthlyBill: accType === 'Credit Card' ? billNum : undefined,
       dueDate: accType === 'Credit Card' ? dueDate.trim() : undefined,
-      cardHolderName: cardHolderName.trim() || settings?.userName || 'User',
+      cardHolderName: cardHolderName.trim() || undefined,
       cardNetwork,
       cardColorTheme: cardTheme,
       isDefault,
@@ -1076,7 +1076,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       type="text"
                       value={cardHolderName}
                       onChange={(e) => setCardHolderName(e.target.value)}
-                      placeholder={settings?.userName || 'User'}
+                      placeholder="Name on card"
                       className="w-full px-3.5 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-white focus:outline-none focus:border-red-600"
                     />
                   </div>

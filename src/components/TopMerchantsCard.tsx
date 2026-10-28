@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React from 'react';
 import { Transaction } from '../types/finance';
 import { MapPin, Store, ShoppingBag, Coffee, Car, Zap, Building2, ExternalLink } from 'lucide-react';
@@ -12,6 +13,7 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
   transactions,
   currencySymbol,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Aggregate expenses by merchant/location name or payee
   const merchantMap: {
     [key: string]: {
@@ -146,7 +148,7 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
 
                 <div className="text-right shrink-0 font-mono">
                   <div className="text-xs sm:text-sm font-bold text-white">
-                    {currencySymbol}{merchant.totalSpent.toLocaleString('en-IN')}
+                    {currencySymbol}{formatAmount(merchant.totalSpent)}
                   </div>
                 </div>
               </div>

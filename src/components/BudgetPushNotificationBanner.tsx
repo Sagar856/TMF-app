@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
@@ -25,6 +26,7 @@ export const BudgetPushNotificationBanner: React.FC<BudgetPushNotificationBanner
   onDismiss,
   onNavigateToCustomisations,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [progress, setProgress] = useState<number>(100);
 
   useEffect(() => {
@@ -117,13 +119,13 @@ export const BudgetPushNotificationBanner: React.FC<BudgetPushNotificationBanner
                   <span>
                     Spending has crossed <strong className="text-red-400 font-bold">100%</strong> of your limit! Total spent is{' '}
                     <span className="font-bold text-white">
-                      {currencySymbol}{alert.spent.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(alert.spent)}
                     </span>{' '}
-                    against budget of {currencySymbol}{alert.budgetLimit.toLocaleString('en-IN')} (+{currencySymbol}{alert.overAmount.toLocaleString('en-IN')} over).
+                    against budget of {currencySymbol}{formatAmount(alert.budgetLimit)} (+{currencySymbol}{formatAmount(alert.overAmount)} over).
                   </span>
                 ) : (
                   <span>
-                    Spending has reached <strong className="text-amber-400 font-bold">{alert.percent.toFixed(0)}%</strong> of your defined limit ({currencySymbol}{alert.spent.toLocaleString('en-IN')} of {currencySymbol}{alert.budgetLimit.toLocaleString('en-IN')}). Only <span className="text-white font-bold">{currencySymbol}{alert.remaining.toLocaleString('en-IN')}</span> remaining.
+                    Spending has reached <strong className="text-amber-400 font-bold">{alert.percent.toFixed(0)}%</strong> of your defined limit ({currencySymbol}{formatAmount(alert.spent)} of {currencySymbol}{formatAmount(alert.budgetLimit)}). Only <span className="text-white font-bold">{currencySymbol}{formatAmount(alert.remaining)}</span> remaining.
                   </span>
                 )}
               </p>

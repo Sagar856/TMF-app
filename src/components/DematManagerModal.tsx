@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { InvestmentRecord, InvestmentType } from '../types/finance';
 import {
@@ -46,6 +47,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
   onClose,
   onImportHoldings,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'IMPORT' | 'GUIDE'>('OVERVIEW');
   const [selectedBroker, setSelectedBroker] = useState<string>('Zerodha');
   const [csvText, setCsvText] = useState<string>('');
@@ -293,7 +295,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                         <div>
                           <div className="text-[9px] text-[#777] uppercase">Current Value</div>
                           <div className="font-bold text-white text-xs">
-                            {currencySymbol}{data.current.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                            {currencySymbol}{formatAmount(data.current)}
                           </div>
                         </div>
                         <div className="text-right">
@@ -303,7 +305,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
                               pnl >= 0 ? 'text-emerald-400' : 'text-red-400'
                             }`}
                           >
-                            {pnl >= 0 ? '+' : ''}{currencySymbol}{pnl.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} ({pnlPct}%)
+                            {pnl >= 0 ? '+' : ''}{currencySymbol}{formatAmount(pnl)} ({pnlPct}%)
                           </div>
                         </div>
                       </div>

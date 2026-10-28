@@ -1,3 +1,5 @@
+import { safeSetItem } from '../utils/storage';
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
@@ -97,6 +99,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   syncStatus,
   onForceSyncNow,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Navigation
   const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>('budgets');
   const [isForceSyncing, setIsForceSyncing] = useState<boolean>(false);
@@ -418,14 +421,14 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     };
     const updated = [rule, ...smartRules];
     setSmartRules(updated);
-    localStorage.setItem('tmf_smart_rules', JSON.stringify(updated));
+    safeSetItem('tmf_smart_rules', JSON.stringify(updated));
     setNewRuleKeyword('');
   };
 
   const handleDeleteSmartRule = (id: string) => {
     const updated = smartRules.filter((r) => r.id !== id);
     setSmartRules(updated);
-    localStorage.setItem('tmf_smart_rules', JSON.stringify(updated));
+    safeSetItem('tmf_smart_rules', JSON.stringify(updated));
   };
 
   // Filtered lists
@@ -822,7 +825,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Budget Tracked</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
-                  {currencySymbol}{budgetSummary.totalBudget.toLocaleString('en-IN')}
+                  {currencySymbol}{formatAmount(budgetSummary.totalBudget)}
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across configured categories</div>
               </div>
@@ -830,7 +833,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Month Debit Outflow</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
-                  {currencySymbol}{budgetSummary.totalSpent.toLocaleString('en-IN')}
+                  {currencySymbol}{formatAmount(budgetSummary.totalSpent)}
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Actual debits in {formatMonthLabel(selectedMonth)}</div>
               </div>
@@ -838,7 +841,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="bg-slate-50 dark:bg-[#0e0e14] border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
                 <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Net Remaining Buffer</div>
                 <div className={`text-base sm:text-lg font-bold mt-1 ${budgetSummary.remainingBudget === 0 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                  {currencySymbol}{budgetSummary.remainingBudget.toLocaleString('en-IN')}
+                  {currencySymbol}{formatAmount(budgetSummary.remainingBudget)}
                 </div>
                 <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Safe spending capacity</div>
               </div>
@@ -859,7 +862,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-[10px] text-slate-500 dark:text-[#888] uppercase font-bold">Combined Budget Gauge</span>
                 <span className="text-[11px] font-bold text-slate-700 dark:text-[#aaa]">
-                  {currencySymbol}{budgetSummary.totalSpent.toLocaleString('en-IN')} of {currencySymbol}{budgetSummary.totalBudget.toLocaleString('en-IN')} ({budgetSummary.overallPercent.toFixed(0)}%)
+                  {currencySymbol}{formatAmount(budgetSummary.totalSpent)} of {currencySymbol}{formatAmount(budgetSummary.totalBudget)} ({budgetSummary.overallPercent.toFixed(0)}%)
                 </span>
               </div>
               <div className="relative w-full h-3 bg-slate-100 dark:bg-[#0d0d12] rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-[#24242d]">
@@ -1025,7 +1028,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             <div className="text-right">
                               <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                                 {hasBudget
-                                  ? `${currencySymbol}${cat.budgetLimit?.toLocaleString('en-IN')}`
+                                  ? `${currencySymbol}${formatAmount(cat.budgetLimit)}`
                                   : 'No Limit'}
                               </div>
                               <button
@@ -1072,11 +1075,11 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       <div className="flex items-baseline gap-1.5">
                         <span className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Month Spend:</span>
                         <span className={`font-bold ${spendData.isOverThreshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
-                          {currencySymbol}{spendData.actualSpent.toLocaleString('en-IN')}
+                          {currencySymbol}{formatAmount(spendData.actualSpent)}
                         </span>
                         {hasBudget && (
                           <span className="text-[10px] text-slate-400 dark:text-[#777]">
-                            of {currencySymbol}{spendData.budgetLimit.toLocaleString('en-IN')} target
+                            of {currencySymbol}{formatAmount(spendData.budgetLimit)} target
                           </span>
                         )}
                       </div>
@@ -1085,15 +1088,15 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                         {hasBudget ? (
                           spendData.isOverBudget ? (
                             <span className="text-red-600 dark:text-red-400 font-bold">
-                              +{currencySymbol}{spendData.overAmount.toLocaleString('en-IN')} Exceeded
+                              +{currencySymbol}{formatAmount(spendData.overAmount)} Exceeded
                             </span>
                           ) : spendData.isOverThreshold ? (
                             <span className="text-amber-600 dark:text-amber-400 font-bold">
-                              Only {currencySymbol}{spendData.remaining.toLocaleString('en-IN')} left before limit
+                              Only {currencySymbol}{formatAmount(spendData.remaining)} left before limit
                             </span>
                           ) : (
                             <span className="text-emerald-600 dark:text-emerald-400">
-                              {currencySymbol}{spendData.remaining.toLocaleString('en-IN')} remaining
+                              {currencySymbol}{formatAmount(spendData.remaining)} remaining
                             </span>
                           )
                         ) : (
@@ -1236,7 +1239,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             </span>
                             {cat.budgetLimit && (
                               <span className="text-[10px] text-slate-500 dark:text-[#777]">
-                                Limit: {currencySymbol}{cat.budgetLimit.toLocaleString('en-IN')}
+                                Limit: {currencySymbol}{formatAmount(cat.budgetLimit)}
                               </span>
                             )}
                           </div>
@@ -1342,7 +1345,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     <div className="pt-2 border-t border-slate-100 dark:border-[#202028] text-[10px] text-slate-500 dark:text-[#777] flex items-center justify-between">
                       <span>Spent this month:</span>
                       <span className="font-bold text-slate-800 dark:text-white">
-                        {currencySymbol}{spendData.actualSpent.toLocaleString('en-IN')}
+                        {currencySymbol}{formatAmount(spendData.actualSpent)}
                       </span>
                     </div>
                   )}
@@ -1364,10 +1367,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Liquid Balances</div>
               <div className="text-base sm:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
                 {currencySymbol}
-                {accounts
+                {formatAmount(accounts
                   .filter((a) => a.type === 'Bank' || a.type === 'Wallet/UPI')
-                  .reduce((sum, a) => sum + (a.balance || 0), 0)
-                  .toLocaleString('en-IN')}
+                  .reduce((sum, a) => sum + (a.balance || 0), 0))}
               </div>
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across bank &amp; wallet accounts</div>
             </div>
@@ -1376,10 +1378,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Credit Card Outstanding</div>
               <div className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400 mt-1">
                 {currencySymbol}
-                {accounts
+                {formatAmount(accounts
                   .filter((a) => a.type === 'Credit Card')
-                  .reduce((sum, a) => sum + (a.balance || 0), 0)
-                  .toLocaleString('en-IN')}
+                  .reduce((sum, a) => sum + (a.balance || 0), 0))}
               </div>
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Estimated bill dues</div>
             </div>
@@ -1475,7 +1476,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       <div className={`text-base font-bold mt-0.5 ${
                         acc.type === 'Credit Card' ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'
                       }`}>
-                        {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                        {currencySymbol}{formatAmount(acc.balance)}
                       </div>
                     </div>
 
@@ -2063,7 +2064,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-slate-500 dark:text-[#666]">Current Balance:</span>
                     <span className="font-bold text-emerald-600 dark:text-emerald-400">
-                      {currencySymbol}{accountToDelete.balance.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(accountToDelete.balance)}
                     </span>
                   </div>
                 </div>

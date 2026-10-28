@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { LoanRecord, LoanInstallment, FinancialAccount } from '../types/finance';
 import { todayLocalISO } from '../utils/dates';
@@ -27,6 +28,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
   onConfirmInstallmentPayment,
   onSkipInstallment,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const schedule = loan.schedule || [];
 
   // Active confirmation installment state
@@ -59,7 +61,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
     }
     const targetAccount = accounts.find((a) => a.id === selectedAccountId);
     if (targetAccount && targetAccount.type === 'Bank' && targetAccount.balance < inst.emiAmount) {
-      setActionError(`Insufficient funds in ${targetAccount.name}. Available: ${currencySymbol}${targetAccount.balance.toLocaleString('en-IN')}`);
+      setActionError(`Insufficient funds in ${targetAccount.name}. Available: ${currencySymbol}${formatAmount(targetAccount.balance)}`);
       return;
     }
 
@@ -132,7 +134,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                 )}
               </h3>
               <p className="text-xs text-[#888] truncate max-w-[420px]">
-                {loan.title} · Financed: {currencySymbol}{loan.totalAmount.toLocaleString('en-IN')}
+                {loan.title} · Financed: {currencySymbol}{formatAmount(loan.totalAmount)}
               </p>
             </div>
           </div>
@@ -155,19 +157,19 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
           <div>
             <span className="text-[#666] block text-[9px] uppercase tracking-wider">Principal Repaid</span>
             <span className="font-bold text-emerald-400">
-              {currencySymbol}{Math.round(totalPrincipalPaid).toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(totalPrincipalPaid)}
             </span>
           </div>
           <div>
             <span className="text-[#666] block text-[9px] uppercase tracking-wider">Interest Paid</span>
             <span className="font-bold text-amber-400">
-              {currencySymbol}{Math.round(totalInterestPaid).toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(totalInterestPaid)}
             </span>
           </div>
           <div>
             <span className="text-[#666] block text-[9px] uppercase tracking-wider">Remaining Balance</span>
             <span className="font-bold text-red-400">
-              {currencySymbol}{Math.round(loan.remainingAmount).toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(loan.remainingAmount)}
             </span>
           </div>
         </div>
@@ -203,7 +205,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
               <div>
                 <label className="block text-[10px] text-[#aaa] uppercase mb-1">Installment Amount</label>
                 <div className="font-bold text-lg text-emerald-400">
-                  {currencySymbol}{confirmingInstallment.emiAmount.toLocaleString('en-IN')}
+                  {currencySymbol}{formatAmount(confirmingInstallment.emiAmount)}
                 </div>
               </div>
               <div>
@@ -227,7 +229,7 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                 >
                   {accounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
-                      {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                      {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{formatAmount(acc.balance)}
                     </option>
                   ))}
                 </select>
@@ -297,16 +299,16 @@ export const LoanScheduleModal: React.FC<LoanScheduleModalProps> = ({
                       {inst.dueDate}
                     </td>
                     <td className="py-2.5 px-3 font-mono font-bold text-white whitespace-nowrap">
-                      {currencySymbol}{inst.emiAmount.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(inst.emiAmount)}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-emerald-400 hidden sm:table-cell whitespace-nowrap">
-                      {currencySymbol}{inst.principalComponent.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(inst.principalComponent)}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-amber-400 hidden sm:table-cell whitespace-nowrap">
-                      {currencySymbol}{inst.interestComponent.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(inst.interestComponent)}
                     </td>
                     <td className="py-2.5 px-3 font-mono text-[#aaa] whitespace-nowrap">
-                      {currencySymbol}{inst.outstandingBalance.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(inst.outstandingBalance)}
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       {getStatusBadge(inst.status)}

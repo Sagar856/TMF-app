@@ -1,6 +1,7 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { Transaction } from '../types/finance';
-import { toLocalISODate } from '../utils/dates';
+import { parseLocalDate, toLocalISODate } from '../utils/dates';
 import { TrendingUp, ArrowUpRight, ArrowDownLeft, Activity } from 'lucide-react';
 import { InfoButton } from './InfoButton';
 
@@ -13,6 +14,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
   transactions,
   currencySymbol,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [period, setPeriod] = useState<'week' | 'month'>('month');
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
@@ -55,7 +57,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
       }
       
       dates.forEach((dateStr) => {
-        const d = new Date(dateStr);
+        const d = parseLocalDate(dateStr);
         const label = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
         const debit = transactions
@@ -189,8 +191,8 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
             <span className="text-[#666]">({activePoint.dateStr})</span>
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-red-400">Debit: -{currencySymbol}{activePoint.debit.toLocaleString()}</span>
-            <span className="text-emerald-400">Credit: +{currencySymbol}{activePoint.credit.toLocaleString()}</span>
+            <span className="text-red-400">Debit: -{currencySymbol}{formatAmount(activePoint.debit)}</span>
+            <span className="text-emerald-400">Credit: +{currencySymbol}{formatAmount(activePoint.credit)}</span>
           </div>
         </div>
       )}

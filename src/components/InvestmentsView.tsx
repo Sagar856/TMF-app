@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentRecord, InvestmentType, Transaction, UserSettings } from '../types/finance';
@@ -48,7 +49,7 @@ import { StockSelector } from './StockSelector';
 import { DematManagerModal } from './DematManagerModal';
 import { StockItem } from '../services/stocksDatabase';
 import { newId } from '../utils/ids';
-import { todayLocalISO, currentMonthLocal, addMonthsClamped } from '../utils/dates';
+import { todayLocalISO, currentMonthLocal, addMonthsClamped, parseLocalDate } from '../utils/dates';
 
 interface InvestmentsViewProps {
   investments: InvestmentRecord[];
@@ -106,6 +107,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   settings,
   onUpdateSettings,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
   const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
@@ -487,7 +489,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     const day = String(d.getDate()).padStart(2, '0');
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1280,7 +1282,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-white tracking-tight">
-                {showCurrentValue ? `${currencySymbol}${totalCurrentValue.toLocaleString('en-IN')}` : '••••••••'}
+                {showCurrentValue ? `${currencySymbol}${formatAmount(totalCurrentValue)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
                 <TrendingUp className="w-3 h-3" />
@@ -1318,7 +1320,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-[#aaa] tracking-tight">
-                {showInvestedCapital ? `${currencySymbol}${totalInvestedCapital.toLocaleString('en-IN')}` : '••••••••'}
+                {showInvestedCapital ? `${currencySymbol}${formatAmount(totalInvestedCapital)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Net Principal
@@ -1357,7 +1359,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
                 totalProfit >= 0 ? 'text-emerald-400' : 'text-red-500'
               }`}>
-                {showTotalProfit ? `${totalProfit >= 0 ? '+' : ''}${currencySymbol}${totalProfit.toLocaleString('en-IN')}` : '••••••••'}
+                {showTotalProfit ? `${totalProfit >= 0 ? '+' : ''}${currencySymbol}${formatAmount(totalProfit)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Unrealized Gain
@@ -1383,7 +1385,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               />
             </div>
             <span className="text-white">
-              {currencySymbol}{totalInvestmentAmount.toLocaleString('en-IN')}
+              {currencySymbol}{formatAmount(totalInvestmentAmount)}
             </span>
           </div>
 
@@ -1404,7 +1406,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 />
                 <Tooltip
                   contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '12px', fontSize: '11px', fontFamily: 'monospace' }}
-                  formatter={(val: any) => [`${currencySymbol}${Number(val).toLocaleString()}`, 'Cumulative']}
+                  formatter={(val: any) => [`${currencySymbol}${formatAmount(Number(val))}`, 'Cumulative']}
                 />
                 <Line
                   type="monotone"
@@ -1452,7 +1454,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   </Pie>
                   <Tooltip
                     contentStyle={{ backgroundColor: '#111', borderColor: '#333', borderRadius: '12px', fontSize: '11px', fontFamily: 'monospace' }}
-                    formatter={(val: any) => [`${currencySymbol}${Number(val).toLocaleString()}`, 'Value']}
+                    formatter={(val: any) => [`${currencySymbol}${formatAmount(Number(val))}`, 'Value']}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -1467,7 +1469,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     <span className="text-[#ccc] truncate max-w-[110px]">{item.name}</span>
                   </div>
                   <span className="font-bold text-white shrink-0">
-                    {currencySymbol}{item.value.toLocaleString('en-IN', { minimumFractionDigits: 1 })}
+                    {currencySymbol}{formatAmount(item.value)}
                   </span>
                 </div>
               ))}
@@ -1516,7 +1518,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         </div>
 
         {viewMode === 'table' ? (
-          <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+          <>
+          <div className="hidden sm:block bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
             <div className="min-w-[860px]">
               {/* Table Header */}
               <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
@@ -1552,7 +1555,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       {tx.type}
                     </div>
                     <div className="col-span-2 text-right font-bold text-cyan-400">
-                      {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                      {currencySymbol}{formatAmount(tx.amount)}
                     </div>
                     <div className="col-span-2 flex items-center justify-end gap-1.5 shrink-0">
                       <button
@@ -1583,6 +1586,44 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               )}
             </div>
           </div>
+          <div className="sm:hidden space-y-2.5">
+            {filteredTxns.length === 0 ? (
+              <div className="p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-2xl">
+                No investment transactions recorded yet.
+              </div>
+            ) : (
+              filteredTxns.map((tx) => (
+                <article key={tx.id} className="bg-[#111] border border-[#222] rounded-xl p-3 space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-bold text-white truncate">{tx.category}</div>
+                      <div className="text-[10px] text-[#aaa] mt-1">{formatDateDisplay(tx.date)} · {tx.account}</div>
+                    </div>
+                    <div className="shrink-0 text-right text-xs font-bold text-cyan-400">
+                      {currencySymbol}{formatAmount(tx.amount)}
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 border-t border-[#222] pt-2">
+                    <button
+                      type="button"
+                      onClick={() => handleEditTxn(tx)}
+                      className="min-h-10 min-w-16 px-3 border border-[#333] text-[#ccc] text-xs font-bold rounded-lg"
+                    >
+                      EDIT
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTxn(tx)}
+                      className="min-h-10 min-w-16 px-3 border border-red-900/60 text-red-400 text-xs font-bold rounded-lg"
+                    >
+                      DELETE
+                    </button>
+                  </div>
+                </article>
+              ))
+            )}
+          </div>
+          </>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {filteredTxns.length === 0 ? (
@@ -1606,7 +1647,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   <div className="flex flex-col items-end gap-1.5 shrink-0">
                     <div className="flex items-center gap-2">
                       <div className="text-xs font-bold text-cyan-400">
-                        {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                        {currencySymbol}{formatAmount(tx.amount)}
                       </div>
                       <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
                         {tx.type}
@@ -1796,7 +1837,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
                       <div className="text-right">
                         <div className="text-lg font-bold font-mono text-white">
-                          {currencySymbol}{inv.currentValue.toLocaleString('en-IN')}
+                          {currencySymbol}{formatAmount(inv.currentValue)}
                         </div>
                         <div
                           className={`text-xs font-mono font-bold ${
@@ -1814,7 +1855,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       <div>
                         <span className="text-[#666] block text-[9px] uppercase">Cost Basis</span>
                         <span className="text-white font-bold">
-                          {currencySymbol}{inv.amountInvested.toLocaleString('en-IN')}
+                          {currencySymbol}{formatAmount(inv.amountInvested)}
                         </span>
                       </div>
                       {isMF && (
@@ -1945,7 +1986,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <span>Investment Liquidation & Redemption Ledger</span>
             </div>
             <div className="text-xs font-mono text-emerald-400 font-bold">
-              Total Realized Gain: {currencySymbol}{totalRealizedGain.toLocaleString('en-IN')}
+              Total Realized Gain: {currencySymbol}{formatAmount(totalRealizedGain)}
             </div>
           </div>
 
@@ -1980,13 +2021,13 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       </div>
                     </div>
                     <div className="col-span-2 text-right font-mono text-white">
-                      {currencySymbol}{red.grossProceeds.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(red.grossProceeds)}
                     </div>
                     <div className="col-span-1 text-right font-mono text-red-400 text-[11px]">
-                      -{currencySymbol}{(red.charges + red.taxes).toLocaleString('en-IN')}
+                      -{currencySymbol}{formatAmount((red.charges + red.taxes))}
                     </div>
                     <div className="col-span-2 text-right font-mono font-bold text-emerald-400">
-                      +{currencySymbol}{red.netCredited.toLocaleString('en-IN')}
+                      +{currencySymbol}{formatAmount(red.netCredited)}
                     </div>
                     <div
                       className={`col-span-2 text-right font-mono font-bold ${
@@ -1994,7 +2035,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       }`}
                     >
                       {red.realizedGainLoss >= 0 ? '+' : ''}
-                      {currencySymbol}{red.realizedGainLoss.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(red.realizedGainLoss)}
                     </div>
                   </div>
                 ))
@@ -2070,7 +2111,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                         {tx.type}
                       </div>
                       <div className="col-span-2 text-right font-bold text-cyan-400">
-                        {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                        {currencySymbol}{formatAmount(tx.amount)}
                       </div>
                       <div className="col-span-2 flex items-center justify-end gap-1.5 shrink-0">
                         <button
@@ -2122,7 +2163,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <div className="flex items-center gap-2">
                         <div className="text-xs font-bold text-cyan-400">
-                          {currencySymbol}{tx.amount.toLocaleString('en-IN', { minimumFractionDigits: 1, maximumFractionDigits: 2 })}
+                          {currencySymbol}{formatAmount(tx.amount)}
                         </div>
                         <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
                           {tx.type}
@@ -2689,7 +2730,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Amount:</span>
                     <span className="font-bold text-cyan-400">
-                      {currencySymbol}{txnToDelete.amount.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(txnToDelete.amount)}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">
@@ -2790,7 +2831,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Invested Capital:</span>
                     <span className="font-bold text-red-400">
-                      {currencySymbol}{assetToDelete.amount.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(assetToDelete.amount)}
                     </span>
                   </div>
                 </div>
@@ -2835,5 +2876,3 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     </div>
   );
 };
-
-

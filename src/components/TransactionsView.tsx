@@ -1,10 +1,15 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Category, UserSettings } from '../types/finance';
-import { todayLocalISO } from '../utils/dates';
-import { Download, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle } from 'lucide-react';
+import { parseLocalDate, todayLocalISO } from '../utils/dates';
+import { normalizeTransactionType } from '../utils/transactionType';
+import { calculateTransactionMetrics } from '../utils/transactionMetrics';
+import { parseTransactionsCsv, stringifyTransactionsCsv } from '../utils/transactionCsv';
+import { Download, Upload, Plus, LayoutList, Table as TableIcon, Filter, ChevronDown, ChevronUp, SlidersHorizontal, Layers, Search, TrendingDown, TrendingUp, Wallet, MoreVertical, X, Eye, EyeOff, ArrowUpRight, ArrowDownLeft, AlertTriangle, Paperclip } from 'lucide-react';
 import { EmptyState } from './EmptyState';
 import { InfoButton } from './InfoButton';
+import { ReceiptAttachmentModal } from './ReceiptAttachmentModal';
 
 interface TransactionsViewProps {
   transactions: Transaction[];
@@ -12,6 +17,7 @@ interface TransactionsViewProps {
   onAddTransaction: () => void;
   onEditTransaction: (tx: Transaction) => void;
   onDeleteTransaction: (id: string) => void;
+  onImportTransactions: (transactions: Transaction[]) => { added: number; duplicates: number };
   currencySymbol: string;
   settings: UserSettings;
   onUpdateSettings: (newSettings: UserSettings) => void;
@@ -23,10 +29,12 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   onAddTransaction,
   onEditTransaction,
   onDeleteTransaction,
+  onImportTransactions,
   currencySymbol,
   settings,
   onUpdateSettings,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
@@ -44,6 +52,9 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   // Collapsible Filter Panel state
   const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
   const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
+  const csvImportInputRef = useRef<HTMLInputElement>(null);
+  const [csvImportMessage, setCsvImportMessage] = useState<string | null>(null);
+  const [receiptTransactionId, setReceiptTransactionId] = useState<string | null>(null);
 
   // Stack vs Expanded state for Top KPIs
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
@@ -119,8 +130,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     if (typeFilter !== 'All') count++;
     if (tagFilter !== 'All') count++;
     if (searchQuery.trim()) count++;
+    if (fromDate) count++;
+    if (toDate) count++;
     return count;
-  }, [categoryFilter, accountFilter, typeFilter, tagFilter, searchQuery]);
+  }, [categoryFilter, accountFilter, typeFilter, tagFilter, searchQuery, fromDate, toDate]);
 
   // Unique list of accounts (sources / payment methods)
   const uniqueAccounts = useMemo(() => {
@@ -144,7 +157,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   // Date formatter e.g. "2026-07-29" -> "29 Jul 2026"
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     const day = String(d.getDate()).padStart(2, '0');
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -211,40 +224,16 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   ]);
 
   // KPI Calculations
-  const totalDebit = useMemo(() => {
-    return filteredTransactions
-      .filter((t) => t.type === 'debit')
-      .reduce((sum, t) => sum + t.amount, 0);
-  }, [filteredTransactions]);
-
-  const totalCredit = useMemo(() => {
-    return filteredTransactions
-      .filter((t) => t.type === 'credit')
-      .reduce((sum, t) => sum + t.amount, 0);
-  }, [filteredTransactions]);
+  const { creditCount, debitCount, totalCredit, totalDebit } = useMemo(
+    () => calculateTransactionMetrics(filteredTransactions),
+    [filteredTransactions]
+  );
 
   const netBalance = totalCredit - totalDebit;
 
   // Export CSV
   const handleExportCSV = () => {
-    const headers = ['ID', 'Title', 'Type', 'Amount', 'Category', 'Subcategory', 'Date', 'Time', 'Source', 'Payee', 'Location', 'Reference / UTR'];
-    const rows = filteredTransactions.map((t) => [
-      t.id,
-      `"${t.title.replace(/"/g, '""')}"`,
-      t.type,
-      t.amount,
-      `"${t.category}"`,
-      `"${t.subcategory}"`,
-      t.date,
-      t.time,
-      t.source,
-      `"${t.payeeOrPayer || ''}"`,
-      `"${t.location?.name || ''}"`,
-      `"${t.refNumber || ''}"`,
-    ]);
-
-    const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const blob = new Blob([stringifyTransactionsCsv(filteredTransactions)], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
@@ -252,6 +241,33 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const handleImportCSV = async (file?: File) => {
+    if (!file) return;
+    setCsvImportMessage(null);
+    try {
+      if (file.size > 10 * 1024 * 1024) {
+        setCsvImportMessage('CSV file is too large. Maximum file size is 10 MB.');
+        return;
+      }
+      const { transactions: imported, errors } = parseTransactionsCsv(await file.text());
+      if (imported.length === 0) {
+        setCsvImportMessage(errors[0] || 'No valid transactions were found in this CSV.');
+        return;
+      }
+
+      const { added, duplicates } = onImportTransactions(imported);
+      const skipped = duplicates + errors.length;
+      const detail = errors.length > 0 ? ` ${errors.length} invalid row(s) skipped. ${errors.slice(0, 2).join(' ')}` : '';
+      setCsvImportMessage(`Imported ${added} transaction(s); skipped ${skipped} duplicate or invalid row(s).${detail}`);
+    } catch (error) {
+      console.error('Could not import transaction CSV:', error);
+      setCsvImportMessage(error instanceof Error ? error.message : 'Could not read this CSV file.');
+    } finally {
+      if (csvImportInputRef.current) csvImportInputRef.current.value = '';
+    }
   };
 
   return (
@@ -355,6 +371,27 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
             {showThreeDotMenu && (
               <div className="absolute right-0 mt-1 w-44 bg-[#111] border border-[#333] rounded-xl shadow-xl z-50 py-1 font-mono text-xs">
+                <input
+                  ref={csvImportInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  aria-label="Import transaction CSV file"
+                  onChange={(event) => {
+                    void handleImportCSV(event.target.files?.[0]);
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowThreeDotMenu(false);
+                    csvImportInputRef.current?.click();
+                  }}
+                  className="w-full text-left px-3 py-2 text-[#eee] hover:bg-[#222] hover:text-white flex items-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5 text-blue-400" />
+                  <span>Import CSV</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -382,6 +419,18 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           </div>
         </div>
       </div>
+      {csvImportMessage && (
+        <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+          {csvImportMessage}
+        </p>
+      )}
+      {receiptTransactionId && (
+        <ReceiptAttachmentModal
+          transactions={transactions}
+          initialTransactionId={receiptTransactionId}
+          onClose={() => setReceiptTransactionId(null)}
+        />
+      )}
 
       {/* ==================== COLLAPSIBLE FILTER PANEL ==================== */}
       {isFilterOpen && (
@@ -494,6 +543,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                     setTypeFilter('All');
                     setTagFilter('All');
                     setSearchQuery('');
+                    setFromDate('');
+                    setToDate('');
                   }}
                   className="text-[10px] font-mono uppercase text-red-400 hover:underline"
                 >
@@ -586,7 +637,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 }`}
               >
                 {showNetBalance
-                  ? `${netBalance < 0 ? '-' : ''}${currencySymbol}${Math.abs(netBalance).toLocaleString('en-IN')}`
+                  ? `${netBalance < 0 ? '-' : ''}${currencySymbol}${formatAmount(Math.abs(netBalance))}`
                   : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
@@ -624,10 +675,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
-                {showCredit ? `+${currencySymbol}${totalCredit.toLocaleString('en-IN')}` : '••••••••'}
+                {showCredit ? `+${currencySymbol}${formatAmount(totalCredit)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {filteredTransactions.filter((t) => t.type === 'credit' || t.type === 'Credit' || t.amount > 0).length} Deposits
+                {creditCount} Deposits
               </div>
             </div>
           </div>
@@ -661,10 +712,10 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
-                {showDebit ? `-${currencySymbol}${totalDebit.toLocaleString('en-IN')}` : '••••••••'}
+                {showDebit ? `-${currencySymbol}${formatAmount(totalDebit)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {filteredTransactions.filter((t) => t.type === 'debit' || t.type === 'Debit' || t.amount < 0).length} Debits
+                {debitCount} Debits
               </div>
             </div>
           </div>
@@ -708,8 +759,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
       {/* ==================== RECORD LISTING ==================== */}
       {viewMode === 'table' ? (
-        /* TABLE FORMAT */
-        <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+        <>
+        <div className="hidden sm:block bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
           <div className="min-w-[860px]">
             {/* Header */}
             <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
@@ -750,7 +801,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                       tx.type === 'debit' ? 'text-red-500' : 'text-emerald-400'
                     }`}
                   >
-                    {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                    {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
                   </div>
 
                   {/* ACCOUNT */}
@@ -770,6 +821,17 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
                   {/* ACTIONS */}
                   <div className="col-span-2 flex justify-end items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setReceiptTransactionId(tx.id);
+                      }}
+                      aria-label={`Attach or view receipt for ${tx.title}`}
+                      className="p-1.5 border border-[#333] hover:border-emerald-500 text-[#aaa] hover:text-emerald-300 rounded-lg"
+                    >
+                      <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => {
@@ -796,6 +858,56 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             )}
           </div>
         </div>
+        <div className="sm:hidden space-y-2.5">
+          {filteredTransactions.length === 0 ? (
+            <div className="p-8 text-center text-xs text-[#666] bg-[#111111] border border-[#222] rounded-2xl">
+              No transactions match your search filters.
+            </div>
+          ) : (
+            filteredTransactions.map((tx) => (
+              <article key={tx.id} className="bg-[#111111] border border-[#222] rounded-xl p-3 space-y-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-white truncate">{tx.title || tx.category}</div>
+                    <div className="text-[10px] text-[#aaa] mt-1">
+                      {formatDateDisplay(tx.date)} · {tx.category}
+                    </div>
+                    <div className="text-[10px] text-[#777] mt-0.5 truncate">
+                      {tx.paymentMethod || tx.source}{tx.payeeOrPayer ? ` · ${tx.payeeOrPayer}` : ''}
+                    </div>
+                  </div>
+                  <div className={`shrink-0 text-right font-bold text-xs ${normalizeTransactionType(tx.type) === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
+                    {normalizeTransactionType(tx.type) === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2 border-t border-[#222] pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setReceiptTransactionId(tx.id)}
+                    className="min-h-10 px-3 border border-emerald-900/70 text-emerald-300 text-xs font-bold rounded-lg"
+                  >
+                    RECEIPT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onEditTransaction(tx)}
+                    className="min-h-10 min-w-16 px-3 border border-[#333] text-[#ccc] text-xs font-bold rounded-lg"
+                  >
+                    EDIT
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteClick(tx)}
+                    className="min-h-10 min-w-16 px-3 border border-red-900/80 text-red-400 text-xs font-bold rounded-lg"
+                  >
+                    DELETE
+                  </button>
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+        </>
       ) : (
         /* DETAIL FORMAT (Card layout) */
         <div className="space-y-2.5">
@@ -853,7 +965,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                         tx.type === 'debit' ? 'text-red-500' : 'text-emerald-400'
                       }`}
                     >
-                      {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{tx.amount.toLocaleString('en-IN')}
+                      {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
                     </div>
                     <div className="text-[9px] font-mono text-[#555]">
                       {tx.paymentMethod || tx.source}
@@ -861,6 +973,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   </div>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setReceiptTransactionId(tx.id)}
+                      aria-label={`Attach or view receipt for ${tx.title}`}
+                      className="p-1.5 border border-[#333] text-[#aaa] hover:text-emerald-300 rounded"
+                    >
+                      <Paperclip className="h-3.5 w-3.5" aria-hidden="true" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => onEditTransaction(tx)}
@@ -944,7 +1064,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Amount:</span>
                     <span className={`font-bold ${transactionToDelete.type === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
-                      {transactionToDelete.type === 'debit' ? '-' : '+'}{currencySymbol}{transactionToDelete.amount.toLocaleString('en-IN')}
+                      {transactionToDelete.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(transactionToDelete.amount)}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">

@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { EmiConfirmationRequest, FinancialAccount } from '../types/finance';
 import { AlertCircle, CheckCircle2, Clock, SkipForward, X, Building2, BellRing, ShieldCheck } from 'lucide-react';
@@ -21,6 +22,7 @@ export const EmiConfirmationPromptModal: React.FC<EmiConfirmationPromptModalProp
   onRemindLater,
   onClose,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const activeReq = requests[currentIndex];
   
@@ -45,7 +47,7 @@ export const EmiConfirmationPromptModal: React.FC<EmiConfirmationPromptModalProp
       return;
     }
     if (currentAccount && currentAccount.type === 'Bank' && currentAccount.balance < activeReq.amount) {
-      setErrorMsg(`Insufficient funds in ${currentAccount.name} (${currencySymbol}${currentAccount.balance.toLocaleString('en-IN')}).`);
+      setErrorMsg(`Insufficient funds in ${currentAccount.name} (${currencySymbol}${formatAmount(currentAccount.balance)}).`);
       return;
     }
     onConfirm(activeReq.id, selectedAccountId, notes || `EMI Installment #${activeReq.installmentNumber} for ${activeReq.loanTitle}`);
@@ -86,7 +88,7 @@ export const EmiConfirmationPromptModal: React.FC<EmiConfirmationPromptModalProp
             <div className="text-right">
               <span className="text-[10px] text-[#777] uppercase tracking-wider block">EMI Amount</span>
               <div className="text-xl font-bold text-red-400 mt-0.5">
-                {currencySymbol}{activeReq.amount.toLocaleString('en-IN')}
+                {currencySymbol}{formatAmount(activeReq.amount)}
               </div>
             </div>
           </div>
@@ -124,7 +126,7 @@ export const EmiConfirmationPromptModal: React.FC<EmiConfirmationPromptModalProp
           >
             {accounts.map((acc) => (
               <option key={acc.id} value={acc.id} className="bg-[#181820] text-white">
-                {acc.name} ({acc.bankName}) - Available: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                {acc.name} ({acc.bankName}) - Available: {currencySymbol}{formatAmount(acc.balance)}
               </option>
             ))}
           </select>

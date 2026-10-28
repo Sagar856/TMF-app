@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { PRESET_SMS_TEMPLATES } from '../data/initialData';
 import { parseNotification } from '../services/notification/ParserManager';
@@ -22,6 +23,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
   currencySymbol,
   locationTracking = false,
 }) => {
+  const formatAmount = useMoneyFormatter();
   const [customSms, setCustomSms] = useState<string>('');
   const [useCurrentLocation, setUseCurrentLocation] = useState<boolean>(Boolean(locationTracking));
   const [customLocationName, setCustomLocationName] = useState<string>('');
@@ -67,7 +69,7 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
 
     if (isDuplicate && !force) {
       setDuplicateWarning(
-        `Duplicate detected: An identical transaction (${parsed.payeeOrPayer} for ${currencySymbol}${parsed.amount.toLocaleString()}) already exists or is pending.`
+        `Duplicate detected: An identical transaction (${parsed.payeeOrPayer} for ${currencySymbol}${formatAmount(parsed.amount)}) already exists or is pending.`
       );
       return;
     }

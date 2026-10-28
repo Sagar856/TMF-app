@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef } from 'react';
 import { Transaction, Category } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
@@ -46,6 +47,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
   contentRef: externalContentRef,
   onToggleExpand: externalToggleExpand,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Self-managed scroll focus if not controlled by parent group
   const selfScroll = useScrollFocusSection({
     enabled: !carouselState,
@@ -318,14 +320,14 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
             <div className="bg-black/50 border border-[#222] p-2.5 sm:p-3 rounded-xl">
               <div className="text-[9px] text-[#777] uppercase font-bold">Tracked Budget</div>
               <div className="text-sm sm:text-base font-bold text-white mt-0.5">
-                {currencySymbol}{totalBudgetTracked.toLocaleString('en-IN')}
+                {currencySymbol}{formatAmount(totalBudgetTracked)}
               </div>
             </div>
 
             <div className="bg-black/50 border border-[#222] p-2.5 sm:p-3 rounded-xl">
               <div className="text-[9px] text-[#777] uppercase font-bold">Month Spend</div>
               <div className="text-sm sm:text-base font-bold text-white mt-0.5">
-                {currencySymbol}{totalSpentTracked.toLocaleString('en-IN')}
+                {currencySymbol}{formatAmount(totalSpentTracked)}
               </div>
             </div>
 
@@ -479,25 +481,25 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                     <div className="flex items-baseline justify-between text-xs sm:text-sm mb-2 gap-2 flex-wrap">
                       <div className="flex items-baseline gap-1.5 font-bold">
                         <span className={isOverBudget ? 'text-red-400' : isOverThreshold ? 'text-amber-300' : 'text-white'}>
-                          {currencySymbol}{item.spent.toLocaleString('en-IN')}
+                          {currencySymbol}{formatAmount(item.spent)}
                         </span>
                         <span className="text-[10px] text-[#777] font-normal">
-                          spent of {currencySymbol}{item.budget.toLocaleString('en-IN')} limit
+                          spent of {currencySymbol}{formatAmount(item.budget)} limit
                         </span>
                       </div>
 
                       <div className="text-[10px] sm:text-[11px] font-bold">
                         {isOverBudget ? (
                           <span className="text-red-400">
-                            +{currencySymbol}{item.overBudget.toLocaleString('en-IN')} over budget
+                            +{currencySymbol}{formatAmount(item.overBudget)} over budget
                           </span>
                         ) : isOverThreshold ? (
                           <span className="text-amber-400">
-                            Only {currencySymbol}{item.remaining.toLocaleString('en-IN')} remaining before max cap
+                            Only {currencySymbol}{formatAmount(item.remaining)} remaining before max cap
                           </span>
                         ) : (
                           <span className="text-emerald-400">
-                            {currencySymbol}{item.remaining.toLocaleString('en-IN')} safe buffer remaining
+                            {currencySymbol}{formatAmount(item.remaining)} safe buffer remaining
                           </span>
                         )}
                       </div>

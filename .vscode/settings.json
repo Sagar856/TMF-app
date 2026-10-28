@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^node C:\\\\Users\\\\T0R3L3I\\\\\\.copilot\\\\session-state\\\\53154856-f58a-4976-8fd9-3b6bda4c5272\\\\files\\\\update-money-formatting\\.cjs$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

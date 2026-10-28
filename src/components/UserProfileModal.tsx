@@ -24,6 +24,8 @@ import {
 import { UserSettings, FinancialAccount } from '../types/finance';
 import { signInUser, updatePassword } from '../services/supabaseClient';
 import { formatMoney } from '../utils/money';
+import { createProfileThumbnail } from '../utils/profilePhoto';
+import { PasscodeSetupModal } from './PasscodeSetupModal';
 
 interface UserProfileModalProps {
   settings: UserSettings;
@@ -48,6 +50,9 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const [userPhoto, setUserPhoto] = useState<string>(settings?.userPhoto || '');
   const [savedSuccess, setSavedSuccess] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [photoError, setPhotoError] = useState('');
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [showPasscodeSetup, setShowPasscodeSetup] = useState(false);
 
   React.useEffect(() => {
     if (settings?.userName) setUserName(settings.userName);
@@ -100,25 +105,25 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
     }
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('File size exceeds 5MB limit. Please choose a smaller image.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === 'string') {
-          setUserPhoto(reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
+    e.target.value = '';
+    if (!file) return;
+    setPhotoError('');
+    setPhotoUploading(true);
+    try {
+      setUserPhoto(await createProfileThumbnail(file));
+    } catch (error) {
+      console.warn('Could not prepare profile photo:', error);
+      setPhotoError(error instanceof Error ? error.message : 'Could not prepare your profile photo.');
+    } finally {
+      setPhotoUploading(false);
     }
   };
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
+    if (photoUploading) return;
     onUpdateSettings({
       ...settings,
       userName,
@@ -227,6 +232,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         <div className="p-6 max-h-[60vh] overflow-y-auto space-y-6">
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="space-y-4">
+              {photoError && <p role="alert" className="text-xs text-red-400">{photoError}</p>}
+              {photoUploading && <p className="text-xs text-[#888]">Preparing photo...</p>}
               <div className="text-xs font-bold text-[#888] uppercase tracking-wider mb-2">
                 PERSONAL DETAILS & PHOTO
               </div>
@@ -258,7 +265,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 <div className="space-y-2 flex-1 text-center sm:text-left">
                   <div className="text-xs font-bold text-white">Profile Picture</div>
                   <p className="text-[10px] text-[#777]">
-                    Upload a custom avatar or photo to display in the top bar. (Max 5MB)
+                    Images up to 5MB are resized to a 256px JPEG thumbnail for the top bar.
                   </p>
                   
                   <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 pt-1">
@@ -267,6 +274,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       ref={fileInputRef}
                       onChange={handlePhotoUpload}
                       accept="image/*"
+                      disabled={photoUploading}
                       className="hidden"
                     />
                     <button
@@ -321,6 +329,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="pt-2 flex items-center justify-between">
                 <button
                   type="submit"
+                  disabled={photoUploading}
                   className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   {savedSuccess ? <Check className="w-3.5 h-3.5" /> : null}
@@ -432,7 +441,13 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 </div>
                 <button
                   type="button"
-                  onClick={() => onUpdateSettings({ ...settings, passcodeEnabled: !settings.passcodeEnabled })}
+                  onClick={() => {
+                    if (settings.passcodeEnabled) {
+                      onUpdateSettings({ ...settings, passcodeEnabled: false });
+                    } else {
+                      setShowPasscodeSetup(true);
+                    }
+                  }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
                     settings.passcodeEnabled
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
@@ -441,6 +456,12 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                 >
                   {settings.passcodeEnabled ? 'ENABLED' : 'DISABLED'}
                 </button>
+                {showPasscodeSetup && (
+                  <PasscodeSetupModal onClose={() => setShowPasscodeSetup(false)} onSave={credentials => {
+                    onUpdateSettings({ ...settings, ...credentials, passcodeEnabled: true });
+                    setShowPasscodeSetup(false);
+                  }} />
+                )}
               </div>
 
               <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl flex items-center justify-between">

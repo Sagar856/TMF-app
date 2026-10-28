@@ -1,3 +1,4 @@
+import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoanRecord, Repayment, UserSettings, FinancialAccount, LoanStructure, LoanInstallment } from '../types/finance';
@@ -7,7 +8,7 @@ import { InfoButton } from './InfoButton';
 import { LoanScheduleModal } from './LoanScheduleModal';
 import { generateAmortizationSchedule, roundCurrency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
-import { todayLocalISO, addMonthsClamped } from '../utils/dates';
+import { todayLocalISO, addMonthsClamped, parseLocalDate } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
 
 interface LoansViewProps {
@@ -46,6 +47,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
   settings,
   onUpdateSettings,
 }) => {
+  const formatAmount = useMoneyFormatter();
   // Deletion modal states
   const [loanToDelete, setLoanToDelete] = useState<LoanRecord | null>(null);
   const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
@@ -249,7 +251,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
   const formatDateDisplay = (dateStr: string) => {
     if (!dateStr) return '';
-    const d = new Date(dateStr);
+    const d = parseLocalDate(dateStr);
     if (isNaN(d.getTime())) return dateStr;
     const day = String(d.getDate()).padStart(2, '0');
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -762,7 +764,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
-                {showOwedToMe ? `${currencySymbol}${totalOwedToMe.toLocaleString('en-IN')}` : '••••••••'}
+                {showOwedToMe ? `${currencySymbol}${formatAmount(totalOwedToMe)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Assets / Receivables
@@ -799,7 +801,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
               <div className="text-base sm:text-lg lg:text-xl font-bold text-red-500 tracking-tight">
-                {showIowe ? `${currencySymbol}${totalIowe.toLocaleString('en-IN')}` : '••••••••'}
+                {showIowe ? `${currencySymbol}${formatAmount(totalIowe)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 Liabilities / Payables
@@ -875,7 +877,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${
                 netPosition >= 0 ? 'text-emerald-400' : 'text-red-500'
               }`}>
-                {showNetPosition ? `${currencySymbol}${netPosition.toLocaleString('en-IN')}` : '••••••••'}
+                {showNetPosition ? `${currencySymbol}${formatAmount(netPosition)}` : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
                 {netPosition >= 0 ? 'Net Surplus' : 'Net Deficit'}
@@ -1024,10 +1026,10 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                     <div className="text-right">
                       <div className="text-base sm:text-lg font-bold font-mono text-white">
-                        {currencySymbol}{item.remainingAmount.toLocaleString('en-IN')}
+                        {currencySymbol}{formatAmount(item.remainingAmount)}
                       </div>
                       <div className="text-[10px] font-mono text-[#666]">
-                        of {currencySymbol}{item.totalAmount.toLocaleString('en-IN')}
+                        of {currencySymbol}{formatAmount(item.totalAmount)}
                       </div>
                     </div>
                   </div>
@@ -1043,11 +1045,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   {/* Repaid info */}
                   <div className="flex items-center justify-between text-xs font-mono text-[#888]">
                     <span>
-                      {currencySymbol}{paidAmount.toLocaleString('en-IN')} repaid ({progressPercent}%)
+                      {currencySymbol}{formatAmount(paidAmount)} repaid ({progressPercent}%)
                     </span>
                     {item.monthlyEmi && item.monthlyEmi > 0 && (
                       <span className="text-white font-bold">
-                        EMI: {currencySymbol}{item.monthlyEmi.toLocaleString('en-IN')}/mo
+                        EMI: {currencySymbol}{formatAmount(item.monthlyEmi)}/mo
                       </span>
                     )}
                   </div>
@@ -1174,12 +1176,12 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                       {/* Principal */}
                       <div className="col-span-2 text-right font-mono">
-                        {currencySymbol}{item.totalAmount.toLocaleString('en-IN')}
+                        {currencySymbol}{formatAmount(item.totalAmount)}
                       </div>
 
                       {/* Outstanding */}
                       <div className="col-span-2 text-right font-bold font-mono">
-                        {currencySymbol}{item.remainingAmount.toLocaleString('en-IN')}
+                        {currencySymbol}{formatAmount(item.remainingAmount)}
                       </div>
 
                       {/* Status */}
@@ -1255,7 +1257,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                               >
                                 <div className="col-span-3">{formatDateDisplay(rep.date)}</div>
                                 <div className="col-span-3 font-bold text-emerald-400">
-                                  {currencySymbol}{rep.amount.toLocaleString('en-IN')}
+                                  {currencySymbol}{formatAmount(rep.amount)}
                                 </div>
                                 <div className="col-span-3 text-[#666]">—</div>
                                 <div className="col-span-3 text-[#888]">{rep.note || '—'}</div>
@@ -1272,11 +1274,11 @@ export const LoansView: React.FC<LoansViewProps> = ({
                         <div className="text-xs font-mono pt-2 border-t border-[#1a1a1a]">
                           <span className="text-[#888]">Total repaid: </span>
                           <span className="font-bold text-emerald-400">
-                            {currencySymbol}{paidAmount.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(paidAmount)}
                           </span>
                           <span className="text-[#666]"> · Outstanding: </span>
                           <span className="font-bold text-red-500">
-                            {currencySymbol}{item.remainingAmount.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(item.remainingAmount)}
                           </span>
                         </div>
                       </div>
@@ -1310,7 +1312,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
               <span className="text-white font-bold">{repayModalLoan.personOrBank}</span>
               <br />
               <span className="text-[#777] text-[11px]">
-                Outstanding: {currencySymbol}{repayModalLoan.remainingAmount.toLocaleString('en-IN')}
+                Outstanding: {currencySymbol}{formatAmount(repayModalLoan.remainingAmount)}
               </span>
             </div>
 
@@ -1419,7 +1421,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 <span className="text-white font-bold">{settleModalLoan.personOrBank}</span>
               </div>
               <div className="text-sm font-bold text-white">
-                Amount: {currencySymbol}{settleModalLoan.remainingAmount.toLocaleString('en-IN')}
+                Amount: {currencySymbol}{formatAmount(settleModalLoan.remainingAmount)}
               </div>
               <p className="text-[10px] text-[#777]">
                 {settleModalLoan.type === 'lend'
@@ -1807,26 +1809,26 @@ export const LoansView: React.FC<LoansViewProps> = ({
                           EMI Calculation Summary
                         </span>
                         <span className="text-[10px] text-emerald-400 font-bold">
-                          Financed: {currencySymbol}{emiPreview.financedPrincipal.toLocaleString('en-IN')}
+                          Financed: {currencySymbol}{formatAmount(emiPreview.financedPrincipal)}
                         </span>
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                         <div>
                           <span className="text-[#666] block text-[9px] uppercase">Expected Monthly EMI</span>
                           <span className="font-bold text-white text-sm">
-                            {currencySymbol}{emiPreview.calculatedEmi.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(emiPreview.calculatedEmi)}
                           </span>
                         </div>
                         <div>
                           <span className="text-[#666] block text-[9px] uppercase">Total Interest</span>
                           <span className="font-bold text-amber-400">
-                            {currencySymbol}{emiPreview.totalInterestPayable.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(emiPreview.totalInterestPayable)}
                           </span>
                         </div>
                         <div>
                           <span className="text-[#666] block text-[9px] uppercase">Total Repayment</span>
                           <span className="font-bold text-cyan-400">
-                            {currencySymbol}{emiPreview.totalRepaymentAmount.toLocaleString('en-IN')}
+                            {currencySymbol}{formatAmount(emiPreview.totalRepaymentAmount)}
                           </span>
                         </div>
                       </div>
@@ -1835,7 +1837,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                       {emiPreview.isOverridden && (
                         <div className="p-2 bg-amber-950/60 border border-amber-800/80 rounded-xl text-[11px] text-amber-300 flex items-center justify-between">
                           <span>
-                            Manual EMI Override: {currencySymbol}{emiPreview.monthlyEmi.toLocaleString('en-IN')}
+                            Manual EMI Override: {currencySymbol}{formatAmount(emiPreview.monthlyEmi)}
                           </span>
                           <span className="font-bold">
                             Diff: {emiPreview.emiDifference > 0 ? '+' : ''}{currencySymbol}{emiPreview.emiDifference}
@@ -1860,7 +1862,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   <option value="">-- Select Account --</option>
                   {accounts.map((acc) => (
                     <option key={acc.id} value={acc.id}>
-                      {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{acc.balance.toLocaleString('en-IN')}
+                      {acc.name} ({acc.bankName}) - Bal: {currencySymbol}{formatAmount(acc.balance)}
                     </option>
                   ))}
                 </select>
@@ -2003,13 +2005,13 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Remaining:</span>
                     <span className="font-bold text-white">
-                      {currencySymbol}{loanToDelete.remainingAmount.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(loanToDelete.remainingAmount)}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs">
                     <span className="text-[#666]">Principal:</span>
                     <span className="font-bold text-cyan-400">
-                      {currencySymbol}{loanToDelete.totalAmount.toLocaleString('en-IN')}
+                      {currencySymbol}{formatAmount(loanToDelete.totalAmount)}
                     </span>
                   </div>
                 </div>

@@ -127,7 +127,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
     });
 
     setIsSyncingAll(false);
-    setSyncFeedback('All external Demat portfolios synced successfully!');
+    setSyncFeedback('Local totals updated from tracked holdings. No broker API requests were made.');
     setTimeout(() => setSyncFeedback(null), 3500);
   };
 
@@ -160,7 +160,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
       connectedDematAccounts: updated,
     });
 
-    setSyncFeedback(`Portfolio refreshed for ${brokerId.toUpperCase()}`);
+    setSyncFeedback(`Local summary updated for ${brokerId.toUpperCase()}; no broker API request was made.`);
     setTimeout(() => setSyncFeedback(null), 3000);
   };
 
@@ -286,10 +286,10 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
               disabled={isSyncingAll}
               onClick={handleSyncAll}
               className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-md"
-              title="Sync all connected Demat accounts"
+              title="Refresh local totals; no broker API requests are made"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncingAll ? 'animate-spin' : ''}`} />
-              <span>{isSyncingAll ? 'Syncing...' : 'Sync All'}</span>
+              <span>{isSyncingAll ? 'Updating...' : 'Refresh Local Totals'}</span>
             </button>
             <button
               type="button"
@@ -443,7 +443,7 @@ export const ConnectedAccountsView: React.FC<ConnectedAccountsViewProps> = ({
                 <div className="flex items-center justify-between pt-1 border-t border-[#1e1e2c] text-xs">
                   <span className="text-[9px] text-[#666]">
                     {broker.isConnected
-                      ? `Last synced: ${broker.lastSyncedAt || 'Today'}`
+                      ? `Last local refresh: ${broker.lastSyncedAt || 'Today'}`
                       : 'Mock API ready'}
                   </span>
 

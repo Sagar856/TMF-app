@@ -1,8 +1,21 @@
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { Capacitor } from '@capacitor/core';
 import type { ParsedNotification } from '../types/finance';
+import { formatMoney } from '../utils/money';
 
 let permissionRequested = false;
+
+export async function requestPushNotificationPermission(): Promise<boolean> {
+  if (Capacitor.getPlatform() !== 'web') {
+    const { display } = await LocalNotifications.requestPermissions();
+    return display === 'granted';
+  }
+  if (typeof window === 'undefined' || !('Notification' in window)) return false;
+  const permission = Notification.permission === 'default'
+    ? await Notification.requestPermission()
+    : Notification.permission;
+  return permission === 'granted';
+}
 
 async function ensurePermission(): Promise<boolean> {
   if (Capacitor.getPlatform() === 'web') return false;
@@ -22,11 +35,11 @@ async function ensurePermission(): Promise<boolean> {
  * notification has been auto-intercepted and parsed. Tapping it opens the app
  * (the pending-notification queue / prompt modal picks it up automatically).
  */
-export async function notifyTransactionDetected(notif: ParsedNotification, currencySymbol: string): Promise<void> {
+export async function notifyTransactionDetected(notif: ParsedNotification, currencySymbol: string, locale?: string): Promise<void> {
   const granted = await ensurePermission();
   if (!granted) return;
 
-  const amountLabel = `${currencySymbol}${notif.amount.toLocaleString()}`;
+  const amountLabel = formatMoney(notif.amount, { symbol: currencySymbol, locale });
   const verb = notif.type === 'credit' ? 'received from' : 'paid to';
 
   try {
@@ -55,7 +68,8 @@ export async function notifyBudgetThresholdReached(
   percent: number,
   currencySymbol: string,
   level: '80' | '100',
-  monthLabel?: string
+  monthLabel?: string,
+  locale?: string
 ): Promise<void> {
   const isWeb = Capacitor.getPlatform() === 'web';
   const title = level === '100'
@@ -64,8 +78,8 @@ export async function notifyBudgetThresholdReached(
 
   const remaining = Math.max(0, limit - spent);
   const body = level === '100'
-    ? `You have exceeded your ${currencySymbol}${limit.toLocaleString()} monthly budget for ${categoryName} (Spent: ${currencySymbol}${spent.toLocaleString()} / ${percent.toFixed(0)}%).`
-    : `You have used ${percent.toFixed(0)}% of your ${categoryName} budget (${currencySymbol}${spent.toLocaleString()} of ${currencySymbol}${limit.toLocaleString()}). ${currencySymbol}${remaining.toLocaleString()} left.`;
+    ? `You have exceeded your ${formatMoney(limit, { symbol: currencySymbol, locale })} monthly budget for ${categoryName} (Spent: ${formatMoney(spent, { symbol: currencySymbol, locale })} / ${percent.toFixed(0)}%).`
+    : `You have used ${percent.toFixed(0)}% of your ${categoryName} budget (${formatMoney(spent, { symbol: currencySymbol, locale })} of ${formatMoney(limit, { symbol: currencySymbol, locale })}). ${formatMoney(remaining, { symbol: currencySymbol, locale })} left.`;
 
   // 1. Mobile Native Local Notifications (Capacitor)
   if (!isWeb) {
@@ -96,19 +110,9 @@ export async function notifyBudgetThresholdReached(
           body,
           icon: '/favicon.ico',
         });
-      } else if (Notification.permission !== 'denied') {
-        Notification.requestPermission().then((perm) => {
-          if (perm === 'granted') {
-            new Notification(title, {
-              body,
-              icon: '/favicon.ico',
-            });
-          }
-        }).catch(() => {});
       }
-    } catch {
-      // Ignore web notification errors in sandboxed environments
+    } catch (error) {
+      console.warn('Failed to post web budget notification:', error);
     }
   }
 }
-
