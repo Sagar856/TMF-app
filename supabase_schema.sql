@@ -19,6 +19,19 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Portable preferences and category rules. Device credentials never belong here.
+CREATE TABLE IF NOT EXISTS public.user_preferences (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
+  preferences JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users manage own preferences" ON public.user_preferences;
+CREATE POLICY "Users manage own preferences" ON public.user_preferences
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_preferences TO authenticated;
+
 -- 1. Transactions Table (User isolated with composite PK)
 CREATE TABLE IF NOT EXISTS public.transactions (
   id TEXT NOT NULL,

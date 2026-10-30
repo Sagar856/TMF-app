@@ -4,6 +4,7 @@ import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { calculateCashflowForecast } from '../utils/cashflowForecast';
 import { todayLocalISO } from '../utils/dates';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { InfoButton } from './InfoButton';
 
 interface CashflowForecastCardProps {
   transactions: Transaction[];
@@ -62,10 +63,13 @@ export const CashflowForecastCard: React.FC<CashflowForecastCardProps> = ({
             <h2 id="cashflow-forecast-title" className="text-sm sm:text-base font-bold text-white">
               30-day cash-flow forecast
             </h2>
+            <InfoButton
+              id="cashflow-forecast-info"
+              title="Cash-flow forecast"
+              content={`Estimate through ${formatForecastDate(forecast.throughDate)} based on account balances and transaction history.`}
+              align="left"
+            />
           </div>
-          <p className="text-[10px] sm:text-xs text-[#888] mt-1">
-            Estimate through {formatForecastDate(forecast.throughDate)} based on account balances and transaction history.
-          </p>
         </div>
         <Wallet className="w-4 h-4 text-[#666] shrink-0 mt-1" aria-hidden="true" />
       </div>
@@ -103,13 +107,6 @@ export const CashflowForecastCard: React.FC<CashflowForecastCardProps> = ({
           </div>
         </div>
       </div>
-
-      <p className="text-[9px] leading-relaxed text-[#777] mt-3">
-        {forecast.historyCount < 3
-          ? 'Limited recent transaction history; the estimate may not reflect typical spending. '
-          : ''}
-        Estimate only. Repeated transactions are inferred from history; irregular bills and unrecorded spending may be missed. Credit-card limits are not counted as cash.
-      </p>
 
       {(forecast.projectedBalance !== null && forecast.projectedBalance < 0) && (
         <div role="status" className="mt-3 flex items-start gap-2 rounded-lg border border-red-800/60 bg-red-950/30 p-2.5 text-[10px] text-red-300">

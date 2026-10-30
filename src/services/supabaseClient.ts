@@ -1,5 +1,6 @@
 import { createClient, SupabaseClient, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord } from '../types/finance';
+import { CloudSettings, parseCloudSettings } from '../utils/cloudSettings';
 
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
@@ -238,6 +239,38 @@ export interface SyncResult {
 
 export const SCHEMA_OUTDATED_HINT =
   'Run the latest supabase_schema.sql in your Supabase SQL Editor to update the cloud schema.';
+
+export async function syncSettingsToSupabase(payload: CloudSettings): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Cloud backend is not configured.' };
+  try {
+    const { data: { user }, error: authError } = await client.auth.getUser();
+    if (authError || !user) return { success: false, error: authError?.message || 'Sign in to sync settings.' };
+    const { error } = await client.from('user_preferences').upsert({
+      user_id: user.id,
+      preferences: parseCloudSettings(payload),
+    }, { onConflict: 'user_id' });
+    if (error) throw error;
+    return { success: true };
+  } catch (error) {
+    const result = syncError('settings', error);
+    const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
+    if (code === 'PGRST205' || code === '42P01' || code === 'PGRST204') {
+      return { ...result, error: `${result.error} ${SCHEMA_OUTDATED_HINT}`, schemaOutdated: true };
+    }
+    return result;
+  }
+}
+
+export async function fetchSettingsFromSupabase(): Promise<CloudSettings | null> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Cloud backend is not configured.');
+  const { data: { user }, error: authError } = await client.auth.getUser();
+  if (authError || !user) throw new Error(authError?.message || 'Sign in to load settings.');
+  const { data, error } = await client.from('user_preferences').select('preferences').eq('user_id', user.id).maybeSingle();
+  if (error) throw new Error(`Could not load settings: ${error.message}. ${SCHEMA_OUTDATED_HINT}`);
+  return data ? parseCloudSettings(data.preferences) : null;
+}
 
 // PostgREST reports an unknown column as PGRST204:
 // "Could not find the 'ref_number' column of 'transactions' in the schema cache".

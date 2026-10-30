@@ -67,6 +67,22 @@ Signing in is now mandatory to use the app at all once Supabase is
 configured (there is no close/skip button on the login screen) — this is
 what makes per-user data isolation possible in the first place.
 
+## Settings cloud sync
+
+The **Sync settings** action beside the Settings heading uploads profile,
+currency/locale, theme, dashboard/display preferences, budget-alert and deletion
+preferences, category rules, and the financial collections (including categories,
+budgets, and accounts). Saved preferences are restored on sign-in or reload.
+Preference uploads are manual; financial collections also sync automatically.
+
+Run the latest [`supabase_schema.sql`](supabase_schema.sql) to create the
+RLS-protected `user_preferences` table. A missing table or failed upload is
+reported as a sync failure, not success.
+
+Passcodes/hashes/salts, biometric and auto-lock settings, device permission
+switches, broker connections, and sample-data state remain device-local.
+Savings goals, receipt files, and recurring-bill overrides remain local as before.
+
 ## Deploying the web app
 
 ### Netlify

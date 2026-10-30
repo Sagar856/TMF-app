@@ -232,6 +232,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     setForceSyncResult(null);
     try {
       setForceSyncResult(await onForceSyncNow());
+    } catch (error) {
+      console.error('Settings sync failed:', error);
+      setForceSyncResult({ success: false, error: error instanceof Error ? error.message : 'Settings sync failed.' });
     } finally {
       setIsForceSyncing(false);
     }
@@ -279,10 +282,27 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     <div className="space-y-5 pb-16 max-w-5xl font-mono">
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
-        <div className="flex items-center gap-2">
+        <div className="flex w-full sm:w-auto items-center justify-between gap-2">
           <h2 className="text-lg sm:text-xl font-bold font-mono text-content-1 tracking-tight uppercase">Settings</h2>
-          <span className="text-[10px] text-content-3 hidden sm:inline">Preferences, automation, security & data</span>
+          {onForceSyncNow && (
+            <SettingButton
+              onClick={handleSyncNow}
+              disabled={isForceSyncing || !isAuthenticated}
+              icon={RefreshCw}
+              iconClassName={isForceSyncing ? 'animate-spin' : 'text-red-500'}
+            >
+              {isForceSyncing ? 'Syncing…' : 'Sync settings'}
+            </SettingButton>
+          )}
         </div>
+
+        {forceSyncResult && (
+          <p role={forceSyncResult.success ? 'status' : 'alert'} className={`text-[11px] ${forceSyncResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+            {forceSyncResult.success
+              ? forceSyncResult.warning || 'Settings and financial data synced to cloud.'
+              : forceSyncResult.error || 'Sync failed.'}
+          </p>
+        )}
 
         <SegmentedControl<SettingsMode>
           ariaLabel="Settings area"
@@ -316,8 +336,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onUpdateAccount={onUpdateAccount}
           onDeleteAccount={onDeleteAccount}
           currencySymbol={settings.currencySymbol}
-          syncStatus={syncStatus}
-          onForceSyncNow={onForceSyncNow}
         />
       ) : (
         <div className="lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-6 lg:items-start">
@@ -385,26 +403,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }
                 infoId="cloud-sync-info"
                 infoTitle="Cloud sync"
-                infoContent="Every change is saved locally first and then pushed to your private cloud space. Use Sync now to verify the connection immediately."
+                infoContent="Changes are saved locally first. Sync settings at the top saves your preferences, category rules and financial data to your private cloud space. Passcodes, biometrics and device permissions stay local."
               >
-                {isAuthenticated && onForceSyncNow && (
-                  <SettingButton onClick={handleSyncNow} disabled={isForceSyncing} icon={isForceSyncing ? RefreshCw : cloudTone === 'red' ? CloudOff : Cloud} iconClassName={`${isForceSyncing ? 'animate-spin' : ''} ${cloudTone === 'red' ? 'text-red-500' : 'text-emerald-500'}`}>
-                    {isForceSyncing ? 'Syncing…' : 'Sync now'}
-                  </SettingButton>
-                )}
               </SettingRow>
-              {forceSyncResult && (
-                <p
-                  role="status"
-                  className={`py-2 text-[11px] ${
-                    forceSyncResult.success ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'
-                  }`}
-                >
-                  {forceSyncResult.success
-                    ? forceSyncResult.warning || 'All collections synced successfully.'
-                    : forceSyncResult.error || 'Sync failed.'}
-                </p>
-              )}
 
               {isAuthenticated && onSignOut && (
                 <SettingRow label="Sign out" description="Clears this device's local copy. Your cloud data stays safe.">

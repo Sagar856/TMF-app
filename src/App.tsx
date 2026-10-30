@@ -58,6 +58,8 @@ import {
   syncTransactionsToSupabase,
   fetchTransactionsFromSupabase,
   syncCategoriesToSupabase,
+  syncSettingsToSupabase,
+  fetchSettingsFromSupabase,
   fetchCategoriesFromSupabase,
   syncAccountsToSupabase,
   fetchAccountsFromSupabase,
@@ -91,6 +93,7 @@ import { resolveAccountId } from './utils/accountResolver';
 import { inferTransactionKind, normalizeTransactions } from './utils/transactionKind';
 import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
 import { BackupRestoreData } from './utils/backup';
+import { parseCloudSettings, portableSettings } from './utils/cloudSettings';
 import { isSavingsGoalArray } from './utils/savingsGoals';
 import { formatMoney, getCurrencyLocale } from './utils/money';
 import { createPasscodeCredentials, isLegacyPasscodeHash, PasscodeCredentials, verifyPasscode } from './utils/passcode';
@@ -603,8 +606,21 @@ export default function App() {
   // Manually re-runs every sync call immediately and reports aggregated result
   // — lets the user verify right now whether the backend connection actually
   // works, instead of waiting for the next silent background attempt.
-  const handleForceSyncNow = async (): Promise<{ success: boolean; error?: string }> => {
+  const handleForceSyncNow = async (): Promise<{ success: boolean; error?: string; warning?: string }> => {
+    if (!cloudReady) return { success: false, error: 'Sign in to sync settings to cloud.' };
+    if (!cloudHydrated) return { success: false, error: 'Wait for cloud data to finish loading before syncing.' };
+    let preferences;
+    try {
+      preferences = parseCloudSettings({
+        settings: portableSettings(settings),
+        smartRules: safeGetJson<unknown>('tmf_smart_rules', null),
+      });
+    } catch (error) {
+      console.error('Could not prepare settings for sync:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Could not prepare settings for sync.' };
+    }
     const results = await Promise.all([
+      syncSettingsToSupabase(preferences),
       syncCategoriesToSupabase(categories),
       syncAccountsToSupabase(accounts),
       syncTransactionsToSupabase(transactions),
@@ -616,8 +632,9 @@ export default function App() {
       setSyncStatus({ collection: 'manual sync', success: false, error: failed.error, timestamp: Date.now() });
       return { success: false, error: failed.error };
     }
-    setSyncStatus({ collection: 'manual sync', success: true, timestamp: Date.now() });
-    return { success: true };
+    const warning = results.map((result) => result.warning).filter(Boolean).join(' ') || undefined;
+    setSyncStatus({ collection: 'manual sync', success: true, warning, timestamp: Date.now() });
+    return { success: true, warning };
   };
 
   // When connectivity returns after an offline failure, push everything once
@@ -634,7 +651,7 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudReady, categories, accounts, transactions, investments, loans]);
+  }, [cloudReady, cloudHydrated, settings, categories, accounts, transactions, investments, loans]);
 
   // Shared cloud data loader. Guarded by a ref so the initial-mount fetch and
   // the post-auth fetch can never run concurrently and race/overwrite each other.
@@ -652,6 +669,19 @@ export default function App() {
         fetchLoansFromSupabase(),
         fetchCloudTombstones(),
       ]);
+
+      try {
+        const cloudPreferences = await fetchSettingsFromSupabase();
+        if (cloudPreferences) {
+          setSettings((previous) => ({ ...previous, ...cloudPreferences.settings }));
+          if (cloudPreferences.smartRules !== null) {
+            safeSetItem('tmf_smart_rules', JSON.stringify(cloudPreferences.smartRules));
+          }
+        }
+      } catch (error) {
+        console.error('Could not restore cloud settings:', error);
+        showToast(error instanceof Error ? error.message : 'Could not restore cloud settings.', 'error');
+      }
 
       if (cloudTx === null || cloudAcc === null || cloudCat === null || cloudInv === null || cloudLoans === null) {
         throw new Error('Could not load cloud data — local changes are not being pushed');

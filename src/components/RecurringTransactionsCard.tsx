@@ -1,4 +1,4 @@
-import { safeSetItem } from '../utils/storage';
+import { safeGetStringArray, safeSetItem } from '../utils/storage';
 import React, { useState, useMemo, useRef } from 'react';
 import { 
   Repeat, 
@@ -25,7 +25,6 @@ import {
   TrendingUp,
   DollarSign,
   CalendarDays,
-  List,
   Filter,
   Info
 } from 'lucide-react';
@@ -142,7 +141,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   };
 
   const [filter, setFilter] = useState<'ALL' | 'DUE_SOON' | 'EXPENSE' | 'INCOME'>('ALL');
-  const [viewMode, setViewMode] = useState<'CALENDAR' | 'LIST'>('CALENDAR');
+  const [showCalendar, setShowCalendar] = useState(true);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<number | null>(null);
 
@@ -159,6 +158,10 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     }
   });
   const occurrenceKey = (itemId: string, month: string) => `${itemId}|${month}`;
+  const IGNORED_OCCURRENCES_KEY = 'tmf_recurring_ignored_occurrences';
+  const [ignoredOccurrences, setIgnoredOccurrences] = useState<string[]>(() =>
+    safeGetStringArray(IGNORED_OCCURRENCES_KEY)
+  );
   const occurrenceTag = (itemId: string, month: string) => `[Recurring: ${itemId} ${month}]`;
   const markOccurrencePaid = (itemId: string, month: string, transactionId: string) => {
     setPaidOccurrences((prev) => {
@@ -445,25 +448,18 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
     // Sort items: OVERDUE / DUE_TODAY / DUE_SOON first, then SCHEDULED, then PAID
     const statusPriority = { OVERDUE: 1, DUE_TODAY: 2, DUE_SOON: 3, SCHEDULED: 4, PAID: 5 };
-    return items.sort((a, b) => statusPriority[a.status] - statusPriority[b.status]);
-  }, [transactions, customBills, loans, referenceDateObj, selectedMonth, paidOccurrences]);
+    return items
+      .filter((item) => !ignoredOccurrences.includes(occurrenceKey(item.id, selectedMonth)))
+      .sort((a, b) => statusPriority[a.status] - statusPriority[b.status]);
+  }, [transactions, customBills, loans, referenceDateObj, selectedMonth, paidOccurrences, ignoredOccurrences]);
 
   // Projected Outflows & Financial Metrics for Selected Month
   const monthlyMetrics = useMemo(() => {
     const expenseItems = recurringItems.filter((i) => i.type === 'debit');
-    const incomeItems = recurringItems.filter((i) => i.type === 'credit');
-
     const totalProjectedOutflows = expenseItems.reduce((sum, i) => sum + i.amount, 0);
-    const paidOutflows = expenseItems.filter((i) => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0);
-    const remainingOutflows = totalProjectedOutflows - paidOutflows;
-
-    const totalProjectedInflows = incomeItems.reduce((sum, i) => sum + i.amount, 0);
 
     return {
       totalProjectedOutflows,
-      paidOutflows,
-      remainingOutflows,
-      totalProjectedInflows,
       totalBillsCount: expenseItems.length,
     };
   }, [recurringItems]);
@@ -518,6 +514,15 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     if (filter === 'INCOME') return result.filter((i) => i.type === 'credit');
     return result;
   }, [recurringItems, filter, selectedCalendarDay]);
+
+  const handleIgnore = (item: DetectedRecurringItem) => {
+    const key = occurrenceKey(item.id, selectedMonth);
+    if (isOccurrencePaid(item.id, selectedMonth) || ignoredOccurrences.includes(key)) return;
+    const next = [...ignoredOccurrences, key];
+    if (safeSetItem(IGNORED_OCCURRENCES_KEY, JSON.stringify(next))) {
+      setIgnoredOccurrences(next);
+    }
+  };
 
   // Handle Quick Log Payment (idempotent per item + month)
   const handleQuickLog = (item: DetectedRecurringItem) => {
@@ -638,7 +643,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
       {/* Header Bar - Collapsible Trigger */}
       <div 
         onClick={handleToggleExpand}
-        className="p-3.5 sm:p-4 flex items-center justify-between flex-wrap gap-2.5 cursor-pointer hover:bg-surface-3 transition-colors select-none"
+        className="p-3.5 sm:p-4 flex flex-col gap-3 cursor-pointer hover:bg-surface-3 transition-colors select-none"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-inner transition-colors ${
@@ -656,7 +661,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               <InfoButton
                 id="recurring-bills-info"
                 title="Recurring Bills"
-                content="Tracks repeated monthly commitments, active subscriptions, automated utility debits, and scheduled inflows with calendar forecasts."
+                content="Tracks repeated monthly commitments, active subscriptions, automated utility debits, and scheduled inflows with calendar forecasts. Ignore skips an item for the selected month only, without recording a transaction. Skipped items are excluded from this section's calendar and totals; the recurring schedule is unchanged. Ignore choices are saved on this device."
                 align="left"
               />
               {dueSoonCount > 0 && (
@@ -676,17 +681,68 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div
+          role="group"
+          aria-label="Recurring bill controls"
+          onClick={(event) => event.stopPropagation()}
+          className="flex w-full min-w-0 items-center gap-1 sm:gap-2"
+        >
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setShowAddModal(true);
             }}
-            className="px-2.5 py-1.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-xl text-[10px] font-bold text-white transition-all cursor-pointer flex items-center gap-1.5"
+            aria-label="Add recurring bill"
+            title="Add recurring bill"
+            className="h-8 px-2 sm:px-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-lg text-[10px] font-bold text-white transition-all cursor-pointer flex shrink-0 items-center gap-1.5"
           >
             <Plus className="w-3 h-3 text-red-500" />
             <span className="hidden sm:inline">Add Recurring</span>
+          </button>
+
+          <div role="group" aria-label="Recurring bill month" className="flex min-w-0 flex-1 items-center justify-center gap-0.5 sm:flex-none sm:gap-1">
+            <button type="button" onClick={handlePrevMonth} aria-label="Previous month" title="Previous month"
+              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-red-500">
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedMonth(currentMonthStr);
+                setSelectedCalendarDay(null);
+              }}
+              title="Reset to current month"
+              aria-label={`${formatMonthLabel(selectedMonth)}. Reset to current month`}
+              className="h-8 min-w-0 px-1 sm:px-2 flex items-center justify-center gap-1 rounded-lg border border-nothing bg-obsidian text-white"
+            >
+              <Calendar className="hidden sm:block w-3.5 h-3.5 shrink-0 text-red-400" />
+              <span className="whitespace-nowrap text-[9px] sm:text-xs font-bold uppercase">
+                {parseLocalDate(`${selectedMonth}-01`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
+              </span>
+            </button>
+            <button type="button" onClick={handleNextMonth} aria-label="Next month" title="Next month"
+              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-red-500">
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <button
+            type="button"
+            aria-label="Calendar view"
+            aria-pressed={showCalendar}
+            aria-controls="recurring-bill-calendar"
+            onClick={() => {
+              setShowCalendar((shown) => !shown);
+              setSelectedCalendarDay(null);
+            }}
+            title={showCalendar ? 'Hide calendar' : 'Show calendar'}
+            className={`h-8 px-2 shrink-0 rounded-lg border flex items-center gap-1 text-[10px] font-bold transition-colors ${
+              showCalendar ? 'bg-red-600 border-red-500 text-white' : 'bg-obsidian border-nothing text-[#aaa] hover:text-white'
+            }`}
+          >
+            <CalendarDays className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Calendar</span>
           </button>
 
           <button
@@ -695,7 +751,9 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               e.stopPropagation();
               handleToggleExpand();
             }}
-            className={`p-1.5 px-2.5 bg-obsidian border rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[10px] font-bold ${
+            aria-expanded={effectiveState.isExpanded}
+            aria-label={effectiveState.buttonLabel === 'COLLAPSE' ? 'Collapse recurring bills' : 'Expand recurring bills'}
+            className={`h-8 px-1.5 sm:px-2.5 shrink-0 bg-obsidian border rounded-lg transition-all cursor-pointer flex items-center gap-1 text-[9px] sm:text-[10px] font-bold ${
               effectiveState.isFocused ? 'border-red-500 text-white' : 'border-nothing text-[#aaa]'
             }`}
             title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse Section" : "Expand Section"}
@@ -726,116 +784,10 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             </div>
           ) : (
             <>
-              {/* Top Month Selector & Projected Outflows Banner */}
-              <div className="p-3.5 bg-obsidian border border-nothing rounded-xl space-y-3 mt-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  {/* Month Selector Controls */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handlePrevMonth}
-                      className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
-                      title="Previous Month"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-
-                    <div className="flex items-center gap-2 px-3 py-1 bg-carbon border border-nothing rounded-lg">
-                      <Calendar className="w-3.5 h-3.5 text-red-400" />
-                      <span className="text-xs font-bold text-white uppercase tracking-wide">
-                        {formatMonthLabel(selectedMonth)}
-                      </span>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleNextMonth}
-                      className="p-1.5 bg-carbon border border-nothing hover:border-red-500 rounded-lg text-[#aaa] hover:text-white cursor-pointer transition-colors"
-                      title="Next Month"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-
-                    {selectedMonth !== currentMonthStr && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedMonth(currentMonthStr);
-                          setSelectedCalendarDay(null);
-                        }}
-                        className="text-[10px] text-red-400 hover:underline ml-1 cursor-pointer font-bold"
-                      >
-                        Reset Today
-                      </button>
-                    )}
-                  </div>
-
-                  {/* View Mode Switcher (Calendar vs List) */}
-                  <div className="flex items-center gap-1 bg-carbon p-1 rounded-lg border border-nothing self-start sm:self-auto">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('CALENDAR')}
-                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
-                        viewMode === 'CALENDAR'
-                          ? 'bg-red-600 text-white shadow'
-                          : 'text-[#888] hover:text-white'
-                      }`}
-                    >
-                      <CalendarDays className="w-3 h-3" />
-                      <span>Calendar View</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setViewMode('LIST')}
-                      className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ${
-                        viewMode === 'LIST'
-                          ? 'bg-red-600 text-white shadow'
-                          : 'text-[#888] hover:text-white'
-                      }`}
-                    >
-                      <List className="w-3 h-3" />
-                      <span>List View</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Projected Outflows Metric Bar */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-line">
-                  <div className="p-2.5 bg-carbon border border-red-900/40 rounded-xl space-y-0.5">
-                    <div className="text-[9px] uppercase font-bold text-[#888]">Total Projected Outflow</div>
-                    <div className="text-sm sm:text-base font-bold text-red-400">
-                      {formatAmount(monthlyMetrics.totalProjectedOutflows, { symbol: currencySymbol })}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 bg-carbon border border-emerald-900/40 rounded-xl space-y-0.5">
-                    <div className="text-[9px] uppercase font-bold text-[#888]">Paid Outflows</div>
-                    <div className="text-sm sm:text-base font-bold text-emerald-400">
-                      {formatAmount(monthlyMetrics.paidOutflows, { symbol: currencySymbol })}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 bg-carbon border border-amber-900/40 rounded-xl space-y-0.5">
-                    <div className="text-[9px] uppercase font-bold text-[#888]">Remaining Pending</div>
-                    <div className="text-sm sm:text-base font-bold text-amber-400">
-                      {formatAmount(monthlyMetrics.remainingOutflows, { symbol: currencySymbol })}
-                    </div>
-                  </div>
-
-                  <div className="p-2.5 bg-carbon border border-nothing rounded-xl space-y-0.5">
-                    <div className="text-[9px] uppercase font-bold text-[#888]">Projected Inflows</div>
-                    <div className="text-sm sm:text-base font-bold text-blue-400">
-                      {formatAmount(monthlyMetrics.totalProjectedInflows, { symbol: currencySymbol })}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
           {/* ==================== MONTHLY CALENDAR VIEW ==================== */}
-          {viewMode === 'CALENDAR' && (
-            <div className="bg-obsidian border border-nothing p-3 sm:p-4 rounded-xl space-y-3">
-              <div className="flex items-center justify-between text-xs font-bold text-white uppercase tracking-wider pb-1">
+          {showCalendar && (
+            <div id="recurring-bill-calendar" className="bg-obsidian border border-nothing p-3 sm:p-4 rounded-xl space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] sm:text-xs font-bold text-white uppercase tracking-wider pb-1">
                 <span className="flex items-center gap-1.5">
                   <CalendarDays className="w-3.5 h-3.5 text-red-400" />
                   <span>Monthly Bill Calendar — {formatMonthLabel(selectedMonth)}</span>
@@ -985,8 +937,9 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             </div>
           )}
 
+          <div role="group" aria-label="Recurring items" className="min-w-0 border border-nothing rounded-xl bg-obsidian">
           {/* Filter Bar & List Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 bg-obsidian border border-nothing rounded-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3 border-b border-nothing">
             <div className="flex items-center gap-2 text-xs">
               <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span className="text-[#aaa] text-[11px]">
@@ -1000,7 +953,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             </div>
 
             {/* Filter Tabs */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 shrink-0 scrollbar-none">
+            <div className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
               {(['ALL', 'DUE_SOON', 'EXPENSE', 'INCOME'] as const).map((tabKey) => (
                 <button
                   key={tabKey}
@@ -1025,7 +978,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
           </div>
 
           {/* Recurring Bills List */}
-          <div className="space-y-2">
+          <div className="divide-y divide-nothing">
             {filteredItems.length === 0 ? (
               <div className="p-6 text-center bg-obsidian rounded-xl border border-dashed border-nothing text-[#777] text-xs">
                 No recurring bills found for this filter or date selection.
@@ -1040,14 +993,14 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                 return (
                   <div
                     key={item.id}
-                    className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    className={`p-3 first:rounded-t-none last:rounded-b-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                       isOverdue || isDueToday
-                        ? 'bg-red-950/20 border-red-600/60 hover:border-red-500'
+                        ? 'bg-red-950/20'
                         : isDueSoon
-                        ? 'bg-amber-950/15 border-amber-600/50 hover:border-amber-500'
+                        ? 'bg-amber-950/15'
                         : isPaid
-                        ? 'bg-obsidian/60 border-nothing opacity-75'
-                        : 'bg-obsidian border-nothing hover:border-[#333]'
+                        ? 'bg-obsidian/60 opacity-75'
+                        : 'bg-obsidian'
                     }`}
                   >
                     {/* Left Details */}
@@ -1094,7 +1047,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                     </div>
 
                     {/* Right Amount & Status Action */}
-                    <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#1a1a1a]">
+                    <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#1a1a1a]">
                       <div className="text-left sm:text-right">
                         <div
                           className={`text-sm font-bold tracking-tight ${
@@ -1136,6 +1089,16 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
                       {/* Quick Log Payment Button */}
                       {!isPaid && (
+                        <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleIgnore(item)}
+                          className="px-3 py-1.5 text-xs font-bold rounded-xl border border-[#444] text-[#aaa] hover:text-white hover:bg-surface-3 transition-colors cursor-pointer"
+                          aria-label={`Ignore ${item.title} for ${selectedMonth}`}
+                          title="Skip this month's occurrence without recording a transaction"
+                        >
+                          Ignore
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleQuickLog(item)}
@@ -1151,6 +1114,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                           <Check className="w-3.5 h-3.5" />
                           <span>{item.type === 'debit' ? 'Log Payment' : 'Log Credit'}</span>
                         </button>
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1159,10 +1123,11 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             )}
           </div>
 
+          </div>
+
           {/* Redirect / View All Footer link */}
           {onNavigateToTransactions && (
-            <div className="pt-2 flex items-center justify-between text-[11px] text-[#777]">
-              <span>Active tracking based on transaction history & schedule</span>
+            <div className="pt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-[#777]">
               <button
                 type="button"
                 onClick={onNavigateToTransactions}

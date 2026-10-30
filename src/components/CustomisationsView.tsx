@@ -6,7 +6,6 @@ import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { newId } from '../utils/ids';
 import { currentMonthLocal } from '../utils/dates';
 import { 
-  Sliders, 
   Plus, 
   Trash2, 
   Edit3, 
@@ -19,7 +18,6 @@ import {
   Flame,
   CheckCircle2,
   TrendingUp,
-  RefreshCw,
   Search,
   Tag,
   Filter,
@@ -39,8 +37,7 @@ import {
   Code,
   DollarSign,
   ChevronLeft,
-  ChevronRight,
-  Info
+  ChevronRight
 } from 'lucide-react';
 
 interface CustomisationsViewProps {
@@ -54,8 +51,6 @@ interface CustomisationsViewProps {
   onUpdateAccount?: (acc: FinancialAccount) => void;
   onDeleteAccount?: (id: string) => void;
   currencySymbol: string;
-  syncStatus?: { collection: string; success: boolean; error?: string; timestamp: number } | null;
-  onForceSyncNow?: () => Promise<{ success: boolean; error?: string }>;
 }
 
 // Icon catalog for category selection
@@ -96,23 +91,17 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   onUpdateAccount,
   onDeleteAccount,
   currencySymbol,
-  syncStatus,
-  onForceSyncNow,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Navigation
   const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>('budgets');
-  const [isForceSyncing, setIsForceSyncing] = useState<boolean>(false);
-  const [forceSyncResult, setForceSyncResult] = useState<{ success: boolean; error?: string } | null>(null);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [categoryTypeFilter, setCategoryTypeFilter] = useState<'all' | 'expense' | 'income' | 'investment'>('all');
   const [budgetStatusFilter, setBudgetStatusFilter] = useState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('all');
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('all');
-  const [showInfoPopover, setShowInfoPopover] = useState<boolean>(false);
 
   // Month selector for budget tracking
   const availableMonths = useMemo(() => {
@@ -232,12 +221,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       onUpdateCategory({ ...category, budgetLimit: val });
     }
     setEditingBudgetId(null);
-  };
-
-  const handleQuickBudgetDelta = (category: Category, delta: number) => {
-    const current = category.budgetLimit || 0;
-    const next = Math.max(0, current + delta);
-    handleSaveBudgetLimit(category, next > 0 ? next : undefined);
   };
 
   // Inline Subcategory Quick Add
@@ -508,6 +491,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           onChange={(e) => setSelectedMonth(e.target.value)}
           className="bg-transparent text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-none cursor-pointer py-0.5 truncate max-w-[95px] sm:max-w-none"
           title="Select month"
+          aria-label="Budget month"
         >
           {availableMonths.map((m) => (
             <option key={m} value={m} className="bg-white dark:bg-[#141416] text-slate-900 dark:text-white font-mono">
@@ -528,7 +512,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     </div>
   );
 
-  // Single-row 3-element Action Row: Search Icon (expands) + Month Stepper + Add Button (Plus Icon)
+  // Shared search and add controls.
   const renderActionRow = (options: {
     onAdd: () => void;
     addTitle: string;
@@ -537,26 +521,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     showMonthSelector?: boolean;
     searchPlaceholder?: string;
   }) => {
-    const isExpanded = isSearchExpanded || Boolean(searchQuery);
-
     return (
-      <div className="flex items-center justify-between gap-2 w-full">
-        {/* 1. Search: Collapsed Icon Button or Smoothly Expanded Input */}
-        {!isExpanded ? (
-          <button
-            type="button"
-            onClick={() => {
-              setIsSearchExpanded(true);
-              setTimeout(() => searchInputRef.current?.focus(), 50);
-            }}
-            className="p-2 sm:p-2.5 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 transition-colors cursor-pointer shrink-0 shadow-xs flex items-center justify-center active:scale-95"
-            title="Search"
-            aria-label="Search"
-          >
-            <Search className="w-4 h-4 stroke-[2]" />
-          </button>
-        ) : (
-          <div className="relative flex-1 min-w-0 transition-all duration-300">
+      <div className="flex flex-wrap items-center gap-2 w-full">
+          <div className="relative flex-1 min-w-[140px]">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 shrink-0 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -564,26 +531,24 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={options.searchPlaceholder || "Search..."}
+              aria-label={options.searchPlaceholder || 'Search'}
               className="w-full pl-8 pr-7 py-2 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
             />
             <button
               type="button"
               onClick={() => {
                 setSearchQuery('');
-                setIsSearchExpanded(false);
               }}
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-0.5"
-              title="Clear & Close Search"
+              title="Clear search"
+              aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
-        )}
 
-        {/* 2. Month Selector Stepper (in the middle) */}
-        {options.showMonthSelector !== false ? renderMonthSelector() : <div className="flex-1" />}
+        {options.showMonthSelector === true && renderMonthSelector()}
 
-        {/* 3. Add Item Button (Plus Icon Only) */}
         <button
           type="button"
           id={options.addBtnId}
@@ -593,6 +558,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           aria-label={options.addAriaLabel || options.addTitle}
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
+          <span className="text-xs font-bold ml-1">Add</span>
         </button>
       </div>
     );
@@ -600,122 +566,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   return (
     <div className="space-y-4 sm:space-y-5 pb-12 font-mono">
-      {/* ========================================================================= */}
-      {/* 1. TOP HEADER & PRIMARY ACTIONS (Compact & Space-Conserving)              */}
-      {/* ========================================================================= */}
-      <div className="relative flex items-center justify-between gap-2.5 bg-white dark:bg-[#121217] border border-slate-200 dark:border-line px-3.5 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-xs">
-        <div className="flex items-center gap-2 min-w-0">
-          <div className="p-1.5 bg-red-50 dark:bg-red-950/70 border border-red-200 dark:border-red-800/60 rounded-xl text-red-600 dark:text-red-500 shrink-0">
-            <Sliders className="w-4 h-4" />
-          </div>
-          <h2 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white tracking-tight uppercase truncate">
-            Personalisation &amp; Budgets
-          </h2>
-        </div>
-
-        {/* Global Header Actions: Info Icon Popover + Sync Now */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          {/* Info Popover Button */}
-          <div className="relative">
-            <button
-              type="button"
-              id="btn-personalisation-info"
-              onClick={() => setShowInfoPopover(!showInfoPopover)}
-              onMouseEnter={() => setShowInfoPopover(true)}
-              className={`p-1.5 rounded-xl border transition-all cursor-pointer ${
-                showInfoPopover
-                  ? 'bg-red-50 dark:bg-red-950/70 border-red-300 dark:border-red-700 text-red-600 dark:text-red-400'
-                  : 'bg-slate-100 dark:bg-[#181820] border-slate-200 dark:border-line text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/80 dark:hover:bg-surface-3'
-              }`}
-              title="Information & Guide"
-              aria-label="Information & Guide"
-            >
-              <Info className="w-3.5 h-3.5" />
-            </button>
-
-            {/* Info Popover Card */}
-            <AnimatePresence>
-              {showInfoPopover && (
-                <motion.div
-                  initial={{ opacity: 0, y: 6, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                  transition={{ duration: 0.15 }}
-                  onMouseLeave={() => setShowInfoPopover(false)}
-                  className="absolute right-0 top-full mt-2 w-72 sm:w-80 p-3.5 bg-white/95 dark:bg-surface-1/95 backdrop-blur-xl border border-slate-200 dark:border-line rounded-2xl shadow-xl z-30 text-xs font-mono"
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-bold uppercase text-[11px]">
-                      <Info className="w-3.5 h-3.5" />
-                      <span>Personalisation Guide</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setShowInfoPopover(false)}
-                      className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                  <p className="text-slate-600 dark:text-[#aaa] leading-relaxed text-[11px]">
-                    Customise spending thresholds, categories, linked accounts, and smart rules for automated transaction classification and 80% spending alerts.
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Sync Now */}
-          {onForceSyncNow && (
-            <button
-              type="button"
-              id="btn-sync-now"
-              disabled={isForceSyncing}
-              onClick={async () => {
-                setIsForceSyncing(true);
-                setForceSyncResult(null);
-                const result = await onForceSyncNow();
-                setForceSyncResult(result);
-                setIsForceSyncing(false);
-              }}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 dark:bg-[#181820] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-line text-slate-800 dark:text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer disabled:opacity-60 shadow-xs"
-              title="Synchronize all categories, budgets, and accounts with cloud database"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 text-red-500 ${isForceSyncing ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">{isForceSyncing ? 'Syncing...' : 'Sync'}</span>
-              {syncStatus?.timestamp && (
-                <span
-                  className={`w-2 h-2 rounded-full ${syncStatus.success ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-red-500'}`}
-                />
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Sync Status Banner if triggered */}
-      {forceSyncResult && (
-        <div
-          className={`p-3.5 rounded-2xl border text-xs font-mono flex items-center justify-between gap-2 shadow-sm ${
-            forceSyncResult.success
-              ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
-              : 'bg-red-50 dark:bg-red-950/60 border-red-300 dark:border-red-800 text-red-800 dark:text-red-300'
-          }`}
-        >
-          <div className="flex items-center gap-2.5">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{forceSyncResult.success ? 'All financial records and personalisation preferences synchronized with Supabase.' : (forceSyncResult.error || 'Sync encountered an issue.')}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setForceSyncResult(null)}
-            className="text-slate-400 hover:text-slate-700 dark:hover:text-white cursor-pointer p-1"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
       {/* ========================================================================= */}
       {/* 2. SUB-TAB NAVIGATION SEGMENTED PILLS                                     */}
       {/* ========================================================================= */}
@@ -733,7 +583,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5" />
-          <span>Monthly Budgets</span>
+          <span>Budgets</span>
           {budgetSummary.totalAlerts > 0 && (
             <span className="px-1.5 py-0.5 bg-white text-red-600 dark:bg-red-950 dark:text-red-400 rounded-full text-[9px] font-bold animate-pulse">
               {budgetSummary.totalAlerts} Alert{budgetSummary.totalAlerts > 1 ? 's' : ''}
@@ -754,7 +604,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>Categories &amp; Tags ({categories.length})</span>
+          <span>Categories ({categories.length})</span>
         </button>
 
         <button
@@ -770,7 +620,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           }`}
         >
           <Building2 className="w-3.5 h-3.5" />
-          <span>Bank &amp; Cards ({accounts.length})</span>
+          <span>Accounts ({accounts.length})</span>
         </button>
 
         <button
@@ -786,7 +636,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           }`}
         >
           <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          <span>Smart Rules ({smartRules.length})</span>
+          <span>Auto-categorise ({smartRules.length})</span>
         </button>
       </div>
 
@@ -796,86 +646,36 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {activeTab === 'budgets' && (
         <div className="space-y-5">
           {/* Executive Overview Deck */}
-          <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-5 sm:p-6 rounded-3xl shadow-sm space-y-4">
+          <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-3 sm:p-4 rounded-2xl space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#222]">
               <div>
-                <div className="text-[10px] text-slate-500 dark:text-[#888] uppercase font-bold tracking-wider">
-                  Spending Cycle Target
-                </div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-0.5">
-                  {formatMonthLabel(selectedMonth)} Budget Cockpit
-                </h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Monthly budget</h3>
+                <p className="text-[11px] text-slate-500 dark:text-[#888] mt-1">Totals include categories with a budget.</p>
               </div>
-
-              {budgetSummary.totalAlerts > 0 ? (
-                <div className="px-3 py-1.5 bg-red-50 dark:bg-red-950/80 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700/80 rounded-xl text-xs font-bold flex items-center gap-2 animate-pulse">
-                  <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
-                  <span>{budgetSummary.totalAlerts} {budgetSummary.totalAlerts === 1 ? 'Category' : 'Categories'} Crossed 80% Threshold</span>
-                </div>
-              ) : (
-                <div className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/70 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-700/60 rounded-xl text-xs font-bold flex items-center gap-2">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                  <span>All Monitored Spending Healthy (&lt;80%)</span>
-                </div>
-              )}
+              {renderMonthSelector()}
             </div>
 
             {/* 4-Stat Metric Grid */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <div className="grid grid-cols-1 min-[375px]:grid-cols-3 gap-2">
               <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
-                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Budget Tracked</div>
+                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Budget</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                   {currencySymbol}{formatAmount(budgetSummary.totalBudget)}
                 </div>
-                <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across configured categories</div>
               </div>
 
               <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
-                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Month Debit Outflow</div>
+                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Spent</div>
                 <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                   {currencySymbol}{formatAmount(budgetSummary.totalSpent)}
                 </div>
-                <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Actual debits in {formatMonthLabel(selectedMonth)}</div>
               </div>
 
               <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
-                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Net Remaining Buffer</div>
+                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Left</div>
                 <div className={`text-base sm:text-lg font-bold mt-1 ${budgetSummary.remainingBudget === 0 ? 'text-red-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
                   {currencySymbol}{formatAmount(budgetSummary.remainingBudget)}
                 </div>
-                <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Safe spending capacity</div>
-              </div>
-
-              <div className="bg-slate-50 dark:bg-surface-1 border border-slate-200/80 dark:border-[#222] p-3.5 rounded-2xl">
-                <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Overall Utilization</div>
-                <div className={`text-base sm:text-lg font-bold mt-1 ${budgetSummary.overallPercent >= 80 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-                  {budgetSummary.overallPercent.toFixed(1)}%
-                </div>
-                <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">
-                  {budgetSummary.overallPercent >= 100 ? 'Over limit' : budgetSummary.overallPercent >= 80 ? 'In 80% alert zone' : 'Within safe zone'}
-                </div>
-              </div>
-            </div>
-
-            {/* Visual Overall Health Meter */}
-            <div className="pt-2">
-              <div className="flex items-center justify-between text-xs mb-1.5">
-                <span className="text-[10px] text-slate-500 dark:text-[#888] uppercase font-bold">Combined Budget Gauge</span>
-                <span className="text-[11px] font-bold text-slate-700 dark:text-[#aaa]">
-                  {currencySymbol}{formatAmount(budgetSummary.totalSpent)} of {currencySymbol}{formatAmount(budgetSummary.totalBudget)} ({budgetSummary.overallPercent.toFixed(0)}%)
-                </span>
-              </div>
-              <div className="relative w-full h-3 bg-slate-100 dark:bg-surface-1 rounded-full overflow-hidden p-0.5 border border-slate-200 dark:border-line">
-                {/* 80% Marker line */}
-                <div className="absolute top-0 bottom-0 z-20 w-0.5 bg-red-500" style={{ left: '80%' }} />
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${
-                    budgetSummary.overallPercent >= 80
-                      ? 'bg-gradient-to-r from-red-600 to-rose-500 shadow-[0_0_12px_rgba(220,38,38,0.5)]'
-                      : 'bg-gradient-to-r from-emerald-600 to-teal-500'
-                  }`}
-                  style={{ width: `${Math.min(100, Math.max(budgetSummary.totalSpent > 0 ? 3 : 0, budgetSummary.overallPercent))}%` }}
-                />
               </div>
             </div>
           </div>
@@ -884,24 +684,24 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           <div className="space-y-3">
             {renderActionRow({
               onAdd: openAddCategoryModal,
-              addTitle: "Add Category (+)",
+              addTitle: "Add category",
               addBtnId: "btn-add-category-budget-tab",
               searchPlaceholder: "Search expense category..."
             })}
 
             {/* Filter Chips */}
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {[
-                { id: 'all', label: 'All Budgets' },
-                { id: 'alert', label: '⚠️ 80% Alerts' },
-                { id: 'over', label: '🚨 Over Budget' },
-                { id: 'safe', label: '✅ Safe' },
-                { id: 'nolimit', label: 'No Limit' },
-              ].map((chip) => (
+              {([
+                { id: 'all', label: 'All' },
+                { id: 'alert', label: 'Near limit' },
+                { id: 'over', label: 'Over budget' },
+                { id: 'safe', label: 'On track' },
+                { id: 'nolimit', label: 'No budget' },
+              ] as const).map((chip) => (
                 <button
                   key={chip.id}
                   type="button"
-                  onClick={() => setBudgetStatusFilter(chip.id as any)}
+                  onClick={() => setBudgetStatusFilter(chip.id)}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     budgetStatusFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
@@ -962,29 +762,27 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                               spendData.isOverBudget ? (
                                 <span className="px-2 py-0.5 bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-400 border border-red-300 dark:border-red-700 rounded-lg text-[10px] font-bold flex items-center gap-1 animate-pulse">
                                   <Flame className="w-3 h-3 text-red-600 dark:text-red-400" />
-                                  <span>🚨 {spendData.percent.toFixed(0)}% (OVER BUDGET)</span>
+                                  <span>Over budget</span>
                                 </span>
                               ) : spendData.isOverThreshold ? (
                                 <span className="px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-700 rounded-lg text-[10px] font-bold flex items-center gap-1 animate-pulse">
                                   <AlertTriangle className="w-3 h-3 text-amber-600 dark:text-amber-400" />
-                                  <span>⚠️ {spendData.percent.toFixed(0)}% (&gt;80% ALERT)</span>
+                                  <span>Near limit</span>
                                 </span>
                               ) : (
                                 <span className="px-2 py-0.5 bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 border border-emerald-300 dark:border-emerald-800 rounded-lg text-[10px] font-bold">
-                                  ✅ {spendData.percent.toFixed(0)}% SAFE
+                                  On track
                                 </span>
                               )
                             ) : (
                               <span className="px-2 py-0.5 bg-slate-100 dark:bg-surface-2 text-slate-500 dark:text-[#777] border border-slate-200 dark:border-line rounded-lg text-[10px] font-bold">
-                                NO LIMIT SET
+                                No budget
                               </span>
                             )}
                           </div>
 
                           <div className="text-[11px] text-slate-500 dark:text-[#777] mt-1 flex items-center gap-1.5 flex-wrap">
-                            <span>{cat.subcategories.join(', ')}</span>
-                            <span>•</span>
-                            <span className="text-slate-700 dark:text-[#aaa] font-bold">{spendData.txCount} transactions in {formatMonthLabel(selectedMonth)}</span>
+                            <span>{spendData.txCount} transactions</span>
                           </div>
                         </div>
                       </div>
@@ -999,6 +797,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                               value={editingBudgetVal}
                               onChange={(e) => setEditingBudgetVal(e.target.value)}
                               placeholder="15000"
+                              aria-label={`Monthly budget for ${cat.name}`}
                               className="px-2 py-1 bg-transparent text-xs font-mono font-bold text-slate-900 dark:text-white w-24 focus:outline-none"
                               autoFocus
                               onKeyDown={(e) => {
@@ -1029,7 +828,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                               <div className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white">
                                 {hasBudget
                                   ? `${currencySymbol}${formatAmount(cat.budgetLimit)}`
-                                  : 'No Limit'}
+                                  : 'No budget'}
                               </div>
                               <button
                                 type="button"
@@ -1040,31 +839,10 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                                 className="text-[10px] text-red-600 dark:text-red-400 hover:underline cursor-pointer flex items-center gap-1 justify-end"
                               >
                                 <Edit3 className="w-2.5 h-2.5" />
-                                <span>{hasBudget ? 'Edit Limit' : '+ Set Limit'}</span>
+                                <span>{hasBudget ? 'Edit budget' : 'Set budget'}</span>
                               </button>
                             </div>
 
-                            {/* Quick Increment/Decrement Buttons */}
-                            {hasBudget && (
-                              <div className="flex flex-col gap-1 border-l border-slate-200 dark:border-line pl-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickBudgetDelta(cat, 1000)}
-                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
-                                  title="Add +₹1,000 to limit"
-                                >
-                                  +1k
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleQuickBudgetDelta(cat, -1000)}
-                                  className="px-1.5 py-0.5 bg-slate-100 dark:bg-[#181822] hover:bg-slate-200 dark:hover:bg-surface-3 border border-slate-200 dark:border-[#333] text-[9px] font-bold text-slate-700 dark:text-[#aaa] rounded cursor-pointer"
-                                  title="Subtract -₹1,000 from limit"
-                                >
-                                  -1k
-                                </button>
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>
@@ -1073,7 +851,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     {/* Spend Metrics Readout */}
                     <div className="flex items-baseline justify-between text-xs mb-2 gap-2 flex-wrap">
                       <div className="flex items-baseline gap-1.5">
-                        <span className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Month Spend:</span>
+                        <span className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Spent:</span>
                         <span className={`font-bold ${spendData.isOverThreshold ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}`}>
                           {currencySymbol}{formatAmount(spendData.actualSpent)}
                         </span>
@@ -1092,7 +870,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             </span>
                           ) : spendData.isOverThreshold ? (
                             <span className="text-amber-600 dark:text-amber-400 font-bold">
-                              Only {currencySymbol}{formatAmount(spendData.remaining)} left before limit
+                              {currencySymbol}{formatAmount(spendData.remaining)} left
                             </span>
                           ) : (
                             <span className="text-emerald-600 dark:text-emerald-400">
@@ -1100,7 +878,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             </span>
                           )
                         ) : (
-                          <span className="text-slate-400">Target limit not set</span>
+                          <span className="text-slate-400">Set a monthly budget to track progress</span>
                         )}
                       </div>
                     </div>
@@ -1139,28 +917,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Progress Footer Explainer */}
-                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-[#777] mt-2 pt-2 border-t border-slate-100 dark:border-line">
-                      <span>
-                        {hasBudget ? (
-                          spendData.isOverThreshold ? (
-                            <span className="text-red-600 dark:text-red-400 font-bold">
-                              ⚠️ Warning: Spending exceeded 80% safe quota
-                            </span>
-                          ) : (
-                            <span>Spending is within safe limits (&lt;80%)</span>
-                          )
-                        ) : (
-                          <span>Assign a target limit to activate automatic threshold alerts</span>
-                        )}
-                      </span>
-
-                      {hasBudget && (
-                        <span className="font-bold text-slate-800 dark:text-white">
-                          {spendData.percent.toFixed(1)}% Used
-                        </span>
-                      )}
-                    </div>
                   </div>
                 );
               })
@@ -1178,7 +934,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           <div className="space-y-3">
             {renderActionRow({
               onAdd: openAddCategoryModal,
-              addTitle: "Add Category (+)",
+              addTitle: "Add category",
               addBtnId: "btn-add-category-icon",
               searchPlaceholder: "Search categories..."
             })}
@@ -1210,7 +966,6 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           {/* Grid of Categories */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredCategories.map((cat) => {
-              const spendData = getCategorySpendData(cat);
               const isAddingSubcat = addingSubcatForId === cat.id;
 
               return (
@@ -1300,7 +1055,8 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                               type="text"
                               value={newSubcatText}
                               onChange={(e) => setNewSubcatText(e.target.value)}
-                              placeholder="New tag..."
+                              placeholder="Subcategory"
+                              aria-label={`New subcategory for ${cat.name}`}
                               className="w-20 text-[10px] font-mono bg-transparent text-slate-900 dark:text-white focus:outline-none"
                               autoFocus
                               onKeyDown={(e) => {
@@ -1333,22 +1089,13 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                             className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-surface-2 hover:bg-slate-200 dark:hover:bg-surface-3 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white text-[10px] rounded-xl transition-colors cursor-pointer border border-dashed border-slate-300 dark:border-[#333]"
                           >
                             <Plus className="w-2.5 h-2.5" />
-                            <span>Add Tag</span>
+                            <span>Add subcategory</span>
                           </button>
                         )}
                       </div>
                     </div>
                   </div>
 
-                  {/* Expense Progress Footer */}
-                  {cat.type === 'expense' && (
-                    <div className="pt-2 border-t border-slate-100 dark:border-line text-[10px] text-slate-500 dark:text-[#777] flex items-center justify-between">
-                      <span>Spent this month:</span>
-                      <span className="font-bold text-slate-800 dark:text-white">
-                        {currencySymbol}{formatAmount(spendData.actualSpent)}
-                      </span>
-                    </div>
-                  )}
                 </div>
               );
             })}

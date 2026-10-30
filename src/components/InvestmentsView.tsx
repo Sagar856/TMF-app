@@ -1518,10 +1518,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             />
           </div>
 
-          <div className="flex items-center bg-[#111111] p-0.5 border border-[#222] rounded-lg">
+          <div role="group" aria-label="Investment ledger layout" className="flex items-center bg-[#111111] p-0.5 border border-[#222] rounded-lg">
             <button
               type="button"
               onClick={() => setViewMode('table')}
+              aria-pressed={viewMode === 'table'}
               className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
                 viewMode === 'table' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
               }`}
@@ -1533,6 +1534,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <button
               type="button"
               onClick={() => setViewMode('detail')}
+              aria-pressed={viewMode === 'detail'}
               className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
                 viewMode === 'detail' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
               }`}
@@ -1545,8 +1547,15 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         </div>
 
         {viewMode === 'table' ? (
-          <>
-          <div className="hidden sm:block bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
+          <div
+            role="region"
+            aria-label="Investment ledger transactions table"
+            tabIndex={0}
+            className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
+          >
+            <p className="px-3 pt-2 text-[10px] text-[#888] sm:hidden">
+              Scroll horizontally to view all table columns.
+            </p>
             <div className="min-w-[860px]">
               {/* Table Header */}
               <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
@@ -1613,44 +1622,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               )}
             </div>
           </div>
-          <div className="sm:hidden space-y-2.5">
-            {filteredTxns.length === 0 ? (
-              <div className="p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-2xl">
-                No investment transactions recorded yet.
-              </div>
-            ) : (
-              filteredTxns.map((tx) => (
-                <article key={tx.id} className="bg-[#111] border border-[#222] rounded-xl p-3 space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-bold text-white truncate">{tx.category}</div>
-                      <div className="text-[10px] text-[#aaa] mt-1">{formatDateDisplay(tx.date)} · {tx.account}</div>
-                    </div>
-                    <div className="shrink-0 text-right text-xs font-bold text-cyan-400">
-                      {currencySymbol}{formatAmount(tx.amount)}
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2 border-t border-[#222] pt-2">
-                    <button
-                      type="button"
-                      onClick={() => handleEditTxn(tx)}
-                      className="min-h-10 min-w-16 px-3 border border-[#333] text-[#ccc] text-xs font-bold rounded-lg"
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteTxn(tx)}
-                      className="min-h-10 min-w-16 px-3 border border-red-900/60 text-red-400 text-xs font-bold rounded-lg"
-                    >
-                      DELETE
-                    </button>
-                  </div>
-                </article>
-              ))
-            )}
-          </div>
-          </>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {filteredTxns.length === 0 ? (

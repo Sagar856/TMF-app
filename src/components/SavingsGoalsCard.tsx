@@ -5,6 +5,7 @@ import { newId } from '../utils/ids';
 import { isValidDate, savingsGoalProgress } from '../utils/savingsGoals';
 import { todayLocalISO } from '../utils/dates';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
+import { InfoButton } from './InfoButton';
 
 interface SavingsGoalsCardProps {
   goals: SavingsGoal[];
@@ -102,10 +103,13 @@ export const SavingsGoalsCard: React.FC<SavingsGoalsCardProps> = ({ goals, onCha
           <div className="flex items-center gap-2">
             <Target className="w-4 h-4 text-emerald-400" aria-hidden="true" />
             <h2 id="savings-goals-title" className="text-sm sm:text-base font-bold text-white">Savings goals</h2>
+            <InfoButton
+              id="savings-goals-info"
+              title="Savings goals"
+              content="Track funds you set aside for a goal. Updates are manual; goals stay on this device and are included in JSON backups."
+              align="left"
+            />
           </div>
-          <p className="text-[10px] sm:text-xs text-[#888] mt-1">
-            Track funds you set aside for a goal. Updates are manual; goals stay on this device and are included in JSON backups.
-          </p>
         </div>
         <button
           type="button"

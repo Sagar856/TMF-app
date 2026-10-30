@@ -4,7 +4,6 @@ import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification
 import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { currentMonthLocal, todayLocalISO } from '../utils/dates';
 import { getEffectiveLoanStatus } from '../utils/loanStatus';
-import { calculateSavingsRate } from '../utils/savingsRate';
 import {
   getTransactionKind,
   isOperatingExpense,
@@ -36,8 +35,6 @@ import {
   EyeOff,
   ChevronDown,
   ChevronUp,
-  Layers,
-  CreditCard,
   MapPin,
   ArrowRight,
   ReceiptText,
@@ -99,6 +96,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [showCredit, setShowCredit] = useState<boolean>(!defaultMaskState);
   const [showDebit, setShowDebit] = useState<boolean>(!defaultMaskState);
   const [showInvestments, setShowInvestments] = useState<boolean>(!defaultMaskState);
+  const [showReceivables, setShowReceivables] = useState<boolean>(!defaultMaskState);
 
   useEffect(() => {
     const isMasked = defaultNetWorthMasked !== false;
@@ -107,6 +105,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setShowCredit(!isMasked);
     setShowDebit(!isMasked);
     setShowInvestments(!isMasked);
+    setShowReceivables(!isMasked);
   }, [defaultNetWorthMasked]);
 
   const handleToggleMasterNetWorth = () => {
@@ -116,6 +115,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     setShowCredit(!nextHidden);
     setShowDebit(!nextHidden);
     setShowInvestments(!nextHidden);
+    setShowReceivables(!nextHidden);
   };
 
   // Stacked vs Expanded KPI state for Home Page
@@ -206,12 +206,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const allTimeIncomeTxns = useMemo(() => transactions.filter(isOperatingIncome), [transactions]);
   const allTimeExpenseTxns = useMemo(() => transactions.filter((t) => isOperatingExpense(t) || isRefund(t)), [transactions]);
 
-  // Keep the rate signed so spending beyond income is visible.
-  const savingsRate = useMemo(
-    () => calculateSavingsRate(monthCredit, monthDebit),
-    [monthCredit, monthDebit]
-  );
-
   // Accounts & Net worth calculations
   const hasAccounts = Boolean(accounts && accounts.length > 0);
 
@@ -251,9 +245,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .filter((inv) => inv.status !== 'redeemed')
       .reduce((sum, inv) => sum + (Number(inv.currentValue) || 0), 0);
   }, [investments]);
-
-  // liabilities = ccOutstanding + payables
-  const totalLiabilities = ccOutstanding + payables;
 
   // Fallback cashflow-based net worth if accounts is empty. Investment
   // purchases already show up in investmentsValue, so add them back to avoid
@@ -328,133 +319,49 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       )}
 
-      {/* ==================== 1. EXECUTIVE SUMMARY ==================== */}
-      <div className="bg-carbon border border-nothing p-3.5 sm:p-5 rounded-2xl shadow-md space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 bg-red-950/60 border border-red-600/50 rounded-xl flex items-center justify-center text-red-500 shrink-0 shadow-inner">
-              <TrendingUp className="w-5 h-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest">
-                  EXECUTIVE SUMMARY
-                </span>
-                <InfoButton
-                  id="exec-summary-info"
-                  title="Net Worth Computation"
-                  content="Net Worth = Liquid Cash in Bank & Wallets − Credit Card Outstanding + Active Investments + Money Lent (Receivables) − Loans Owed (Liabilities)."
-                  align="left"
-                />
-              </div>
-              <div className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2 mt-0.5 font-mono">
-                <span>NET WORTH:</span>
-                <span className="text-emerald-400 font-extrabold">
-                  {isNetWorthHidden ? '••••••••' : `${currencySymbol}${formatAmount(totalNetWorth)}`}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleToggleMasterNetWorth}
-                  className="p-1 text-[#888] hover:text-white transition-colors cursor-pointer"
-                  title={isNetWorthHidden ? 'Show All Metrics' : 'Hide All Metrics'}
-                >
-                  {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-mono bg-obsidian/70 border border-nothing px-3 py-1.5 rounded-xl self-start md:self-auto">
-            <span className="text-[#888] uppercase text-[10px]">Savings Rate (This Mo):</span>
-            <span className={`font-bold ${savingsRate === null ? 'text-[#888]' : savingsRate < 0 ? 'text-red-500' : savingsRate >= 20 ? 'text-emerald-400' : savingsRate > 0 ? 'text-amber-400' : 'text-[#888]'}`}>
-              {savingsRate === null ? '—' : `${savingsRate}%${savingsRate < 0 ? ' · OVERSPENDING' : ''}`}
-            </span>
-          </div>
-        </div>
-
-        {/* Breakdown Row (Liquid / Investments / Receivables / Liabilities) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-nothing/60 text-xs font-mono">
-          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
-            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
-              <span>Liquid</span>
-              <Wallet className="w-3 h-3 text-emerald-400" />
-            </div>
-            <div className="text-white font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(liquid)}`}
-            </div>
-          </div>
-
-          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
-            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
-              <span>Investments</span>
-              <TrendingUp className="w-3 h-3 text-cyan-400" />
-            </div>
-            <div className="text-cyan-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(investmentsValue)}`}
-            </div>
-          </div>
-
-          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
-            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
-              <span>Receivables</span>
-              <ArrowDownLeft className="w-3 h-3 text-emerald-400" />
-            </div>
-            <div className="text-emerald-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(receivables)}`}
-            </div>
-          </div>
-
-          <div className="bg-obsidian/70 border border-nothing/80 p-2.5 rounded-xl">
-            <div className="text-[9px] text-[#888] uppercase tracking-wider flex items-center justify-between">
-              <span>Liabilities</span>
-              <CreditCard className="w-3 h-3 text-red-400" />
-            </div>
-            <div className="text-red-400 font-bold text-xs sm:text-sm mt-1 truncate">
-              {isNetWorthHidden ? '••••••' : `${currencySymbol}${formatAmount(totalLiabilities)}`}
-            </div>
-          </div>
-        </div>
-
-        {/* If accounts is empty: one-line hint */}
-        {!hasAccounts && (
-          <div className="text-[11px] text-amber-400/90 font-mono flex items-center gap-1.5 pt-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0 animate-pulse" />
-            <span>Add accounts to see true net worth</span>
-          </div>
-        )}
+      {/* Net worth summary */}
+      <div className="flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 border border-nothing rounded-lg px-2 py-1 font-mono text-sm sm:text-base font-bold tracking-tight">
+        <span className="shrink-0 text-white">NET WORTH:</span>
+        <span className={`min-w-0 [overflow-wrap:anywhere] font-extrabold ${totalNetWorth < 0 ? 'text-red-500' : 'text-emerald-400'}`}>
+          {isNetWorthHidden ? '••••••••' : `${currencySymbol}${formatAmount(totalNetWorth)}`}
+        </span>
+        <button
+          type="button"
+          onClick={handleToggleMasterNetWorth}
+          className="shrink-0 p-1 text-[#888] hover:text-white transition-colors cursor-pointer"
+          title={isNetWorthHidden ? 'Show All Metrics' : 'Hide All Metrics'}
+          aria-label={isNetWorthHidden ? 'Show all financial metrics' : 'Hide all financial metrics'}
+        >
+          {isNetWorthHidden ? <EyeOff className="w-3.5 h-3.5 text-red-400" /> : <Eye className="w-3.5 h-3.5" />}
+        </button>
       </div>
 
       {/* ==================== 2. FINANCIAL METRICS ==================== */}
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-xs text-[#888] flex-wrap gap-2">
-          <div className="flex items-center gap-1.5">
-            <Layers className="w-3.5 h-3.5 text-red-500" />
-            <span className="uppercase font-bold tracking-wider text-white">FINANCIAL METRICS</span>
-            <InfoButton
-              id="fin-metrics-info"
-              title="Financial Metrics"
-              content="Key performance indicators: Cash in Accounts (= liquid bank & wallet balances), This Month's Income, Expenses, and Active Investments. Switch between This Month and All Time using the toggle."
-              align="left"
-            />
+        <div className="flex items-center justify-between gap-1.5 text-xs text-[#888]">
+          <div className="flex min-w-0 items-center">
+            <span className="whitespace-nowrap text-[9px] min-[375px]:text-[10px] sm:text-xs uppercase font-bold tracking-normal sm:tracking-wider text-white">FINANCIAL METRICS</span>
           </div>
 
-          <div className="flex items-center gap-2">
-            <div className="flex items-center bg-[#121218] border border-nothing rounded-lg p-0.5 text-[10px] font-mono">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+            <div className="flex items-center bg-[#121218] border border-nothing rounded-lg p-0.5 text-[9px] sm:text-[10px] font-mono">
               <button
                 type="button"
                 onClick={() => setKpiTimeframe('month')}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                aria-label="This month"
+                className={`px-1.5 sm:px-2 py-0.5 rounded cursor-pointer transition-colors ${
                   kpiTimeframe === 'month'
                     ? 'bg-red-600 text-white font-bold'
                     : 'text-[#888] hover:text-white'
                 }`}
               >
-                THIS MONTH
+                <span className="sm:hidden">MONTH</span>
+                <span className="hidden sm:inline">THIS MONTH</span>
               </button>
               <button
                 type="button"
                 onClick={() => setKpiTimeframe('all')}
-                className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                className={`px-1.5 sm:px-2 py-0.5 rounded cursor-pointer transition-colors ${
                   kpiTimeframe === 'all'
                     ? 'bg-red-600 text-white font-bold'
                     : 'text-[#888] hover:text-white'
@@ -467,8 +374,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <button
               type="button"
               onClick={() => setIsKpiStacked(!isKpiStacked)}
-              className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+              aria-pressed={!isKpiStacked}
+              className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm lg:hidden"
               title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
+              aria-label={isKpiStacked ? "Expand metrics" : "Stack metrics"}
             >
               {isKpiStacked ? (
                 <ChevronDown className="w-3.5 h-3.5 text-red-400" />
@@ -479,11 +388,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
 
-        {/* Vertical Stack / Expanded Container */}
+        {/* Stacked on small screens; horizontal cards on large screens */}
         <div
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className={`transition-all duration-300 ease-in-out ${
+          className={`dashboard-kpi-stack [&>div]:py-[9px] sm:[&>div]:py-[11px] transition-all duration-300 ease-in-out lg:grid lg:grid-cols-5 lg:gap-3 lg:space-y-0 lg:pt-1 lg:pb-2 lg:max-w-none lg:mx-0 ${
             isKpiStacked
               ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'
@@ -496,7 +405,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               isKpiStacked
                 ? 'z-40 shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
-            }`}
+            } lg:z-auto lg:scale-100 lg:translate-y-0 lg:cursor-default`}
           >
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
@@ -532,6 +441,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
+          {/* Receivables KPI */}
+          <div
+            onClick={() => isKpiStacked && setIsKpiStacked(false)}
+            className={`p-3 sm:p-3.5 bg-[#181820] backdrop-blur-md border border-white/20 border-t-2 border-t-emerald-500 rounded-xl sm:rounded-2xl transition-all duration-300 ease-in-out relative min-w-0 lg:z-auto lg:scale-100 lg:translate-y-0 lg:cursor-default ${
+              isKpiStacked
+                ? 'z-[35] scale-[0.99] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
+                : 'hover:border-white/30 shadow-md'
+            }`}
+          >
+            <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
+              <div className="flex items-center gap-1.5">
+                <ArrowDownLeft className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                <span className="font-bold text-white tracking-wider">Receivables</span>
+              </div>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowReceivables(!showReceivables);
+                }}
+                className="text-[#888] hover:text-white p-0.5 cursor-pointer shrink-0"
+                title={showReceivables ? 'Hide amount' : 'Show amount'}
+              >
+                {showReceivables ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-400" />}
+              </button>
+            </div>
+            <div className="flex items-baseline justify-between gap-2 flex-wrap">
+              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+                {showReceivables ? `${currencySymbol}${formatAmount(receivables)}` : '••••••••'}
+              </div>
+              <div className="text-[10px] sm:text-[11px] text-[#aaa]">
+                {(loans || []).filter((loan) => loan.type === 'lend' && getEffectiveLoanStatus(loan, todayIso) !== 'repaid' && loan.remainingAmount > 0).length} Active
+              </div>
+            </div>
+          </div>
+
           {/* 2. Income KPI (This Month / All Time) */}
           <div
             onClick={() => isKpiStacked && setIsKpiStacked(false)}
@@ -539,7 +484,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               isKpiStacked
                 ? 'z-30 scale-[0.98] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
-            }`}
+            } lg:z-auto lg:scale-100 lg:translate-y-0 lg:cursor-default`}
           >
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
@@ -580,7 +525,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               isKpiStacked
                 ? 'z-20 scale-[0.96] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 cursor-pointer ring-1 ring-white/10'
                 : 'hover:border-white/30 shadow-md'
-            }`}
+            } lg:z-auto lg:scale-100 lg:translate-y-0 lg:cursor-default`}
           >
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
@@ -628,7 +573,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               isKpiStacked
                 ? 'z-10 scale-[0.94] shadow-[0_10px_25px_rgba(0,0,0,0.85)] hover:-translate-y-2 hover:z-50 ring-1 ring-white/10'
                 : 'hover:border-cyan-400/80 shadow-md'
-            }`}
+            } lg:z-auto lg:scale-100 lg:translate-y-0 lg:cursor-default`}
           >
             <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#aaa] uppercase mb-0.5">
               <div className="flex items-center gap-1.5">
@@ -671,33 +616,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             <h4 className="text-xs font-bold uppercase tracking-wider text-white">
               Recent Activity
             </h4>
-            <InfoButton
-              id="recent-activity-info"
-              title="Recent Activity"
-              content="Your 3 most recent financial transactions. Tap on any card or ALL TXNS to navigate to the full transaction history."
-              align="left"
-            />
           </div>
-
-          {/* Redirect Icon Button to Transactions Page */}
-          <button
-            type="button"
-            onClick={onNavigateToTransactions}
-            title="Go to Transactions Page"
-            className="p-1.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-lg text-white transition-all nav-lift cursor-pointer flex items-center gap-1 group text-[10px] shrink-0"
-          >
-            <span className="hidden sm:inline text-[#aaa] group-hover:text-white transition-colors">ALL TXNS</span>
-            <ArrowRight className="w-3.5 h-3.5 text-red-500 group-hover:translate-x-0.5 transition-transform" />
-          </button>
         </div>
 
-        {/* Single Row with 3 Short Details Transactions across all screen sizes */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          {transactions.slice(0, 3).map((tx) => (
-            <div
+        <div
+          aria-label="Recent transactions"
+          className="flex gap-2 lg:gap-3 overflow-x-auto overscroll-x-contain pb-1 scroll-smooth"
+          role="region"
+          tabIndex={0}
+        >
+          {transactions.slice(0, 10).map((tx, index) => (
+            <button
+              type="button"
               key={tx.id}
               onClick={onNavigateToTransactions}
-              className="p-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between transition-all tactile-lift cursor-pointer group min-w-0"
+              className={`basis-[calc((100%_-_1.5rem)_/_3.3)] lg:basis-[calc((100%_-_3.75rem)_/_5.3)] min-w-0 shrink-0 p-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-[#333] rounded-xl flex flex-col justify-between text-left transition-all tactile-lift cursor-pointer group ${
+                index >= 6 ? 'hidden lg:flex' : 'flex'
+              }`}
             >
               <div className="flex items-center justify-between gap-1 mb-1 min-w-0">
                 <span className="text-[9px] text-[#777] truncate">{tx.date}</span>
@@ -726,10 +661,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   {tx.type === 'debit' ? '-' : '+'}{currencySymbol}{formatAmount(tx.amount)}
                 </span>
               </div>
-            </div>
+            </button>
           ))}
+          <button
+            type="button"
+            onClick={onNavigateToTransactions}
+            className="basis-[calc((100%_-_1.5rem)_/_3.3)] lg:basis-[calc((100%_-_3.75rem)_/_5.3)] min-w-0 shrink-0 p-2.5 border border-red-700/70 rounded-xl flex flex-col items-center justify-center gap-1 text-center text-[10px] font-bold uppercase text-red-400 hover:bg-red-950/40 transition-colors"
+            aria-label="Show more transactions"
+          >
+            <span>Show More</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
+
+      {/* Cash flow trend trajectory */}
+      <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
 
       {/* ==================== 4. MONITOR BUDGET ==================== */}
       <BudgetThresholdMonitor
@@ -781,9 +728,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         contentRef={carousel.registerContent('trend')}
         onToggleExpand={() => carousel.toggleSection('trend')}
       />
-
-      {/* ==================== 6. CASH FLOW TREND TRAJECTORY ==================== */}
-      <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
 
       {/* ==================== 7. CATEGORY EXPENSE DONUT ==================== */}
       <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
