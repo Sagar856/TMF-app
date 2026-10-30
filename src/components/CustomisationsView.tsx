@@ -1,6 +1,6 @@
 import { safeSetItem } from '../utils/storage';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { newId } from '../utils/ids';
@@ -21,6 +21,7 @@ import {
   Search,
   Tag,
   Filter,
+  SlidersHorizontal,
   Sparkles,
   Layers,
   Wallet,
@@ -102,6 +103,38 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   const [categoryTypeFilter, setCategoryTypeFilter] = useState<'all' | 'expense' | 'income' | 'investment'>('all');
   const [budgetStatusFilter, setBudgetStatusFilter] = useState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('all');
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('all');
+  const [expandedFilters, setExpandedFilters] = useState({ budgets: false, categories: false, accounts: false });
+  const filterToolbarRef = useRef<HTMLDivElement>(null);
+
+  const closeFilters = () => {
+    setExpandedFilters({ budgets: false, categories: false, accounts: false });
+  };
+
+  const selectFilter = () => {
+    closeFilters();
+    filterToolbarRef.current?.querySelector<HTMLButtonElement>('button[aria-controls]')?.focus();
+  };
+
+  useEffect(() => {
+    if (!Object.values(expandedFilters).some(Boolean)) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && !filterToolbarRef.current?.contains(event.target)) {
+        setExpandedFilters({ budgets: false, categories: false, accounts: false });
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setExpandedFilters({ budgets: false, categories: false, accounts: false });
+        filterToolbarRef.current?.querySelector<HTMLButtonElement>('button[aria-controls]')?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [expandedFilters]);
 
   // Month selector for budget tracking
   const availableMonths = useMemo(() => {
@@ -474,28 +507,28 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Reusable Month Selector Stepper
   const renderMonthSelector = () => (
-    <div className="flex items-center bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl p-0.5 text-xs shadow-xs shrink-0 max-w-[170px] sm:max-w-none">
+    <div className="flex h-10 items-center bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-xl p-0.5 text-xs shadow-xs shrink-0">
       <button
         type="button"
         onClick={handlePrevMonth}
         title="Previous Month"
-        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
+        className="hidden sm:block p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
       >
         <ChevronLeft className="w-3.5 h-3.5" />
       </button>
 
       <div className="flex items-center gap-1 px-1 font-bold text-slate-900 dark:text-white text-xs truncate">
-        <Calendar className="w-3.5 h-3.5 text-red-500 shrink-0" />
+        <Calendar className="hidden sm:block w-3.5 h-3.5 text-red-500 shrink-0" />
         <select
           value={selectedMonth}
           onChange={(e) => setSelectedMonth(e.target.value)}
-          className="bg-transparent text-slate-900 dark:text-white text-xs font-mono font-bold focus:outline-none cursor-pointer py-0.5 truncate max-w-[95px] sm:max-w-none"
+          className="w-[86px] sm:w-auto bg-transparent text-slate-900 dark:text-white text-[10px] sm:text-xs font-mono font-bold focus:outline-none cursor-pointer py-0.5"
           title="Select month"
           aria-label="Budget month"
         >
           {availableMonths.map((m) => (
             <option key={m} value={m} className="bg-white dark:bg-[#141416] text-slate-900 dark:text-white font-mono">
-              {formatMonthLabel(m)}
+              {formatMonthLabel(m).replace(/^(\w{3})\w+/, '$1')}
             </option>
           ))}
         </select>
@@ -505,7 +538,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
         type="button"
         onClick={handleNextMonth}
         title="Next Month"
-        className="p-1 sm:p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
+        className="hidden sm:block p-1.5 text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-surface-3 rounded-xl transition-colors cursor-pointer shrink-0"
       >
         <ChevronRight className="w-3.5 h-3.5" />
       </button>
@@ -520,10 +553,12 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     addBtnId?: string;
     showMonthSelector?: boolean;
     searchPlaceholder?: string;
+    filterTab: 'budgets' | 'categories' | 'accounts';
+    filterActive: boolean;
   }) => {
     return (
-      <div className="flex flex-wrap items-center gap-2 w-full">
-          <div className="relative flex-1 min-w-[140px]">
+      <div role="group" aria-label={`${options.filterTab} search and actions`} className="flex min-w-0 items-center gap-1 sm:gap-2 w-full">
+          <div className="relative flex-1 min-w-0 max-w-xs">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 shrink-0 pointer-events-none" />
             <input
               ref={searchInputRef}
@@ -532,7 +567,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={options.searchPlaceholder || "Search..."}
               aria-label={options.searchPlaceholder || 'Search'}
-              className="w-full pl-8 pr-7 py-2 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
+              className="h-10 w-full pl-8 pr-7 bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-xl text-xs font-mono text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-red-500 shadow-xs"
             />
             <button
               type="button"
@@ -553,12 +588,29 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           type="button"
           id={options.addBtnId}
           onClick={options.onAdd}
-          className="p-2 sm:p-2.5 bg-red-600 hover:bg-red-500 text-white rounded-2xl transition-all shadow-sm flex items-center justify-center cursor-pointer shrink-0 active:scale-95 border border-red-500/80"
+          className="h-10 px-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl transition-all shadow-sm flex items-center justify-center cursor-pointer shrink-0 active:scale-95 border border-red-500/80"
           title={options.addTitle}
           aria-label={options.addAriaLabel || options.addTitle}
         >
           <Plus className="w-4 h-4 stroke-[2.5]" />
           <span className="text-xs font-bold ml-1">Add</span>
+        </button>
+        <button
+          type="button"
+          aria-label={`Filter ${options.filterTab}`}
+          aria-expanded={expandedFilters[options.filterTab]}
+          aria-controls={`${options.filterTab}-filters`}
+          title={options.filterActive ? 'Filters active' : 'Filters'}
+          onClick={() => setExpandedFilters((previous) => ({
+            ...previous,
+            [options.filterTab]: !previous[options.filterTab],
+          }))}
+          className={`relative h-10 w-10 shrink-0 flex items-center justify-center rounded-xl border bg-white dark:bg-surface-1 text-red-500 hover:bg-slate-100 dark:hover:bg-surface-3 ${
+            expandedFilters[options.filterTab] || options.filterActive ? 'border-red-500' : 'border-slate-200 dark:border-[#222]'
+          }`}
+        >
+          <SlidersHorizontal className="w-4 h-4" />
+          {options.filterActive && <span aria-hidden="true" className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-red-500" />}
         </button>
       </div>
     );
@@ -575,6 +627,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           onClick={() => {
             setActiveTab('budgets');
             setSearchQuery('');
+            closeFilters();
           }}
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'budgets'
@@ -596,6 +649,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           onClick={() => {
             setActiveTab('categories');
             setSearchQuery('');
+            closeFilters();
           }}
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'categories'
@@ -612,6 +666,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           onClick={() => {
             setActiveTab('accounts');
             setSearchQuery('');
+            closeFilters();
           }}
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'accounts'
@@ -628,6 +683,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           onClick={() => {
             setActiveTab('rules');
             setSearchQuery('');
+            closeFilters();
           }}
           className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
             activeTab === 'rules'
@@ -650,9 +706,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-[#222]">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">Monthly budget</h3>
-                <p className="text-[11px] text-slate-500 dark:text-[#888] mt-1">Totals include categories with a budget.</p>
               </div>
-              {renderMonthSelector()}
             </div>
 
             {/* 4-Stat Metric Grid */}
@@ -681,16 +735,20 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           </div>
 
           {/* Search, Month Filter, Add Category & Status Filters Toolbar */}
-          <div className="space-y-3">
+          <div ref={filterToolbarRef} className="relative">
             {renderActionRow({
               onAdd: openAddCategoryModal,
               addTitle: "Add category",
               addBtnId: "btn-add-category-budget-tab",
+              filterTab: 'budgets',
+              filterActive: budgetStatusFilter !== 'all',
+              showMonthSelector: true,
               searchPlaceholder: "Search expense category..."
             })}
 
             {/* Filter Chips */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            <div id="budgets-filters" hidden={!expandedFilters.budgets} className="absolute right-0 top-full z-50 mt-2 w-64 max-w-full">
+            <div role="group" aria-label="Budget filters" className="flex flex-col items-stretch gap-1.5 rounded-xl border border-slate-200 dark:border-[#333] bg-white dark:bg-surface-1 p-2 shadow-xl">
               {([
                 { id: 'all', label: 'All' },
                 { id: 'alert', label: 'Near limit' },
@@ -701,7 +759,8 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 <button
                   key={chip.id}
                   type="button"
-                  onClick={() => setBudgetStatusFilter(chip.id)}
+                  onClick={() => { setBudgetStatusFilter(chip.id); selectFilter(); }}
+                  aria-pressed={budgetStatusFilter === chip.id}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     budgetStatusFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
@@ -711,6 +770,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   {chip.label}
                 </button>
               ))}
+            </div>
             </div>
           </div>
 
@@ -931,26 +991,30 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {activeTab === 'categories' && (
         <div className="space-y-5">
           {/* Search, Month Filter, Add Category & Type Filters Toolbar */}
-          <div className="space-y-3">
+          <div ref={filterToolbarRef} className="relative">
             {renderActionRow({
               onAdd: openAddCategoryModal,
               addTitle: "Add category",
               addBtnId: "btn-add-category-icon",
+              filterTab: 'categories',
+              filterActive: categoryTypeFilter !== 'all',
               searchPlaceholder: "Search categories..."
             })}
 
             {/* Category Type Pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {[
+            <div id="categories-filters" hidden={!expandedFilters.categories} className="absolute right-0 top-full z-50 mt-2 w-64 max-w-full">
+            <div role="group" aria-label="Category filters" className="flex flex-col items-stretch gap-1.5 rounded-xl border border-slate-200 dark:border-[#333] bg-white dark:bg-surface-1 p-2 shadow-xl">
+              {([
                 { id: 'all', label: 'All' },
                 { id: 'expense', label: 'Expenses' },
                 { id: 'income', label: 'Income' },
                 { id: 'investment', label: 'Investments' },
-              ].map((chip) => (
+              ] as const).map((chip) => (
                 <button
                   key={chip.id}
                   type="button"
-                  onClick={() => setCategoryTypeFilter(chip.id as any)}
+                  onClick={() => { setCategoryTypeFilter(chip.id); selectFilter(); }}
+                  aria-pressed={categoryTypeFilter === chip.id}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     categoryTypeFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
@@ -960,6 +1024,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   {chip.label}
                 </button>
               ))}
+            </div>
             </div>
           </div>
 
@@ -1109,10 +1174,10 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {activeTab === 'accounts' && (
         <div className="space-y-5">
           {/* Executive Accounts Summary */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+          <div role="group" aria-label="Account summary" className="grid grid-cols-3 gap-2 sm:gap-3.5 [&>div]:min-w-0 [&>div]:[overflow-wrap:anywhere]">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-2 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Liquid Balances</div>
-              <div className="text-base sm:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
+              <div className="text-xs sm:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
                 {currencySymbol}
                 {formatAmount(accounts
                   .filter((a) => a.type === 'Bank' || a.type === 'Wallet/UPI')
@@ -1121,9 +1186,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across bank &amp; wallet accounts</div>
             </div>
 
-            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-2 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Credit Card Outstanding</div>
-              <div className="text-base sm:text-lg font-bold text-amber-600 dark:text-amber-400 mt-1">
+              <div className="text-xs sm:text-lg font-bold text-amber-600 dark:text-amber-400 mt-1">
                 {currencySymbol}
                 {formatAmount(accounts
                   .filter((a) => a.type === 'Credit Card')
@@ -1132,9 +1197,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Estimated bill dues</div>
             </div>
 
-            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-4 rounded-3xl shadow-sm">
+            <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-2 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm">
               <div className="text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold">Total Linked Accounts</div>
-              <div className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
+              <div className="text-xs sm:text-lg font-bold text-slate-900 dark:text-white mt-1">
                 {accounts.length} Accounts
               </div>
               <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Active payment methods</div>
@@ -1143,26 +1208,30 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
           {/* Account Type Filters & Search */}
           {/* Search, Filter & Add Account Bar */}
-          <div className="space-y-3">
+          <div ref={filterToolbarRef} className="relative">
             {renderActionRow({
               onAdd: openAddAccountModal,
               addTitle: "Add Bank or Card Account (+)",
               addBtnId: "btn-add-account-icon",
+              filterTab: 'accounts',
+              filterActive: accountTypeFilter !== 'all',
               showMonthSelector: false,
               searchPlaceholder: "Search account or bank..."
             })}
 
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-              {[
+            <div id="accounts-filters" hidden={!expandedFilters.accounts} className="absolute right-0 top-full z-50 mt-2 w-64 max-w-full">
+            <div role="group" aria-label="Account filters" className="flex flex-col items-stretch gap-1.5 rounded-xl border border-slate-200 dark:border-[#333] bg-white dark:bg-surface-1 p-2 shadow-xl">
+              {([
                 { id: 'all', label: 'All' },
                 { id: 'Bank', label: 'Bank A/c' },
                 { id: 'Credit Card', label: 'Credit Cards' },
                 { id: 'Wallet/UPI', label: 'Wallets & UPI' },
-              ].map((chip) => (
+              ] as const).map((chip) => (
                 <button
                   key={chip.id}
                   type="button"
-                  onClick={() => setAccountTypeFilter(chip.id as any)}
+                  onClick={() => { setAccountTypeFilter(chip.id); selectFilter(); }}
+                  aria-pressed={accountTypeFilter === chip.id}
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
                     accountTypeFilter === chip.id
                       ? 'bg-slate-900 text-white dark:bg-white dark:text-black shadow-sm'
@@ -1172,6 +1241,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   {chip.label}
                 </button>
               ))}
+            </div>
             </div>
           </div>
 

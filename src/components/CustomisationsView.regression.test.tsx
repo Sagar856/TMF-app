@@ -31,6 +31,11 @@ test('budget settings keep editing and filters with a concise monthly summary', 
   assert.match(markup, /Monthly budget/);
   assert.match(markup, /aria-label="Budget month"/);
   assert.match(markup, /aria-label="Search expense category\.\.\."/);
+  assert.match(markup, /aria-label="Filter budgets" aria-expanded="false" aria-controls="budgets-filters"/);
+  assert.match(markup, /id="budgets-filters" hidden=""/);
+  assert.match(markup, /aria-label="budgets search and actions"[\s\S]*aria-label="Search expense category\.\.\."[\s\S]*aria-label="Budget month"[\s\S]*id="btn-add-category-budget-tab"/);
+  assert.match(markup, /id="budgets-filters" hidden="" class="absolute right-0 top-full z-50/);
+  assert.doesNotMatch(markup, /Totals include categories with a budget\./);
   assert.match(markup, /Edit budget/);
   assert.match(markup, /Near limit/);
   assert.match(markup, /No budget/);
