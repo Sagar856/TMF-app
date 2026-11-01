@@ -634,6 +634,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     <div 
       ref={handleContainerRef} 
       id="recurring-transactions-card"
+      data-glass-expanded={effectiveState.isExpanded}
       className={`bg-carbon border rounded-2xl shadow-xl font-mono overflow-hidden transition-all duration-300 ${
         effectiveState.isFocused 
           ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
@@ -771,7 +772,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
 
       {/* Progressive Scroll-Driven Body Content */}
       <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
-        <div ref={handleContentRef} className="p-3.5 sm:p-4 pt-0 space-y-4 border-t border-nothing/60 bg-carbon">
+        <div ref={handleContentRef} className="dashboard-section-content p-3.5 sm:p-4 pt-0 space-y-4 border-t border-nothing/60 bg-carbon">
           {recurringItems.length === 0 ? (
             <div className="py-6">
               <EmptyState

@@ -29,16 +29,15 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
   );
   const totalDebit = debitTransactions.reduce((sum, t) => sum + t.amount, 0);
 
-  // Dot-Matrix Palette for Donut Segments
   const SEGMENT_COLORS = [
-    '#dc2626', // Crimson Red
-    '#eab308', // Gold Yellow
-    '#06b6d4', // Cyan
-    '#a855f7', // Violet
-    '#10b981', // Emerald
-    '#f43f5e', // Rose
-    '#3b82f6', // Bright Blue
-    '#64748b', // Slate
+    '#9d80e9',
+    '#7ea7ba',
+    '#c9aa68',
+    '#a27599',
+    '#76ad97',
+    '#b88597',
+    '#7895c4',
+    '#8993a7',
   ];
   const OTHER_COLOR = '#475569';
   const MAX_SEGMENTS = 7;
@@ -117,7 +116,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
         {/* SVG Donut */}
         <div className="relative flex items-center justify-center p-2">
-          <svg viewBox="0 0 200 200" className="w-48 h-48 sm:w-56 sm:h-56 select-none transform -rotate-90">
+          <svg viewBox="0 0 200 200" className="glass-chart-donut w-48 h-48 sm:w-56 sm:h-56 select-none transform -rotate-90">
             {/* Background Base Ring */}
             <circle
               cx={center}

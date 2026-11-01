@@ -115,9 +115,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenProfile,
   onNavigateToTab,
 }) => {
-  const categoriesHeadingRef = useRef<HTMLHeadingElement>(null);
   const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(null);
   const [settingsSearch, setSettingsSearch] = useState('');
+  const [customisationOpen, setCustomisationOpen] = useState(false);
+  const categoriesMenuRef = useRef<HTMLElement>(null);
   const groupHeadingRef = useRef<HTMLHeadingElement>(null);
   const menuRef = useRef<HTMLElement>(null);
   const lastGroupRef = useRef<SettingsGroup | null>(null);
@@ -259,6 +260,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   useEffect(() => {
     if (selectedGroup) {
       lastGroupRef.current = selectedGroup;
+      groupHeadingRef.current?.closest('main')?.scrollTo({ top: 0, behavior: 'auto' });
       groupHeadingRef.current?.focus();
     } else if (lastGroupRef.current) {
       menuRef.current?.querySelector<HTMLButtonElement>(`[data-settings-group="${lastGroupRef.current}"]`)?.focus();
@@ -269,7 +271,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const sampleLoaded = settings.sampleDataLoaded !== false;
 
   return (
-    <div className="space-y-5 pb-16 max-w-5xl mx-auto font-mono">
+    <div className="settings-glass space-y-5 pb-16 max-w-5xl mx-auto font-mono">
       {/* Page header */}
       <div className="flex flex-col gap-3 border-b border-line pb-4">
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
@@ -314,7 +316,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       </div>
 
-        <section aria-labelledby="preferences-heading" className="max-w-3xl mx-auto">
+        <section hidden={customisationOpen} aria-labelledby="preferences-heading" className="max-w-3xl mx-auto">
           <h3 id="preferences-heading" className="text-base font-bold text-content-1 mb-4">Preferences</h3>
           <div hidden={selectedGroup !== null}>
           <nav
@@ -661,8 +663,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 description="Manage spending categories, monthly budgets and linked bank accounts."
               >
                 <SettingButton icon={Tags} iconClassName="text-content-3" onClick={() => {
-                  categoriesHeadingRef.current?.focus();
-                  categoriesHeadingRef.current?.scrollIntoView({ block: 'start' });
+                  setSelectedGroup(null);
+                  requestAnimationFrame(() => {
+                    categoriesMenuRef.current?.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    categoriesMenuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+                  });
                 }}>
                   Categories
                 </SettingButton>
@@ -783,9 +788,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </section>
 
-      <section aria-labelledby="categories-budgets-heading" className="max-w-3xl mx-auto">
-        <h3 id="categories-budgets-heading" ref={categoriesHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 mb-4 scroll-mt-4 focus:outline-none">Categories & Budgets</h3>
+      <section ref={categoriesMenuRef} hidden={selectedGroup !== null} aria-label="Categories & Budgets" className="max-w-3xl mx-auto border-t border-line pt-5">
+        {!customisationOpen && <h3 className="text-base font-bold text-content-1 mb-4">Categories &amp; Budgets</h3>}
         <CustomisationsView
+          onSectionOpenChange={setCustomisationOpen}
           settingsSearch={settingsSearch}
           categories={categories}
           accounts={accounts}

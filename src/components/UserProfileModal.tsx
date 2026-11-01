@@ -135,8 +135,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto font-mono">
-      <div className="bg-[#111111] border border-[#222] w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl space-y-0 my-auto text-white">
+    <div className="identity-glass fixed inset-0 z-modal flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto font-mono">
+      <div role="dialog" aria-modal="true" aria-labelledby="profile-heading" className="identity-glass-panel bg-[#111111] border border-[#222] w-full max-w-2xl rounded-3xl overflow-hidden shadow-2xl space-y-0 my-auto text-white">
         {/* Modal Top Bar */}
         <div className="px-6 py-4 border-b border-[#222] bg-[#0d0d0d] flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -148,14 +148,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   className="w-11 h-11 rounded-full object-cover border-2 border-red-500/80 shadow-md"
                 />
               ) : (
-                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-red-600 to-red-400 text-white font-bold flex items-center justify-center text-lg shadow-md">
+                <div className="identity-glass-accent w-11 h-11 rounded-full bg-gradient-to-tr from-red-600 to-red-400 text-white font-bold flex items-center justify-center text-lg shadow-md">
                   {userName.charAt(0).toUpperCase()}
                 </div>
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-white uppercase">{userName}</h3>
+                <h3 id="profile-heading" className="text-sm font-bold text-white uppercase">{userName}</h3>
                 <span className="px-2 py-0.5 bg-emerald-950/80 border border-emerald-800/80 text-emerald-400 text-[9px] font-bold rounded-full flex items-center gap-1">
                   <Sparkles className="w-2.5 h-2.5" /> PRO USER
                 </span>
@@ -167,6 +167,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={onClose}
+            aria-label="Close profile"
             className="p-2 rounded-xl bg-[#1c1c1c] text-[#888] hover:text-white hover:bg-surface-3 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -178,6 +179,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
+            aria-label="Profile"
+            aria-pressed={activeTab === 'profile'}
             className={`py-3 px-2 flex items-center justify-center gap-1.5 transition-colors border-b-2 ${
               activeTab === 'profile'
                 ? 'border-red-600 text-white bg-[#111]'
@@ -191,6 +194,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('security')}
+            aria-label="Security"
+            aria-pressed={activeTab === 'security'}
             className={`py-3 px-2 flex items-center justify-center gap-1.5 transition-colors border-b-2 ${
               activeTab === 'security'
                 ? 'border-red-600 text-white bg-[#111]'
@@ -204,6 +209,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('accounts')}
+            aria-label="Accounts"
+            aria-pressed={activeTab === 'accounts'}
             className={`py-3 px-2 flex items-center justify-center gap-1.5 transition-colors border-b-2 ${
               activeTab === 'accounts'
                 ? 'border-red-600 text-white bg-[#111]'
@@ -217,6 +224,8 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveTab('preferences')}
+            aria-label="Preferences"
+            aria-pressed={activeTab === 'preferences'}
             className={`py-3 px-2 flex items-center justify-center gap-1.5 transition-colors border-b-2 ${
               activeTab === 'preferences'
                 ? 'border-red-600 text-white bg-[#111]'
@@ -248,7 +257,7 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
                       className="w-16 h-16 rounded-full object-cover border-2 border-red-500 shadow-lg"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-red-600 to-red-400 text-white font-bold flex items-center justify-center text-2xl shadow-lg">
+                    <div className="identity-glass-accent w-16 h-16 rounded-full bg-gradient-to-tr from-red-600 to-red-400 text-white font-bold flex items-center justify-center text-2xl shadow-lg">
                       {userName.charAt(0).toUpperCase()}
                     </div>
                   )}

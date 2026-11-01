@@ -117,6 +117,9 @@ export default defineConfig({
     port: 3000,
     host: '0.0.0.0',
     allowedHosts: true,
+    watch: {
+      ignored: ['**/.tmp_video_inspection/**', '**/android/**'],
+    },
   },
 });
 

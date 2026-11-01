@@ -126,7 +126,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
   const activePoint = activePointIndex !== null ? dataPoints[activePointIndex] : null;
 
   return (
-    <div className="bg-carbon border border-nothing p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-4">
+    <div className="glass-chart bg-carbon border border-nothing p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-4">
       {/* Header Title */}
       <div className="flex items-center gap-2">
         <Activity className="w-4 h-4 text-red-500" />
@@ -147,6 +147,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         <div className="flex gap-1 bg-obsidian p-1 rounded-xl border border-nothing shrink-0">
           <button
             type="button"
+            aria-pressed={period === 'week'}
             onClick={() => {
               setPeriod('week');
               setActivePointIndex(null);
@@ -159,6 +160,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
           </button>
           <button
             type="button"
+            aria-pressed={period === 'month'}
             onClick={() => {
               setPeriod('month');
               setActivePointIndex(null);
@@ -175,11 +177,11 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
         <div className="flex flex-col gap-1 text-[10px] font-mono shrink-0">
           <div className="flex items-center justify-end gap-1.5">
             <span className="text-[#aaa]">Debit (Expenses)</span>
-            <div className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[var(--glass-chart-accent)] shrink-0" />
           </div>
           <div className="flex items-center justify-end gap-1.5">
             <span className="text-[#aaa]">Credit (Income)</span>
-            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0" />
+            <div className="w-2.5 h-2.5 rounded-full bg-[var(--glass-chart-credit)] shrink-0" />
           </div>
         </div>
       </div>
@@ -205,10 +207,10 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
           className="w-full h-auto min-w-[340px] select-none"
         >
           <defs>
-            {/* Debit Red Gradient */}
+            {/* Debit gradient matches the chart's theme-aware legend. */}
             <linearGradient id="debitGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#dc2626" stopOpacity="0.35" />
-              <stop offset="100%" stopColor="#dc2626" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="var(--glass-chart-accent)" stopOpacity="0.35" />
+              <stop offset="100%" stopColor="var(--glass-chart-accent)" stopOpacity="0.0" />
             </linearGradient>
 
             {/* Grid Pattern */}
@@ -242,8 +244,10 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
           {/* Credit Line Path (Green) */}
           <path
             d={creditPathD}
+            pathLength={1}
+            className="glass-chart-line"
             fill="none"
-            stroke="#10b981"
+            stroke="var(--glass-chart-credit)"
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -252,8 +256,10 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
           {/* Debit Line Path (Red) */}
           <path
             d={debitPathD}
+            pathLength={1}
+            className="glass-chart-line"
             fill="none"
-            stroke="#ef4444"
+            stroke="var(--glass-chart-accent)"
             strokeWidth="2.5"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -280,7 +286,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
                     cy={pt.y}
                     r="8"
                     fill="none"
-                    stroke="#ef4444"
+                    stroke="var(--glass-chart-accent)"
                     strokeWidth="1.5"
                     className="animate-ping opacity-75"
                   />
@@ -291,7 +297,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
                   cx={pt.x}
                   cy={pt.y}
                   r={isSelected ? 5 : 3.5}
-                  fill={isSelected ? '#ffffff' : '#ef4444'}
+                  fill={isSelected ? '#ffffff' : 'var(--glass-chart-accent)'}
                   stroke="#000000"
                   strokeWidth="1.5"
                 />
@@ -301,7 +307,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
                   cx={creditCoords[idx].x}
                   cy={creditCoords[idx].y}
                   r={isSelected ? 5 : 3.5}
-                  fill={isSelected ? '#ffffff' : '#10b981'}
+                  fill={isSelected ? '#ffffff' : 'var(--glass-chart-credit)'}
                   stroke="#000000"
                   strokeWidth="1.5"
                 />

@@ -803,7 +803,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
         <div
           onTouchStart={handleTouchStart}
           onTouchEnd={handleTouchEnd}
-          className={`transition-all duration-300 ease-in-out ${
+          className={`finance-kpi-stack transition-all duration-300 ease-in-out ${
             isKpiStacked
               ? 'kpi-stack space-y-[-50px] sm:space-y-[-54px] pt-1 pb-2 max-w-2xl mx-auto'
               : 'space-y-2.5 sm:space-y-3'

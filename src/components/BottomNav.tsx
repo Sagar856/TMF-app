@@ -56,9 +56,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <nav
       id="mobile-bottom-navigation"
       aria-label="Mobile Navigation"
-      className="lg:hidden sticky bottom-0 left-0 right-0 z-nav bg-surface-1/95 backdrop-blur-xl border-t border-line px-1.5 sm:px-3 pt-1.5 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 shadow-[0_-8px_32px_rgba(0,0,0,0.12)] dark:shadow-[0_-8px_32px_rgba(0,0,0,0.7)] transition-colors select-none"
+      className="lg:hidden sticky bottom-0 left-0 right-0 z-nav px-2.5 sm:px-4 pt-2 pb-[max(0.65rem,env(safe-area-inset-bottom))] shrink-0 transition-colors select-none"
     >
-      <div className="flex items-center justify-around gap-0.5 sm:gap-1 max-w-lg mx-auto">
+      <div className="glass-nav-track flex items-center justify-around gap-0.5 sm:gap-1 max-w-lg mx-auto p-1.5 rounded-full border border-line">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -73,9 +73,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               aria-label={item.badgeCount
                 ? `${item.label}, ${item.badgeCount} ${item.id === 'loans' ? 'pending EMI confirmations' : 'pending notifications'}`
                 : item.label}
-              className={`relative flex-1 flex flex-col items-center justify-center py-1 sm:py-1.5 px-1 rounded-2xl transition-all duration-200 cursor-pointer min-w-0 group ${
+              className={`relative flex-1 flex flex-col items-center justify-center min-h-11 py-1 sm:py-1.5 px-1 rounded-full transition-all duration-200 cursor-pointer min-w-0 group ${
                 isActive
-                  ? 'text-red-500 font-bold'
+                  ? 'text-content-1 font-bold'
                   : 'text-content-3 hover:text-content-1 hover:bg-surface-2 active:scale-95'
               }`}
             >
@@ -83,16 +83,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               {isActive && (
                 <motion.div
                   layoutId="activeBottomTabPill"
-                  className="absolute inset-0 bg-red-950/40 border border-red-800/40 rounded-2xl shadow-[0_0_12px_rgba(220,38,38,0.2)]"
-                  transition={{ type: 'spring', stiffness: 450, damping: 32 }}
-                />
-              )}
-
-              {/* Top Accent Indicator Notch for Active Tab */}
-              {isActive && (
-                <motion.div
-                  layoutId="activeBottomTabIndicator"
-                  className="absolute -top-1.5 w-4 h-0.75 bg-red-500 rounded-full shadow-[0_0_6px_rgba(220,38,38,0.6)]"
+                  className="glass-nav-active absolute inset-0 rounded-full border"
                   transition={{ type: 'spring', stiffness: 450, damping: 32 }}
                 />
               )}
@@ -117,8 +108,8 @@ export const BottomNav: React.FC<BottomNavProps> = ({
               <span
                 className={`relative z-10 text-[9px] sm:text-[10px] font-mono tracking-tight truncate max-w-full mt-0.5 transition-colors ${
                   isActive
-                    ? 'font-bold text-red-400'
-                    : 'font-semibold text-zinc-300 group-hover:text-content-1'
+                    ? 'font-bold text-content-1'
+                    : 'font-semibold text-content-3 group-hover:text-content-1'
                 }`}
               >
                 {item.shortLabel || item.label}

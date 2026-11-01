@@ -167,6 +167,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
     <div 
       ref={handleContainerRef}
       id="budget-threshold-monitor"
+      data-glass-expanded={effectiveState.isExpanded}
       className={`rounded-2xl border transition-all duration-300 font-mono ${
         effectiveState.isFocused
           ? hasAlerts
