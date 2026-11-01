@@ -14,7 +14,7 @@ import {
   STORAGE_READ_FAILED_EVENT,
   STORAGE_WRITE_FAILED_EVENT,
 } from './utils/storage';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'motion/react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
@@ -161,6 +161,7 @@ function ensureMandatoryCategories(cats: Category[]): Category[] {
 }
 
 export default function App() {
+  const reduceMotion = useReducedMotion();
   // Navigation Tab
   const [activeTab, setActiveTab] = useState<string>('dashboard');
 
@@ -2527,6 +2528,7 @@ export default function App() {
 
   return (
     <MoneyLocaleContext.Provider value={settings.locale}>
+    <MotionConfig reducedMotion="user">
     <div className="app-viewport flex bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
       <a className="skip-link" href="#main-content">Skip to main content</a>
       {/* Nothing Desktop Navigation Sidebar */}
@@ -2628,10 +2630,10 @@ export default function App() {
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 8 }}
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+              exit={{ opacity: 0, y: reduceMotion ? 0 : -8 }}
+              transition={{ duration: reduceMotion ? 0 : 0.28, ease: [0.16, 1, 0.3, 1] }}
             >
           {activeTab === 'dashboard' && (
             <DashboardView
@@ -2941,6 +2943,7 @@ export default function App() {
         </Suspense>
       )}
     </div>
+    </MotionConfig>
     </MoneyLocaleContext.Provider>
   );
 }

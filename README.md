@@ -22,6 +22,28 @@ the app). If you never configure Supabase at all, the app still runs fully
 offline via `localStorage` on a single device, but signing in becomes
 unavailable.
 
+## App appearance
+
+All pages share theme-aware glass surfaces and translucent nested controls.
+The reference-inspired design uses a charcoal geometric backdrop, smoked
+reflective panels, violet focal cards and chart gradients. Mobile and desktop
+retain their existing layouts, stacked metrics, navigation and financial
+actions. Light mode uses the same palette on transparent pearl surfaces.
+The rounded mobile glass dock keeps all six destinations and safe-area spacing.
+Surface entrance fades, chart drawing and hover highlights respect reduced-motion
+preferences. Actions use violet gradients; losses and alerts retain status colors.
+The net-worth summary uses a compact, half-height card with reduced surrounding space.
+Dark-mode metric cards in Transactions, Accounts, Investments and Loans share
+Home's violet first card and smoked-glass lower cards, stacked or expanded.
+Profile and sign-in (including registration and password recovery) use the
+same glass palette, with scrollable mobile dialogs and reduced-motion support.
+Monitor Budget keeps its gradient when collapsed or expanded. Light-mode KPI
+cards have no drop shadows; hidden lower-card content prevents text bleed in
+translucent stacks. Warning colors and themed bank cards retain their contrast.
+Settings keeps Categories & Budgets below and separate from Preferences.
+Budgets, Categories, Accounts and Auto-categorise each open a settings subpage
+with a Back button. Light-mode settings and table hovers use readable pearl glass.
+
 ## Running locally
 
 ```bash

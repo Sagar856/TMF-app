@@ -55,6 +55,7 @@ interface CustomisationsViewProps {
   onDeleteAccount?: (id: string) => void;
   currencySymbol: string;
   settingsSearch?: string;
+  onSectionOpenChange?: (isOpen: boolean) => void;
 }
 
 // Icon catalog for category selection
@@ -96,6 +97,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   onDeleteAccount,
   currencySymbol,
   settingsSearch,
+  onSectionOpenChange,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Navigation
@@ -122,13 +124,15 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   }, [settingsSearch]);
 
   useEffect(() => {
+    onSectionOpenChange?.(!showSectionMenu);
     if (!showSectionMenu) {
       visitedSectionRef.current = true;
+      sectionHeadingRef.current?.closest('main')?.scrollTo({ top: 0, behavior: 'auto' });
       sectionHeadingRef.current?.focus();
     } else if (visitedSectionRef.current) {
       sectionMenuRef.current?.querySelector<HTMLButtonElement>(`[data-section="${activeTab}"]`)?.focus();
     }
-  }, [showSectionMenu, activeTab]);
+  }, [showSectionMenu, activeTab, onSectionOpenChange]);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState<string>('');

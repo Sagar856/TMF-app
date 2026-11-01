@@ -164,21 +164,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md font-mono">
+    <div className="identity-glass identity-login fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/80 backdrop-blur-md font-mono">
       {/* Background Overlay — clicking it does nothing when canClose is false */}
       <div className="fixed inset-0" onClick={canClose ? onClose : undefined} />
 
       {/* Modal Dialog */}
-      <div className="relative z-10 bg-[#0d0d0e] border border-[#26262a] w-full max-w-md rounded-3xl p-6 shadow-2xl text-white space-y-5 my-auto animate-in zoom-in-95 duration-200">
+      <div role="dialog" aria-modal="true" aria-labelledby="auth-heading" className="identity-glass-panel relative z-10 bg-[#0d0d0e] border border-[#26262a] w-full max-w-md rounded-3xl p-6 shadow-2xl text-white space-y-5 my-auto animate-in zoom-in-95 duration-200">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-[#222]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-red-950/60 border border-red-600/50 flex items-center justify-center text-red-500">
+            <div className="identity-glass-accent w-8 h-8 rounded-xl bg-red-950/60 border border-red-600/50 flex items-center justify-center text-red-500">
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+              <h3 id="auth-heading" className="text-xs font-bold uppercase tracking-wider text-white">
                 {mode === 'register'
                   ? 'Create New Account'
                   : mode === 'login'
@@ -203,6 +203,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close sign-in"
               className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-surface-3 transition-colors"
             >
               <X className="w-4 h-4" />

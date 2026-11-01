@@ -266,7 +266,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [loans, todayIso]);
 
   return (
-    <div className="space-y-5 pb-16 relative font-mono text-white">
+    <div className="dashboard-glass space-y-5 pb-16 relative font-mono text-white">
       {/* Top Pending SMS / UPI Intercept Alert Banner */}
       {pendingNotifications.length > 0 && (
         <div className="bg-obsidian border border-red-600/80 p-3 rounded-xl flex items-center justify-between flex-wrap gap-2 shadow-lg">
@@ -320,7 +320,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* Net worth summary */}
-      <div className="flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 border border-nothing rounded-lg px-2 py-1 font-mono text-sm sm:text-base font-bold tracking-tight">
+      <div className="dashboard-overview-card flex w-fit max-w-full flex-wrap items-center gap-x-2 gap-y-1 border border-nothing rounded-lg px-2 py-1 font-mono text-sm sm:text-base font-bold tracking-tight">
         <span className="shrink-0 text-white">NET WORTH:</span>
         <span className={`min-w-0 [overflow-wrap:anywhere] font-extrabold ${totalNetWorth < 0 ? 'text-red-500' : 'text-emerald-400'}`}>
           {isNetWorthHidden ? '••••••••' : `${currencySymbol}${formatAmount(totalNetWorth)}`}
@@ -337,7 +337,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ==================== 2. FINANCIAL METRICS ==================== */}
-      <div className="space-y-2">
+      <div className="dashboard-metrics space-y-2">
         <div className="flex items-center justify-between gap-1.5 text-xs text-[#888]">
           <div className="flex min-w-0 items-center">
             <span className="whitespace-nowrap text-[9px] min-[375px]:text-[10px] sm:text-xs uppercase font-bold tracking-normal sm:tracking-wider text-white">FINANCIAL METRICS</span>
@@ -609,7 +609,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* ==================== 3. RECENT ACTIVITY ==================== */}
-      <div className="bg-carbon border border-nothing p-3 sm:p-4 rounded-2xl space-y-2.5 shadow-md">
+      <div className="dashboard-activity-card bg-carbon border border-nothing p-3 sm:p-4 rounded-2xl space-y-2.5 shadow-md">
         <div className="flex items-center justify-between pb-2 border-b border-nothing">
           <div className="flex items-center gap-2">
             <ReceiptText className="w-3.5 h-3.5 text-red-500" />

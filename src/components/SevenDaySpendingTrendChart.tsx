@@ -182,6 +182,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
     <div 
       ref={handleContainerRef}
       id="seven-day-spending-trend"
+      data-glass-expanded={effectiveState.isExpanded}
       className={`bg-carbon border rounded-2xl sm:rounded-3xl font-mono text-white shadow-md transition-all duration-300 overflow-hidden ${
         effectiveState.isFocused 
           ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
@@ -273,9 +274,9 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             >
               <defs>
                 <linearGradient id="spendGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.45} />
-                  <stop offset="65%" stopColor="#ef4444" stopOpacity={0.12} />
-                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.0} />
+                  <stop offset="0%" stopColor="var(--glass-chart-accent)" stopOpacity={0.45} />
+                  <stop offset="65%" stopColor="var(--glass-chart-accent)" stopOpacity={0.12} />
+                  <stop offset="100%" stopColor="var(--glass-chart-accent)" stopOpacity={0.0} />
                 </linearGradient>
               </defs>
 
@@ -354,20 +355,20 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
               <Area
                 type="monotone"
                 dataKey="amount"
-                stroke="#ef4444"
+                stroke="var(--glass-chart-accent)"
                 strokeWidth={2.5}
                 fill="url(#spendGradient)"
                 isAnimationActive={!reduceMotion}
                 activeDot={{
                   r: 6,
                   fill: '#ffffff',
-                  stroke: '#ef4444',
+                  stroke: 'var(--glass-chart-accent)',
                   strokeWidth: 3,
                   className: reduceMotion ? 'cursor-pointer' : 'animate-pulse cursor-pointer'
                 }}
                 dot={{
                   r: 3.5,
-                  fill: '#ef4444',
+                  fill: 'var(--glass-chart-accent)',
                   stroke: '#111114',
                   strokeWidth: 2
                 }}
