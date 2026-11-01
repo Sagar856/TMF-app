@@ -135,14 +135,42 @@ testing. Before publishing to the Play Store, add a real release keystore:
 See [`native/notification-intercept-plugin/README.md`](native/notification-intercept-plugin/README.md)
 for full details. In short: on Android, once the user grants "Notification
 Access" (Settings → UPI & SMS Interceptor → Grant Access), the app listens to
-every notification the OS delivers system-wide. Bank/UPI-looking
-notifications (Google Pay, PhonePe, Paytm, bank SMS alerts, etc.) are parsed
-in real time with the same logic used by the in-app SMS Simulator, queued for
-review, and a native "Add this transaction?" push notification is posted
-immediately.
+notifications from explicitly supported banking/UPI packages, or known bank
+sender IDs in supported SMS apps. Only completed payments with an amount
+are queued; promotions, OTPs, requests, scheduled and failed payments are rejected.
+The Android service persists captures before forwarding them to the WebView,
+so ordinary backgrounding, screen-off and Activity closure do not discard them.
+Native payment notifications include **Add**, **Edit**, and **Ignore**.
+Add opens the app and adds after authentication/unlocking; Edit opens a prefilled editor after unlocking;
+Ignore is saved natively without opening the app. Cancelling Edit keeps the
+payment pending. Replay uses the original notification date/time.
+
+Enable both **SMS / UPI Auto-Interceptor** and **Push Notifications**, grant
+Android Notification Access and notification display permission, and install
+a newly built APK for native changes. A browser refresh cannot update native code.
+The listener cannot recover SMS for which no notification was posted, hidden
+notification text, or alerts Android blocks while the app is force-stopped.
+Some manufacturers require allowing background activity / autostart and
+removing battery restrictions. No app can guarantee capture after a force-stop
+or when the OS disables its listener. Source allowlisting is a heuristic, not
+cryptographic proof of a bank message; keep reviewing payments before adding.
 
 On the web build (and iOS, not yet supported), this gracefully falls back to
 manual entry / the SMS Simulator — no crashes, no native calls attempted.
+
+## Settings navigation
+
+Preferences opens a searchable menu. Account contains profile, cloud sync,
+broker connections, backup/restore and demo data. Notifications contains bank/UPI
+capture and push/budget alerts. Appearance contains theme, dashboard expansion
+and currency. Privacy & Security contains balance masking, location, app lock,
+biometrics, delete confirmations and reset. Help and Support contains
+troubleshooting and issue reporting; About contains version and APK information.
+Each group has a Back action. Preferences and Categories & Budgets are shown
+together on the Settings page, without switching tabs. One search bar at the
+top filters both menus. Categories & Budgets has a menu for Budgets, Categories, Accounts and
+Auto-categorise. Selecting an item opens its existing controls; Back returns
+to that menu without clearing selected filters.
 
 ## Local storage limits
 

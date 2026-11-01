@@ -33,8 +33,6 @@ test('desktop navigation exposes the primary landmark and selected page', () => 
       activeTab="transactions"
       setActiveTab={() => {}}
       pendingNotificationsCount={0}
-      onOpenSimulator={() => {}}
-      supabaseConnected={false}
       currencySymbol="$"
     />
   );
@@ -42,6 +40,7 @@ test('desktop navigation exposes the primary landmark and selected page', () => 
   assert.match(markup, /aria-label="Primary navigation"/);
   assert.match(markup, /id="sidebar-btn-transactions"[^>]*aria-current="page"/);
   assert.match(markup, /id="sidebar-btn-dashboard"/);
+  assert.doesNotMatch(markup, /Test Auto-Interceptor|sidebar-btn-customisations|Backend Sync/);
 });
 
 test('header icon controls have explicit accessible names', () => {
@@ -52,7 +51,6 @@ test('header icon controls have explicit accessible names', () => {
       pendingEmiCount={1}
       onOpenNotifications={() => {}}
       onOpenEmiConfirmations={() => {}}
-      onOpenSimulator={() => {}}
       onOpenProfile={() => {}}
       currencySymbol="$"
       theme="dark"
@@ -61,7 +59,7 @@ test('header icon controls have explicit accessible names', () => {
   );
 
   assert.match(markup, /aria-label="Switch to light mode"/);
-  assert.match(markup, /aria-label="Simulate SMS or UPI payment"/);
+  assert.doesNotMatch(markup, /Simulate SMS/);
   assert.match(markup, /aria-label="1 pending loan EMI payment awaiting confirmation"/);
   assert.match(markup, /aria-label="Pending payment confirmations, 2 notifications"/);
   assert.match(markup, /aria-label="Open profile for Test User"/);

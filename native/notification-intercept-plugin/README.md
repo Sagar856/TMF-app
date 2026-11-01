@@ -17,15 +17,37 @@ links them straight to that settings screen), Android calls
 (GPay, PhonePe, Paytm, the stock SMS app, bank apps, etc.) posts a
 notification — including transaction alerts.
 
-The service extracts the notification's package name, title and text, and
-forwards it to `NotificationInterceptPlugin`, which relays it to JavaScript
-via a Capacitor plugin event (`notificationReceived`). The web-side listener
-in `src/services/notificationListener.ts` filters for bank/UPI-looking text,
-then feeds it straight into the existing `parseSmsNotification()` logic —
-the exact same parser already used by the manual SMS Simulator — so a real
-incoming UPI/bank notification is parsed and queued for the user to
-add/edit/ignore, and (if enabled) a local "Add this transaction?" push
-notification is posted immediately.
+The service checks an exact package allowlist, bank sender IDs for SMS apps,
+and completed-payment wording with a positive amount. Promotional messages,
+OTPs, payment requests, scheduled and failed payments are rejected. Group
+summaries are ignored to avoid re-importing aggregated notifications.
+`TransactionEligibility.java` mirrors the TypeScript eligibility policy;
+shared regression fixtures cover both.
+
+Accepted alerts are committed to private SharedPreferences independently of
+the Activity/WebView. `InterceptedPaymentStore` posts Android notifications
+with Add, Edit and Ignore actions. Add opens the app and adds after authentication/unlock; Edit opens
+the prefilled editor after unlock and retains the capture until Save; Ignore
+is persisted by a non-exported receiver without opening the app. The bridge
+replays captures on startup/resume and forwards live events. JavaScript
+persists its pending queue before handling actions or resolving native entries.
+Original notification timestamps are preserved; transaction details stay
+private on the lock screen.
+
+Native configuration follows the interceptor and push-notification switches.
+Notification Access and Android 13+ display permission must both be granted.
+Normal backgrounding does not require JavaScript timers or a foreground service.
+Force-stop, revoked access, hidden SMS notification text, notification-disabled
+source apps, and manufacturer battery/autostart restrictions can prevent delivery.
+This does not read the SMS inbox, recover missing notifications, authenticate
+bank senders, or support background interception on web/iOS.
+
+Rebuild/install the APK after changes: `npm run cap:sync`, then
+`node scripts/patch-android.mjs`, then build with Gradle. Device verification:
+send real bank/UPI alerts with the app open, backgrounded, screen off and after
+swiping its Activity away; confirm a single pending capture and three system
+actions. Test Ignore without opening, Edit then cancel/save, Add after unlock,
+permission denial, and rejected promotional/OTP/request/failed messages.
 
 ## Files
 
@@ -34,6 +56,9 @@ notification is posted immediately.
   `notificationReceived` event to JS.
 - `TmfNotificationListenerService.java` — the actual
   `NotificationListenerService` implementation.
+- `TransactionEligibility.java` — native source and completed-payment filter.
+- `InterceptedPaymentStore.java` — durable captures, settings and system alerts.
+- `PaymentActionReceiver.java` — durable, non-exported Ignore receiver.
 - `AndroidManifestSnippet.xml` — the exact `<uses-permission>` and `<service>`
   entries that `scripts/patch-android.mjs` inserts into the generated
   `android/app/src/main/AndroidManifest.xml`.

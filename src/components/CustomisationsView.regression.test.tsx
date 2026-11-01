@@ -29,6 +29,12 @@ test('budget settings keep editing and filters with a concise monthly summary', 
     />
   );
   assert.match(markup, /Monthly budget/);
+  assert.match(markup, /aria-label="Categories and budgets sections"/);
+  assert.match(markup, /aria-label="Search categories and budgets settings"/);
+  for (const section of ['budgets', 'categories', 'accounts', 'rules']) {
+    assert.match(markup, new RegExp(`data-section="${section}"`));
+  }
+  assert.doesNotMatch(markup, /settings-browser-tabs/);
   assert.match(markup, /aria-label="Budget month"/);
   assert.match(markup, /aria-label="Search expense category\.\.\."/);
   assert.match(markup, /aria-label="Filter budgets" aria-expanded="false" aria-controls="budgets-filters"/);
@@ -43,4 +49,17 @@ test('budget settings keep editing and filters with a concise monthly summary', 
   assert.match(markup, /\$25/);
   assert.match(markup, /\$75/);
   assert.doesNotMatch(markup, /Budget Cockpit|Combined Budget Gauge|safe quota|\+1k|Total Budget Tracked/);
+  const sharedSearchMarkup = renderToStaticMarkup(
+    <CustomisationsView
+      categories={[]}
+      currencySymbol="$"
+      settingsSearch="wallet"
+      onAddCategory={() => {}}
+      onUpdateCategory={() => {}}
+      onDeleteCategory={() => {}}
+    />
+  );
+  assert.doesNotMatch(sharedSearchMarkup, /Search categories and budgets settings/);
+  assert.match(sharedSearchMarkup, /data-section="accounts"/);
+  assert.doesNotMatch(sharedSearchMarkup, /data-section="budgets"|data-section="categories"|data-section="rules"/);
 });

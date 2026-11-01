@@ -174,11 +174,12 @@ interface SegmentedControlProps<T extends string> {
   onChange: (value: T) => void;
   ariaLabel: string;
   size?: 'sm' | 'md';
+  variant?: 'segments' | 'tabs';
 }
 
-export function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel, size = 'sm' }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel, size = 'sm', variant = 'segments' }: SegmentedControlProps<T>) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className="inline-flex items-center gap-1 p-1 bg-surface-2 border border-line rounded-xl">
+    <div role="radiogroup" aria-label={ariaLabel} className={variant === 'tabs' ? 'settings-browser-tabs' : 'inline-flex items-center gap-1 p-1 bg-surface-2 border border-line rounded-xl'}>
       {options.map((opt) => {
         const active = opt.value === value;
         return (
@@ -189,7 +190,7 @@ export function SegmentedControl<T extends string>({ value, options, onChange, a
             aria-checked={active}
             title={opt.title}
             onClick={() => onChange(opt.value)}
-            className={`${size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs'} font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+            className={variant === 'tabs' ? 'settings-browser-tab' : `${size === 'sm' ? 'px-2.5 py-1 text-[11px]' : 'px-3 py-1.5 text-xs'} font-mono font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
               active ? 'bg-red-600 text-white shadow-sm' : 'text-content-2 hover:text-content-1 hover:bg-surface-3'
             }`}
           >

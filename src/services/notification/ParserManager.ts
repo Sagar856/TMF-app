@@ -10,19 +10,23 @@ import { isDuplicateNotification } from './DuplicateDetector';
 import { computeConfidenceScore } from './ConfidenceScorer';
 import { newId } from '../../utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM } from '../../utils/dates';
+import { isCompletedPaymentText } from './transactionEligibility';
 
 export function parseNotification(
   text: string,
   userLocation?: LocationTag | null,
   existingTransactions: Transaction[] = [],
-  pendingNotifications: ParsedNotification[] = []
-): ParseResult {
+  pendingNotifications: ParsedNotification[] = [],
+  rememberDuplicate = true
+): ParseResult | null {
   const rawText = text.trim();
+  if (!isCompletedPaymentText(rawText)) return null;
   const timeStr = nowLocalTimeHHMM(); // "14:15"
   const dateStr = todayLocalISO(); // "2026-08-09"
 
   // Step 1: Regex Extraction (amount, currency, accountLast4, refNumber, availableBalance)
   const regexResult = extractWithRegex(rawText);
+  if (!Number.isFinite(regexResult.amount) || regexResult.amount <= 0) return null;
 
   // Step 2: Keyword Direction & Payment Method Extraction
   const keywordResult = extractWithKeywords(rawText);
@@ -77,7 +81,8 @@ export function parseNotification(
     payeeOrPayer,
     refNumber,
     existingTransactions,
-    pendingNotifications
+    pendingNotifications,
+    rememberDuplicate
   );
 
   // Step 8: Confidence Scoring

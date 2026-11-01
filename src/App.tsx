@@ -85,10 +85,10 @@ import {
   SyncResult,
 } from './services/supabaseClient';
 
-import { startNotificationListener } from './services/notificationListener';
+import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, clearInterceptedPayments, type InterceptedPayment } from './services/notificationListener';
 import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
-import { todayLocalISO, nowLocalTimeHHMM } from './utils/dates';
+import { todayLocalISO, nowLocalTimeHHMM, toLocalISODate } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
 import { inferTransactionKind, normalizeTransactions } from './utils/transactionKind';
 import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
@@ -282,6 +282,10 @@ export default function App() {
   const [pendingNotifications, setPendingNotifications] = useState<ParsedNotification[]>(() => {
     return safeGetJson<ParsedNotification[]>('tmf_pending_notifications', [], Array.isArray);
   });
+  const interceptorState = useRef({ transactions, pendingNotifications, settings });
+  interceptorState.current = { transactions, pendingNotifications, settings };
+  const [paymentActions, setPaymentActions] = useState<InterceptedPayment[]>([]);
+  const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
 
   // Modals & UI States
   const mainScrollRef = useRef<HTMLElement>(null);
@@ -876,6 +880,9 @@ export default function App() {
     safeSetItem('tmf_pending_notifications', '[]');
     sessionStorage.removeItem('tmf_session_unlocked');
     resetDuplicateMemory();
+    setPaymentActions([]);
+    setEditingPaymentId(null);
+    void clearInterceptedPayments().catch(error => console.warn('Could not clear native payment queue:', error));
   };
 
   // Bootstraps the real auth session on launch, and reacts to sign-in /
@@ -918,44 +925,68 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Native Android notification listener: when the OS receives a new bank/UPI
-  // notification, the native plugin captures its text and forwards it here so
-  // it can be parsed exactly like the SMS simulator, then queued for review.
   useEffect(() => {
-    if (!settings.autoExtractSms) return;
-    const stopListening = startNotificationListener(async (rawText) => {
-      let locationTag: LocationTag | null = null;
-      if (settings.locationTracking) {
-        try {
-          const { getCurrentDeviceLocation } = await import('./services/locationService');
-          const locPromise = getCurrentDeviceLocation();
-          const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3000));
-          const devLoc = await Promise.race([locPromise, timeoutPromise]);
-          if (devLoc) {
-            locationTag = {
-              lat: devLoc.lat,
-              lng: devLoc.lng,
-              name: devLoc.formattedLocation,
-            };
-          }
-        } catch {
-          locationTag = null;
-        }
+    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled)
+      .catch(error => {
+        console.warn('Could not configure background payment tracking:', error);
+        showToast('Could not configure background payment tracking. Please retry.', 'error');
+      });
+  }, [settings.autoExtractSms, settings.notificationsEnabled, isAuthenticated]);
+
+  useEffect(() => {
+    if (isCloudBackendConfigured() && !isAuthenticated) return;
+    const stopListening = startNotificationListener(async (payment, isActive) => {
+      const id = `native_${payment.id}`;
+      const current = interceptorState.current;
+      if (payment.action === 'ignore' || current.transactions.some(tx => tx.id === `tx_${id}`)) {
+        const remaining = current.pendingNotifications.filter(n => n.id !== id);
+        if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
+        interceptorState.current.pendingNotifications = remaining;
+        setPendingNotifications(remaining);
+        setPaymentActions(previous => previous.filter(p => p.id !== payment.id));
+        await resolveInterceptedPayment(id);
+        return;
       }
-
       const { parseNotification } = await import('./services/notification/ParserManager');
-      const { parsed, isDuplicate } = parseNotification(rawText, locationTag, transactions, pendingNotifications);
-      if (isDuplicate) return; // Silently drop duplicates
-
-      setPendingNotifications((prev) => [parsed, ...prev]);
-      if (settings.notificationsEnabled) {
-        const { notifyTransactionDetected } = await import('./services/localNotifications');
-        await notifyTransactionDetected(parsed, settings.currencySymbol, settings.locale);
+      if (!isActive()) return;
+      if (!current.pendingNotifications.some(n => n.id === id)) {
+        let locationTag: LocationTag | null = null;
+        // Old queued alerts must not be tagged with the user's current location.
+        if (current.settings.locationTracking && document.visibilityState === 'visible' && Math.abs(Date.now() - payment.postedAt) < 30_000) {
+          try {
+            const { getCurrentDeviceLocation } = await import('./services/locationService');
+            const location = await Promise.race([
+              getCurrentDeviceLocation(),
+              new Promise<null>(resolve => setTimeout(() => resolve(null), 3000)),
+            ]);
+            if (location) locationTag = { lat: location.lat, lng: location.lng, name: location.formattedLocation };
+          } catch (error) {
+            console.warn('Could not attach location to payment alert:', error);
+          }
+        }
+        if (!isActive()) return;
+        const result = parseNotification(`${payment.title} ${payment.text}`, locationTag, current.transactions, current.pendingNotifications, false);
+        if (!result || result.isDuplicate) {
+          await resolveInterceptedPayment(id);
+          return;
+        }
+        const posted = new Date(payment.postedAt);
+        const parsed = {
+          ...result.parsed, id,
+          date: toLocalISODate(posted),
+          time: `${String(posted.getHours()).padStart(2, '0')}:${String(posted.getMinutes()).padStart(2, '0')}`,
+        };
+        const next = [parsed, ...current.pendingNotifications];
+        if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
+        interceptorState.current.pendingNotifications = next;
+        setPendingNotifications(next);
+      }
+      if (payment.action === 'add' || payment.action === 'edit' || payment.action === 'open') {
+        setPaymentActions(previous => [...previous.filter(p => p.id !== payment.id), payment]);
       }
     });
     return stopListening;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.currencySymbol, settings.locale, transactions, pendingNotifications]);
+  }, [isAuthenticated]);
 
 
   // Passcode lockout cooldown ticker
@@ -1164,7 +1195,21 @@ export default function App() {
   };
 
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
+  const persistPaymentTransaction = (nextTransactions: Transaction[], nextAccounts: FinancialAccount[]) => {
+    if (!safeSetItem('tmf_accounts', JSON.stringify(nextAccounts))) return false;
+    if (safeSetItem('tmf_transactions', JSON.stringify(nextTransactions))) return true;
+    if (!safeSetItem('tmf_accounts', JSON.stringify(accounts))) {
+      console.error('Could not restore account balances after payment save failure');
+      showToast('Payment save failed and account balances could not be restored. Please review your accounts.', 'error');
+    }
+    return false;
+  };
+
   const handleConfirmAddNotification = (notif: ParsedNotification) => {
+    if (transactions.some(tx => tx.id === `tx_${notif.id}`)) {
+      handleIgnoreNotification(notif.id);
+      return;
+    }
     // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
     let resolvedAccId: string | null = null;
     if (notif.accountLast4) {
@@ -1190,7 +1235,7 @@ export default function App() {
     );
 
     const newTx: Transaction = {
-      id: newId('tx_notif'),
+      id: notif.id.startsWith('native_') ? `tx_${notif.id}` : newId('tx_notif'),
       title: notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
@@ -1209,8 +1254,12 @@ export default function App() {
     };
 
     const delta = notif.type === 'credit' ? notif.amount : -notif.amount;
-    setAccounts((prevAccs) => adjustAccountBalance(prevAccs, finalPaymentMethod, delta));
-    setTransactions((prev) => [newTx, ...prev]);
+    const nextAccounts = adjustAccountBalance(accounts, finalPaymentMethod, delta);
+    const nextTransactions = [newTx, ...transactions];
+    if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+    setAccounts(nextAccounts);
+    setTransactions(nextTransactions);
+    void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notif.id);
       if (remaining.length === 0) setIsNotificationModalOpen(false);
@@ -1260,18 +1309,38 @@ export default function App() {
       refNumber: notif.refNumber,
     });
 
-    // Remove from pending queue
-    setPendingNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    // Keep native captures pending until the edited transaction is saved.
+    if (notif.id.startsWith('native_')) setEditingPaymentId(notif.id);
+    else setPendingNotifications((prev) => prev.filter((n) => n.id !== notif.id));
     setIsNotificationModalOpen(false);
   };
 
   const handleIgnoreNotification = (notifId: string) => {
+    const remaining = pendingNotifications.filter(n => n.id !== notifId);
+    if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
+    void resolveInterceptedPayment(notifId).catch(error => console.warn('Could not dismiss ignored payment:', error));
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notifId);
       if (remaining.length === 0) setIsNotificationModalOpen(false);
       return remaining;
     });
   };
+
+  useEffect(() => {
+    if (!isUnlocked || isAppLoading || (cloudReady && !cloudHydrated) || editingTransaction || paymentActions.length === 0) return;
+    const payment = paymentActions[0];
+    const notification = pendingNotifications.find(n => n.id === `native_${payment.id}`);
+    if (!notification) {
+      setPaymentActions(previous => previous.slice(1));
+      return;
+    }
+    setPaymentActions(previous => previous.slice(1));
+    // Native actions wait for authentication/unlock before touching financial records.
+    if (payment.action === 'edit') handleConfirmEditNotification(notification);
+    else if (payment.action === 'add') handleConfirmAddNotification(notification);
+    else setIsNotificationModalOpen(true);
+    void acknowledgePaymentAction(payment.id).catch(error => console.warn('Could not acknowledge payment action:', error));
+  }, [paymentActions, pendingNotifications, isUnlocked, isAppLoading, editingTransaction, cloudReady, cloudHydrated]);
 
   const handleInterceptedFromSimulator = (notif: ParsedNotification) => {
     setPendingNotifications((prev) => [notif, ...prev]);
@@ -1291,6 +1360,19 @@ export default function App() {
       accountId: resolvedAccountId,
       kind: incoming.kind ?? inferTransactionKind(incoming),
     };
+    if (editingPaymentId) {
+      tx.id = `tx_${editingPaymentId}`;
+      const nextAccounts = adjustAccountBalance(accounts, newTarget, tx.type === 'credit' ? tx.amount : -tx.amount);
+      const nextTransactions = [tx, ...transactions];
+      if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+      setAccounts(nextAccounts);
+      setTransactions(nextTransactions);
+      setPendingNotifications(previous => previous.filter(n => n.id !== editingPaymentId));
+      void resolveInterceptedPayment(editingPaymentId).catch(error => console.warn('Could not dismiss edited payment:', error));
+      setEditingPaymentId(null);
+      setEditingTransaction(null);
+      return;
+    }
     setAccounts(previous => {
       const reverted = oldTx
         ? adjustAccountBalance(previous, oldTarget, oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount)
@@ -2269,6 +2351,9 @@ export default function App() {
         setSavingsGoals([]);
         setPendingNotifications([]);
         resetDuplicateMemory();
+        setPaymentActions([]);
+        setEditingPaymentId(null);
+        await clearInterceptedPayments();
 
         if (isCloudBackendConfigured()) {
           const result = await deleteAllUserDataFromSupabase();
@@ -2451,8 +2536,6 @@ export default function App() {
           setActiveTab={setActiveTab}
           pendingNotificationsCount={pendingNotifications.length}
           pendingEmiCount={pendingEmiRequests.length}
-          onOpenSimulator={() => setIsSimulatorOpen(true)}
-          supabaseConnected={isAuthenticated && (!syncStatus || syncStatus.success)}
           currencySymbol={settings.currencySymbol}
         />
       </div>
@@ -2498,7 +2581,6 @@ export default function App() {
           onOpenNotifications={() => setIsNotificationModalOpen(true)}
           onOpenEmiConfirmations={() => setIsEmiModalOpen(true)}
           onOpenAddTransaction={() => handleOpenAddModal()}
-          onOpenSimulator={() => setIsSimulatorOpen(true)}
           onOpenProfile={() => setIsProfileModalOpen(true)}
           currencySymbol={settings.currencySymbol}
           currencyCode={settings.currencyCode}
@@ -2851,6 +2933,7 @@ export default function App() {
             onClose={() => {
               setIsAddModalOpen(false);
               setEditingTransaction(null);
+              setEditingPaymentId(null);
             }}
             currencySymbol={settings.currencySymbol}
             locationTracking={Boolean(settings.locationTracking)}

@@ -60,12 +60,17 @@ export const SmsSimulatorWidget: React.FC<SmsSimulatorWidgetProps> = ({
       };
     }
 
-    const { parsed, isDuplicate } = parseNotification(
+    const result = parseNotification(
       text,
       location,
       transactions,
       pendingNotifications
     );
+    if (!result) {
+      setDuplicateWarning('Not a completed payment alert. Promotional messages, OTPs, requests and failed payments are not imported.');
+      return;
+    }
+    const { parsed, isDuplicate } = result;
 
     if (isDuplicate && !force) {
       setDuplicateWarning(

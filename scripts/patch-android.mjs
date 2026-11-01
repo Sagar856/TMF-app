@@ -39,7 +39,7 @@ if (!existsSync(join(repoRoot, 'android'))) {
 
 // 1. Copy Java plugin sources
 mkdirSync(javaPackageDir, { recursive: true });
-for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {
+for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java', 'TransactionEligibility.java', 'InterceptedPaymentStore.java', 'PaymentActionReceiver.java']) {
   copyFileSync(join(pluginSrcDir, file), join(javaPackageDir, file));
   console.log(`[patch-android] Copied ${file}`);
 }
@@ -69,6 +69,13 @@ if (!manifest.includes('BIND_NOTIFICATION_LISTENER_SERVICE')) {
 } else {
   console.log('[patch-android] AndroidManifest.xml already patched, skipping');
 }
+if (!manifest.includes('com.trackmoneyflow.app.PaymentActionReceiver')) {
+  manifest = manifest.replace('</application>', '    <receiver android:name="com.trackmoneyflow.app.PaymentActionReceiver" android:exported="false" />\n    </application>');
+}
+if (!manifest.includes('android.permission.POST_NOTIFICATIONS')) {
+  manifest = manifest.replace(/(<manifest[^>]*>)/, '$1\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />');
+}
+writeFileSync(manifestPath, manifest, 'utf8');
 
 // 4. Register the plugin class in MainActivity.java (idempotent)
 if (!existsSync(mainActivityPath)) fail(`MainActivity.java not found at ${mainActivityPath}`);

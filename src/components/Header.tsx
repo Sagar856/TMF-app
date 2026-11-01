@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Smartphone, MapPin, Search, Sun, Moon, User } from 'lucide-react';
+import { Bell, MapPin, Search, Sun, Moon, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { DownloadAppCard } from './DownloadAppCard';
 
@@ -11,7 +11,6 @@ interface HeaderProps {
   onOpenNotifications: () => void;
   onOpenEmiConfirmations?: () => void;
   onOpenAddTransaction?: () => void;
-  onOpenSimulator: () => void;
   onOpenProfile?: () => void;
   onOpenAuth?: () => void;
   currencySymbol: string;
@@ -28,7 +27,6 @@ export const Header: React.FC<HeaderProps> = ({
   pendingEmiCount = 0,
   onOpenNotifications,
   onOpenEmiConfirmations,
-  onOpenSimulator,
   onOpenProfile,
   onOpenAuth,
   currencySymbol,
@@ -100,16 +98,6 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
         )}
-
-        {/* SMS Simulator Button */}
-        <button
-          onClick={onOpenSimulator}
-          aria-label="Simulate SMS or UPI payment"
-          className="p-2 sm:p-2.5 bg-graphite hover:bg-surface-3 border border-nothing rounded-xl text-[#aaa] hover:text-white transition-all nav-lift relative min-w-[38px] min-h-[38px] cursor-pointer"
-          title="Simulate SMS / UPI Payment"
-        >
-          <Smartphone className="w-4 h-4 text-red-400" />
-        </button>
 
         {/* Due EMI Confirmations Prompt Button */}
         {pendingEmiCount > 0 && onOpenEmiConfirmations && (

@@ -1,4 +1,5 @@
 import { safeSetItem } from '../utils/storage';
+import { SettingButton } from './settings/SettingsPrimitives';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -38,6 +39,7 @@ import {
   Code,
   DollarSign,
   ChevronLeft,
+  ArrowLeft,
   ChevronRight
 } from 'lucide-react';
 
@@ -52,6 +54,7 @@ interface CustomisationsViewProps {
   onUpdateAccount?: (acc: FinancialAccount) => void;
   onDeleteAccount?: (id: string) => void;
   currencySymbol: string;
+  settingsSearch?: string;
 }
 
 // Icon catalog for category selection
@@ -92,10 +95,40 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   onUpdateAccount,
   onDeleteAccount,
   currencySymbol,
+  settingsSearch,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Navigation
   const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>('budgets');
+  const [showSectionMenu, setShowSectionMenu] = useState(true);
+  const [sectionSearch, setSectionSearch] = useState('');
+  const menuSearch = settingsSearch ?? sectionSearch;
+  const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
+  const sectionMenuRef = useRef<HTMLElement>(null);
+  const visitedSectionRef = useRef(false);
+  const sectionLinks = [
+    { id: 'budgets', label: 'Budgets', icon: TrendingUp, keywords: 'monthly limits spending alerts' },
+    { id: 'categories', label: 'Categories', icon: Layers, keywords: 'income expense investment subcategories tags' },
+    { id: 'accounts', label: 'Accounts', icon: Building2, keywords: 'bank cards wallet upi balances' },
+    { id: 'rules', label: 'Auto-categorise', icon: Sparkles, keywords: 'automatic rules keywords merchant' },
+  ] as const;
+
+  useEffect(() => {
+    if (settingsSearch !== undefined && settingsSearch.trim()) {
+      visitedSectionRef.current = false;
+      setShowSectionMenu(true);
+      setExpandedFilters({ budgets: false, categories: false, accounts: false });
+    }
+  }, [settingsSearch]);
+
+  useEffect(() => {
+    if (!showSectionMenu) {
+      visitedSectionRef.current = true;
+      sectionHeadingRef.current?.focus();
+    } else if (visitedSectionRef.current) {
+      sectionMenuRef.current?.querySelector<HTMLButtonElement>(`[data-section="${activeTab}"]`)?.focus();
+    }
+  }, [showSectionMenu, activeTab]);
 
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -621,80 +654,39 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {/* 2. SUB-TAB NAVIGATION SEGMENTED PILLS                                     */}
       {/* ========================================================================= */}
-      <div className="flex items-center gap-2 p-1.5 bg-slate-100/90 dark:bg-surface-1 border border-slate-200 dark:border-[#222] rounded-2xl overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('budgets');
-            setSearchQuery('');
-            closeFilters();
-          }}
-          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'budgets'
-              ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
-          }`}
-        >
-          <TrendingUp className="w-3.5 h-3.5" />
-          <span>Budgets</span>
-          {budgetSummary.totalAlerts > 0 && (
-            <span className="px-1.5 py-0.5 bg-white text-red-600 dark:bg-red-950 dark:text-red-400 rounded-full text-[9px] font-bold animate-pulse">
-              {budgetSummary.totalAlerts} Alert{budgetSummary.totalAlerts > 1 ? 's' : ''}
-            </span>
-          )}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('categories');
-            setSearchQuery('');
-            closeFilters();
-          }}
-          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'categories'
-              ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Categories ({categories.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('accounts');
-            setSearchQuery('');
-            closeFilters();
-          }}
-          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'accounts'
-              ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
-          }`}
-        >
-          <Building2 className="w-3.5 h-3.5" />
-          <span>Accounts ({accounts.length})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('rules');
-            setSearchQuery('');
-            closeFilters();
-          }}
-          className={`px-4 py-2 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer flex items-center gap-2 shrink-0 ${
-            activeTab === 'rules'
-              ? 'bg-red-600 text-white shadow-sm'
-              : 'text-slate-600 dark:text-[#888] hover:text-slate-900 dark:hover:text-white hover:bg-slate-200/60 dark:hover:bg-surface-3'
-          }`}
-        >
-          <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-          <span>Auto-categorise ({smartRules.length})</span>
-        </button>
+      <div hidden={!showSectionMenu}>
+        <div className="max-w-3xl mx-auto">
+          {settingsSearch === undefined && <div className="relative mb-5">
+            <Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-content-3 pointer-events-none" />
+            <input type="search" value={sectionSearch} onChange={event => setSectionSearch(event.target.value)}
+              aria-label="Search categories and budgets settings" placeholder="Search for a setting..."
+              className="w-full h-10 pl-9 pr-3 rounded-lg bg-surface-2 text-xs text-content-1 border border-line focus:outline-none focus:border-red-500" />
+          </div>}
+          <nav ref={sectionMenuRef} aria-label="Categories and budgets sections" className="rounded-2xl bg-surface-1 border border-line divide-y divide-[var(--border-nothing)] px-4">
+            {sectionLinks.filter(link => `${link.label} ${link.keywords}`.toLowerCase().includes(menuSearch.trim().toLowerCase())).map(link => {
+              const Icon = link.icon;
+              return (
+                <button key={link.id} data-section={link.id} type="button"
+                  onClick={() => { setActiveTab(link.id); setSearchQuery(''); closeFilters(); setShowSectionMenu(false); }}
+                  className="flex w-full items-center gap-3 py-4 px-2 text-left text-sm text-content-1 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-red-500 cursor-pointer">
+                  <Icon aria-hidden="true" className="w-5 h-5 shrink-0" />
+                  <span className="flex-1">{link.label}</span>
+                  <span className="text-[10px] text-content-3">{link.id === 'budgets' ? (budgetSummary.totalAlerts > 0 ? `${budgetSummary.totalAlerts} alerts` : '') : link.id === 'categories' ? categories.length : link.id === 'accounts' ? accounts.length : smartRules.length}</span>
+                  <ChevronRight aria-hidden="true" className="w-4 h-4 text-content-3" />
+                </button>
+              );
+            })}
+          </nav>
+          {!sectionLinks.some(link => `${link.label} ${link.keywords}`.toLowerCase().includes(menuSearch.trim().toLowerCase())) && <p role="status" className="text-xs text-content-3 py-6 text-center">No categories or budgets settings match your search.</p>}
+        </div>
       </div>
+      {!showSectionMenu && (
+        <div className="flex items-center gap-3">
+          <SettingButton icon={ArrowLeft} aria-label="Back to categories and budgets menu" onClick={() => { closeFilters(); setShowSectionMenu(true); }}>Back</SettingButton>
+          <h3 ref={sectionHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 focus:outline-none">{sectionLinks.find(link => link.id === activeTab)?.label}</h3>
+        </div>
+      )}
+      <div hidden={showSectionMenu}>
 
       {/* ========================================================================= */}
       {/* 3. TAB 1: MONTHLY BUDGETS & SPENDING LIMITS                               */}
@@ -1450,6 +1442,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* ========================================================================= */}
       {/* 7. ADD / EDIT CATEGORY MODAL                                              */}
       {/* ========================================================================= */}
+      </div>
       {showCategoryModal && (
         <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <motion.div

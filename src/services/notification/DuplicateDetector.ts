@@ -44,15 +44,18 @@ export function isDuplicateNotification(
   payeeOrPayer: string,
   refNumber?: string,
   existingTransactions: Transaction[] = [],
-  pendingNotifications: ParsedNotification[] = []
+  pendingNotifications: ParsedNotification[] = [],
+  remember = true
 ): boolean {
   const now = Date.now();
   pruneMemory(now);
+  if (remember && (existingTransactions.some(tx => tx.rawText?.trim().toLowerCase() === rawText.trim().toLowerCase())
+    || pendingNotifications.some(n => n.rawText.trim().toLowerCase() === rawText.trim().toLowerCase()))) return true;
 
   // 1. Text Hash Check
   const textHash = `text_${hashString(rawText.trim().toLowerCase())}`;
   const hashTimestamp = seenMemory.get(textHash);
-  if (hashTimestamp && now - hashTimestamp <= TTL_MS) {
+  if (remember && hashTimestamp && now - hashTimestamp <= TTL_MS) {
     return true;
   }
 
@@ -60,14 +63,14 @@ export function isDuplicateNotification(
   if (refNumber && refNumber.length >= 6) {
     const normalizedRefKey = `ref_${refNumber.toLowerCase().trim()}`;
     const refTimestamp = seenMemory.get(normalizedRefKey);
-    if (refTimestamp && now - refTimestamp <= TTL_MS) {
+    if (remember && refTimestamp && now - refTimestamp <= TTL_MS) {
       return true;
     }
 
     const plainRef = refNumber.toLowerCase().trim();
     // Check against existing transactions rawText or note
     for (const tx of existingTransactions) {
-      if (tx.rawText && tx.rawText.toLowerCase().includes(plainRef)) {
+      if (tx.refNumber?.toLowerCase().trim() === plainRef || (tx.rawText && tx.rawText.toLowerCase().includes(plainRef))) {
         return true;
       }
     }
@@ -81,7 +84,7 @@ export function isDuplicateNotification(
   }
 
   // 3. Amount + Payee within short window
-  if (amount > 0 && payeeOrPayer && payeeOrPayer !== 'Unknown Merchant') {
+  if (remember && !refNumber && amount > 0 && payeeOrPayer && payeeOrPayer !== 'Unknown Merchant') {
     const normPayee = payeeOrPayer.toLowerCase();
     for (const pending of pendingNotifications) {
       if (pending.amount === amount && pending.payeeOrPayer.toLowerCase() === normPayee) {
@@ -91,8 +94,8 @@ export function isDuplicateNotification(
   }
 
   // Register hash & ref number
-  seenMemory.set(textHash, now);
-  if (refNumber && refNumber.length >= 6) {
+  if (remember) seenMemory.set(textHash, now);
+  if (remember && refNumber && refNumber.length >= 6) {
     seenMemory.set(`ref_${refNumber.toLowerCase().trim()}`, now);
   }
 

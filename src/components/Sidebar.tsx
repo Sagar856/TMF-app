@@ -5,12 +5,8 @@ import {
   TrendingUp, 
   HandCoins, 
   Building2,
-  Sliders, 
   Settings, 
-  BellRing,
-  Smartphone,
-  MapPin,
-  RefreshCw
+  MapPin
 } from 'lucide-react';
 import { DownloadAppCard } from './DownloadAppCard';
 
@@ -19,8 +15,6 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   pendingNotificationsCount: number;
   pendingEmiCount?: number;
-  onOpenSimulator: () => void;
-  supabaseConnected: boolean;
   currencySymbol: string;
 }
 
@@ -29,8 +23,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   pendingNotificationsCount,
   pendingEmiCount = 0,
-  onOpenSimulator,
-  supabaseConnected,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Main' },
@@ -38,7 +30,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'accounts', label: 'Accounts', icon: Building2, section: 'Main' },
     { id: 'investments', label: 'Investments', icon: TrendingUp, section: 'Main' },
     { id: 'loans', label: 'Loans & Lends', icon: HandCoins, section: 'Main' },
-    { id: 'customisations', label: 'Personalisation', icon: Sliders, section: 'System' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'System' },
   ];
 
@@ -58,29 +49,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Simulator Trigger Banner */}
-      <button
-        onClick={onOpenSimulator}
-        className="mb-6 p-3 bg-shadow hover:bg-surface-3 border border-red-900/60 rounded-xl transition-all tactile-lift group text-left relative overflow-hidden cursor-pointer"
-      >
-        <div className="absolute top-0 right-0 w-12 h-12 bg-red-600/10 rounded-full blur-xl pointer-events-none"></div>
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] font-bold text-red-500 uppercase tracking-widest font-mono flex items-center gap-1.5">
-            <span className="w-2 h-2 bg-red-600 rounded-full animate-pulse-red"></span>
-            UPI / SMS Tracker
-          </span>
-          {pendingNotificationsCount > 0 && (
-            <span className="px-1.5 py-0.5 bg-red-600 text-white font-mono text-[9px] font-bold rounded-full">
-              {pendingNotificationsCount}
-            </span>
-          )}
-        </div>
-        <div className="text-xs text-[#aaa] font-medium group-hover:text-white transition-colors flex items-center gap-1.5">
-          <Smartphone className="w-3.5 h-3.5 text-red-400" />
-          Test Auto-Interceptor
-        </div>
-      </button>
 
       {/* Navigation Sections */}
       <div className="flex flex-col gap-1.5 flex-1 overflow-y-auto">
@@ -145,19 +113,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Footer System Status Widget */}
       <div className="mt-auto pt-4 border-t border-nothing flex flex-col gap-2">
         <DownloadAppCard />
-
-        <div className="p-3 bg-obsidian border border-nothing rounded-xl flex flex-col gap-1.5">
-          <div className="flex items-center justify-between text-[10px] text-[#666] uppercase font-mono">
-            <span>Backend Sync</span>
-            <RefreshCw className="w-3 h-3 text-[#555]" />
-          </div>
-          <div className="text-xs font-mono flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${supabaseConnected ? 'bg-green-500' : 'bg-red-500'}`} />
-            <span className={supabaseConnected ? 'text-green-400 font-semibold' : 'text-red-400'}>
-              {supabaseConnected ? 'Cloud Synced' : 'Not Synced'}
-            </span>
-          </div>
-        </div>
 
         <div className="flex items-center justify-between px-2 text-[10px] font-mono text-[#555]">
           <span className="flex items-center gap-1">

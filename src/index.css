@@ -2,6 +2,78 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+.settings-browser-tabs {
+  display: flex;
+  align-items: end;
+  gap: 8px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 6px 8px 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.settings-browser-tab {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 9px 12px;
+  margin: 0 0 5px;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.settings-browser-tab[aria-checked="true"] {
+  margin-bottom: 0;
+  padding-bottom: 14px;
+  border-radius: 12px 12px 0 0;
+  background: #dc2626;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.settings-browser-tab[aria-checked="true"]::before,
+.settings-browser-tab[aria-checked="true"]::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.settings-browser-tab[aria-checked="true"]::before {
+  left: -8px;
+  border-radius: 0 0 8px 0;
+  box-shadow: 4px 0 0 #dc2626;
+}
+
+.settings-browser-tab[aria-checked="true"]::after {
+  right: -8px;
+  border-radius: 0 0 0 8px;
+  box-shadow: -4px 0 0 #dc2626;
+}
+
+.settings-browser-tab:not([aria-checked="true"]):hover {
+  color: var(--text-main);
+}
+
+.settings-browser-tab:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: -3px;
+}
+
 @layer base {
   * {
     font-family: 'Space Mono', 'JetBrains Mono', 'Share Tech Mono', monospace;

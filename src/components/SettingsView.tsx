@@ -9,7 +9,6 @@ import {
   Download,
   RefreshCw,
   Palette,
-  Sliders,
   Smartphone,
   BellRing,
   Sun,
@@ -30,6 +29,9 @@ import {
   ChevronRight,
   KeyRound,
   Upload,
+  Search,
+  ArrowLeft,
+  Headphones,
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 import { PasscodeSetupModal } from './PasscodeSetupModal';
@@ -70,18 +72,15 @@ interface SettingsViewProps {
   onNavigateToTab?: (tab: string) => void;
 }
 
-type SettingsMode = 'preferences' | 'personalisation';
-
-const SECTION_LINKS: { id: string; label: string }[] = [
-  { id: 'settings-profile', label: 'Account' },
-  { id: 'settings-appearance', label: 'Appearance' },
-  { id: 'settings-region', label: 'Currency' },
-  { id: 'settings-automation', label: 'Automation' },
-  { id: 'settings-security', label: 'Security' },
-  { id: 'settings-brokers', label: 'Brokers' },
-  { id: 'settings-data', label: 'Data & Backup' },
-  { id: 'settings-about', label: 'About' },
-];
+const SETTINGS_GROUPS = [
+  { id: 'account', label: 'Account', icon: UserCircle2, keywords: 'profile name email photo sign out cloud sync brokers portfolios categories budgets accounts data backup export restore sample demo' },
+  { id: 'notifications', label: 'Notifications', icon: BellRing, keywords: 'notification access android upi sms interceptor auto extract push alerts budget threshold' },
+  { id: 'appearance', label: 'Appearance', icon: Palette, keywords: 'theme light dark display auto expand dashboard scroll currency region locale' },
+  { id: 'privacy', label: 'Privacy & Security', icon: Lock, keywords: 'mask balances net worth location gps tagging app lock pin passcode biometrics fingerprint auto lock delete confirmations reset data privacy' },
+  { id: 'help', label: 'Help and Support', icon: Headphones, keywords: 'help support troubleshooting notification background battery permissions backup github issues feature requests' },
+  { id: 'about', label: 'About', icon: Info, keywords: 'version mtracker track money flow android download apk' },
+] as const;
+type SettingsGroup = typeof SETTINGS_GROUPS[number]['id'];
 
 const CURRENCIES = [
   { symbol: '₹', code: 'INR', locale: 'en-IN', name: '₹ INR' },
@@ -116,9 +115,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onOpenProfile,
   onNavigateToTab,
 }) => {
-  const [mode, setMode] = useState<SettingsMode>('preferences');
-  const [activeSectionId, setActiveSectionId] = useState<string>(SECTION_LINKS[0].id);
-  const sectionsRootRef = useRef<HTMLDivElement>(null);
+  const categoriesHeadingRef = useRef<HTMLHeadingElement>(null);
+  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(null);
+  const [settingsSearch, setSettingsSearch] = useState('');
+  const groupHeadingRef = useRef<HTMLHeadingElement>(null);
+  const menuRef = useRef<HTMLElement>(null);
+  const lastGroupRef = useRef<SettingsGroup | null>(null);
+  const visibleGroups = SETTINGS_GROUPS.filter(group =>
+    `${group.label} ${group.keywords}`.toLowerCase().includes(settingsSearch.trim().toLowerCase())
+  );
 
   const update = (patch: Partial<UserSettings>) => onUpdateSettings({ ...settings, ...patch });
 
@@ -251,49 +256,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     ? 'amber'
     : 'emerald';
 
-  /* ---------------- Section jump + scroll-spy ---------------- */
-  const jumpTo = (id: string) => {
-    setActiveSectionId(id);
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   useEffect(() => {
-    if (mode !== 'preferences' || typeof IntersectionObserver === 'undefined') return;
-    const root = sectionsRootRef.current;
-    if (!root) return;
-    const sections: HTMLElement[] = Array.from(root.querySelectorAll<HTMLElement>('section[id^="settings-"]'));
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
-        if (visible[0]) setActiveSectionId(visible[0].target.id);
-      },
-      { rootMargin: '-30% 0px -60% 0px', threshold: 0 }
-    );
-    sections.forEach((s: HTMLElement) => observer.observe(s));
-    return () => observer.disconnect();
-  }, [mode]);
+    if (selectedGroup) {
+      lastGroupRef.current = selectedGroup;
+      groupHeadingRef.current?.focus();
+    } else if (lastGroupRef.current) {
+      menuRef.current?.querySelector<HTMLButtonElement>(`[data-settings-group="${lastGroupRef.current}"]`)?.focus();
+    }
+  }, [selectedGroup]);
 
   const theme = settings.theme || 'dark';
   const sampleLoaded = settings.sampleDataLoaded !== false;
 
   return (
-    <div className="space-y-5 pb-16 max-w-5xl font-mono">
+    <div className="space-y-5 pb-16 max-w-5xl mx-auto font-mono">
       {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
-        <div className="flex w-full sm:w-auto items-center justify-between gap-2">
+      <div className="flex flex-col gap-3 border-b border-line pb-4">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg sm:text-xl font-bold font-mono text-content-1 tracking-tight uppercase">Settings</h2>
+          <div className="flex min-w-0 flex-1 basis-48 items-center justify-end gap-2">
+            <div className="relative min-w-0 flex-1 max-w-xs">
+              <Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-content-3 pointer-events-none" />
+              <input
+                type="search"
+                value={settingsSearch}
+                onChange={event => {
+                  setSettingsSearch(event.target.value);
+                  setSelectedGroup(null);
+                  lastGroupRef.current = null;
+                }}
+                aria-label="Search settings"
+                placeholder="Search settings..."
+                className="w-full h-10 pl-9 pr-3 rounded-lg bg-surface-2 text-xs text-content-1 border border-line focus:outline-none focus:border-red-500"
+              />
+            </div>
           {onForceSyncNow && (
             <SettingButton
               onClick={handleSyncNow}
               disabled={isForceSyncing || !isAuthenticated}
               icon={RefreshCw}
+              className="h-10 shrink-0"
               iconClassName={isForceSyncing ? 'animate-spin' : 'text-red-500'}
             >
-              {isForceSyncing ? 'Syncing…' : 'Sync settings'}
+              {isForceSyncing ? 'Syncing…' : 'Sync'}
             </SettingButton>
           )}
+          </div>
         </div>
 
         {forceSyncResult && (
@@ -304,67 +312,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </p>
         )}
 
-        <SegmentedControl<SettingsMode>
-          ariaLabel="Settings area"
-          size="md"
-          value={mode}
-          onChange={setMode}
-          options={[
-            { value: 'preferences', label: 'Preferences' },
-            {
-              value: 'personalisation',
-              label: (
-                <>
-                  <Sliders className="w-3.5 h-3.5" />
-                  <span>Categories & Budgets</span>
-                </>
-              ),
-            },
-          ]}
-        />
       </div>
 
-      {mode === 'personalisation' ? (
-        <CustomisationsView
-          categories={categories}
-          accounts={accounts}
-          transactions={transactions}
-          onAddCategory={onAddCategory}
-          onUpdateCategory={onUpdateCategory}
-          onDeleteCategory={onDeleteCategory}
-          onAddAccount={onAddAccount}
-          onUpdateAccount={onUpdateAccount}
-          onDeleteAccount={onDeleteAccount}
-          currencySymbol={settings.currencySymbol}
-        />
-      ) : (
-        <div className="lg:grid lg:grid-cols-[180px_minmax(0,1fr)] lg:gap-6 lg:items-start">
-          {/* Section navigation: horizontal chips on mobile, sticky rail on desktop */}
+        <section aria-labelledby="preferences-heading" className="max-w-3xl mx-auto">
+          <h3 id="preferences-heading" className="text-base font-bold text-content-1 mb-4">Preferences</h3>
+          <div hidden={selectedGroup !== null}>
           <nav
+            ref={menuRef}
             aria-label="Settings sections"
-            className="lg:sticky lg:top-2 -mx-1 px-1 mb-4 lg:mb-0 flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0"
+            className="rounded-2xl bg-surface-1 border border-line divide-y divide-[var(--border-nothing)] px-4"
           >
-            {SECTION_LINKS.map((link) => {
-              const active = activeSectionId === link.id;
+            {visibleGroups.map((group) => {
+              const Icon = group.icon;
               return (
                 <button
-                  key={link.id}
+                  key={group.id}
+                  data-settings-group={group.id}
                   type="button"
-                  aria-current={active ? 'true' : undefined}
-                  onClick={() => jumpTo(link.id)}
-                  className={`shrink-0 lg:w-full lg:text-left rounded-xl border px-3 py-1.5 lg:py-2 text-[10px] sm:text-xs font-bold uppercase tracking-wide transition-colors cursor-pointer ${
-                    active
-                      ? 'border-red-600 bg-red-600 text-white shadow-sm'
-                      : 'border-line bg-surface-1 text-content-2 hover:bg-surface-2 hover:text-content-1'
-                  }`}
+                  onClick={() => setSelectedGroup(group.id)}
+                  className="flex w-full items-center gap-3 py-4 px-2 text-left text-sm text-content-1 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-red-500 cursor-pointer"
                 >
-                  {link.label}
+                  <Icon aria-hidden="true" className="w-5 h-5 shrink-0" />
+                  <span className="flex-1">{group.label}</span>
+                  <ChevronRight aria-hidden="true" className="w-4 h-4 text-content-3" />
                 </button>
               );
             })}
           </nav>
-
-          <div ref={sectionsRootRef} className="space-y-5 min-w-0">
+          {visibleGroups.length === 0 && <p role="status" className="text-xs text-content-3 py-6 text-center">No settings match your search.</p>}
+          </div>
+          {selectedGroup && (
+            <div className="flex items-center gap-3 mb-5">
+              <SettingButton icon={ArrowLeft} onClick={() => setSelectedGroup(null)} aria-label="Back to settings menu">Back</SettingButton>
+              <h3 ref={groupHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 focus:outline-none">{SETTINGS_GROUPS.find(group => group.id === selectedGroup)?.label}</h3>
+            </div>
+          )}
+          <div className="min-w-0">
+            <div hidden={selectedGroup !== 'account'}>
+            <div className="space-y-5">
             {/* ============ PROFILE & ACCOUNT ============ */}
             <SettingSection
               id="settings-profile"
@@ -415,8 +400,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </SettingRow>
               )}
             </SettingSection>
+            <div id="settings-brokers" className="scroll-mt-24">
+              <BrokerPortfoliosSection settings={settings} investments={investments} onUpdateSettings={onUpdateSettings} />
+            </div>
+            </div>
+            </div>
 
             {/* ============ APPEARANCE ============ */}
+            <div hidden={selectedGroup !== 'appearance'}>
+            <div className="space-y-5">
             <SettingSection id="settings-appearance" title="Appearance & Display" icon={Palette}>
               <SettingRow
                 label="Theme"
@@ -431,19 +423,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     { value: 'light', label: (<><Sun className="w-3.5 h-3.5" /><span>Light</span></>) },
                     { value: 'dark', label: (<><Moon className="w-3.5 h-3.5" /><span>Dark</span></>) },
                   ]}
-                />
-              </SettingRow>
-
-              <SettingRow
-                label="Mask balances by default"
-                description="Hide net worth and totals until you tap the eye icon."
-                htmlFor="sw-mask-balances"
-              >
-                <SettingSwitch
-                  id="sw-mask-balances"
-                  label="Mask balances by default"
-                  checked={settings.defaultNetWorthMasked !== false}
-                  onChange={(v) => update({ defaultNetWorthMasked: v })}
                 />
               </SettingRow>
 
@@ -492,8 +471,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </SettingRow>
             </SettingSection>
+            </div>
+            </div>
 
             {/* ============ AUTOMATION ============ */}
+            <div hidden={selectedGroup !== 'notifications'}>
             <SettingSection
               id="settings-automation"
               title="Automation & Alerts"
@@ -520,7 +502,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               ) : (
                 <SettingRow
                   label="Notification access"
-                  description="Automatic capture of bank/UPI alerts is available in the Android app. On the web you can test parsing with the SMS Simulator (header icon)."
+                  description="Automatic capture of bank/UPI alerts is available in the Android app. Use manual entry on the web."
                   badge={<StatusPill tone="neutral">Android only</StatusPill>}
                 />
               )}
@@ -569,22 +551,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </SettingRow>
 
-              <SettingRow
-                label="Location tagging"
-                description="Attach the place where a transaction happened (uses device GPS)."
-                htmlFor="sw-location"
-              >
-                <SettingSwitch
-                  id="sw-location"
-                  label="Location tagging"
-                  checked={settings.locationTracking}
-                  onChange={(v) => update({ locationTracking: v })}
-                />
-              </SettingRow>
             </SettingSection>
+            </div>
 
             {/* ============ SECURITY & PRIVACY ============ */}
+            <div hidden={selectedGroup !== 'privacy'}>
+            <div className="space-y-5">
             <SettingSection id="settings-security" title="Security & Privacy" icon={Lock}>
+              <SettingRow label="Mask balances by default" description="Hide net worth and totals until you tap the eye icon." htmlFor="sw-mask-balances">
+                <SettingSwitch id="sw-mask-balances" label="Mask balances by default" checked={settings.defaultNetWorthMasked !== false} onChange={v => update({ defaultNetWorthMasked: v })} />
+              </SettingRow>
+              <SettingRow label="Location tagging" description="Attach the place where a transaction happened (uses device GPS)." htmlFor="sw-location">
+                <SettingSwitch id="sw-location" label="Location tagging" checked={settings.locationTracking} onChange={v => update({ locationTracking: v })} />
+              </SettingRow>
               <SettingRow
                 label="App lock (PIN)"
                 description="Require a 4–6 digit PIN every time the app opens."
@@ -663,17 +642,28 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </SettingSection>
 
             {/* ============ BROKER PORTFOLIOS ============ */}
-            <div id="settings-brokers" className="scroll-mt-24">
-              <BrokerPortfoliosSection settings={settings} investments={investments} onUpdateSettings={onUpdateSettings} />
+            <SettingSection id="settings-danger" title="Danger zone" icon={Trash2} iconClassName="text-red-600" tone="danger">
+              <SettingRow label="Reset all data" description="Permanently wipes all local and cloud accounts, transactions, investments, loans and categories. Export a backup first.">
+                <SettingButton variant="danger" icon={Trash2} onClick={onResetAllData}>Reset all data</SettingButton>
+              </SettingRow>
+            </SettingSection>
+            <SettingSection id="settings-privacy" title="Privacy" icon={Shield}>
+              <SettingRow label="Your data" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security." />
+            </SettingSection>
+            </div>
             </div>
 
             {/* ============ DATA & BACKUP ============ */}
+            <div hidden={selectedGroup !== 'account'} className="mt-5">
             <SettingSection id="settings-data" title="Data & Backup" icon={Database}>
               <SettingRow
                 label="Categories, budgets & accounts"
                 description="Manage spending categories, monthly budgets and linked bank accounts."
               >
-                <SettingButton icon={Tags} iconClassName="text-content-3" onClick={() => setMode('personalisation')}>
+                <SettingButton icon={Tags} iconClassName="text-content-3" onClick={() => {
+                  categoriesHeadingRef.current?.focus();
+                  categoriesHeadingRef.current?.scrollIntoView({ block: 'start' });
+                }}>
                   Categories
                 </SettingButton>
                 {onNavigateToTab && (
@@ -743,18 +733,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
             </SettingSection>
 
-            <SettingSection id="settings-danger" title="Danger zone" icon={Trash2} iconClassName="text-red-600" tone="danger">
-              <SettingRow
-                label="Reset all data"
-                description="Permanently wipes all local and cloud accounts, transactions, investments, loans and categories. Export a backup first."
-              >
-                <SettingButton variant="danger" icon={Trash2} onClick={onResetAllData}>
-                  Reset all data
-                </SettingButton>
-              </SettingRow>
-            </SettingSection>
+            </div>
+
+            <div hidden={selectedGroup !== 'help'}>
+              <SettingSection id="settings-help" title="Help and Support" icon={Headphones}>
+                <SettingRow label="Payment capture on Android" description="Enable notification access and push alerts. If background alerts stop, check your phone's battery and autostart restrictions. Force-stopping the app prevents capture.">
+                  <SettingButton onClick={() => setSelectedGroup('notifications')} icon={BellRing}>Notification settings</SettingButton>
+                </SettingRow>
+                <SettingRow label="Back up your data" description="Export a JSON backup before resetting data. Restore validates your file before replacing records.">
+                  <SettingButton onClick={() => setSelectedGroup('account')} icon={Database}>Data & Backup</SettingButton>
+                </SettingRow>
+                <SettingRow label="Report an issue or request a feature" description="Get help through the project's GitHub issues. Never include private bank messages or account details.">
+                  <a href="https://github.com/Sagar856/TMF-app/issues" target="_blank" rel="noreferrer" className="text-xs text-content-1 flex items-center gap-1.5">GitHub issues <ExternalLink className="w-3 h-3" /></a>
+                </SettingRow>
+              </SettingSection>
+            </div>
 
             {/* ============ ABOUT ============ */}
+            <div hidden={selectedGroup !== 'about'}>
             <SettingSection id="settings-about" title="About" icon={Info} iconClassName="text-content-3">
               <SettingRow label="Version" description="MTracker · Track Money Flow">
                 <StatusPill tone="neutral">v{__APP_VERSION__}</StatusPill>
@@ -772,9 +768,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Download APK
                 </a>
               </SettingRow>
-              <SettingRow label="Privacy" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security.">
-                <Shield className="w-4 h-4 text-emerald-500" aria-hidden="true" />
-              </SettingRow>
               <SettingRow label="Open source" description="Issues and feature requests are welcome.">
                 <a
                   href="https://github.com/Sagar856/TMF-app"
@@ -786,9 +779,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </a>
               </SettingRow>
             </SettingSection>
+            </div>
           </div>
-        </div>
-      )}
+        </section>
+
+      <section aria-labelledby="categories-budgets-heading" className="max-w-3xl mx-auto">
+        <h3 id="categories-budgets-heading" ref={categoriesHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 mb-4 scroll-mt-4 focus:outline-none">Categories & Budgets</h3>
+        <CustomisationsView
+          settingsSearch={settingsSearch}
+          categories={categories}
+          accounts={accounts}
+          transactions={transactions}
+          onAddCategory={onAddCategory}
+          onUpdateCategory={onUpdateCategory}
+          onDeleteCategory={onDeleteCategory}
+          onAddAccount={onAddAccount}
+          onUpdateAccount={onUpdateAccount}
+          onDeleteAccount={onDeleteAccount}
+          currencySymbol={settings.currencySymbol}
+        />
+      </section>
 
       {showPasscodeSetup && (
         <PasscodeSetupModal
@@ -800,8 +810,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         />
       )}
 
-      {/* Keep the icon import used for the broker section header parity */}
-      <span className="hidden"><Building2 className="w-0 h-0" /></span>
     </div>
   );
 };

@@ -7,6 +7,7 @@ import android.provider.Settings;
 import android.text.TextUtils;
 
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -37,6 +38,85 @@ public class NotificationInterceptPlugin extends Plugin {
     public void load() {
         super.load();
         activeInstance = this;
+        recordLaunchAction(getActivity().getIntent());
+    }
+
+    @Override
+    protected void handleOnNewIntent(Intent intent) {
+        recordLaunchAction(intent);
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        if (activeInstance == this) activeInstance = null;
+    }
+
+    private void recordLaunchAction(Intent intent) {
+        String id = intent.getStringExtra("tmfPaymentId");
+        String action = intent.getStringExtra("tmfPaymentAction");
+        if (id == null || !("add".equals(action) || "edit".equals(action) || "open".equals(action))) return;
+        try {
+            InterceptedPaymentStore.action(getContext(), id, action);
+            intent.removeExtra("tmfPaymentId");
+            intent.removeExtra("tmfPaymentAction");
+        } catch (org.json.JSONException | IllegalStateException error) {
+            android.util.Log.e("TMFInterceptor", "Could not save notification action", error);
+        }
+    }
+
+    @PluginMethod
+    public void clearPayments(PluginCall call) {
+        try {
+            InterceptedPaymentStore.clear(getContext());
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not clear intercepted payments", error);
+        }
+    }
+
+    @PluginMethod
+    public void configure(PluginCall call) {
+        try {
+            InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")), Boolean.TRUE.equals(call.getBoolean("notifications")));
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+            call.reject("Could not configure interceptor", error);
+        }
+    }
+
+    @PluginMethod
+    public void getPending(PluginCall call) {
+        try {
+            JSObject result = new JSObject();
+            result.put("notifications", new JSArray(InterceptedPaymentStore.read(getContext()).toString()));
+            call.resolve(result);
+        } catch (org.json.JSONException error) {
+            call.reject("Could not read intercepted payment queue", error);
+        }
+    }
+
+    @PluginMethod
+    public void resolvePayment(PluginCall call) {
+        String id = call.getString("id");
+        if (id == null) { call.reject("Payment id required"); return; }
+        try {
+            InterceptedPaymentStore.resolve(getContext(), id);
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not resolve intercepted payment", error);
+        }
+    }
+
+    @PluginMethod
+    public void acknowledgeAction(PluginCall call) {
+        String id = call.getString("id");
+        if (id == null) { call.reject("Payment id required"); return; }
+        try {
+            InterceptedPaymentStore.action(getContext(), id, "review");
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not acknowledge notification action", error);
+        }
     }
 
     @PluginMethod
@@ -55,14 +135,13 @@ public class NotificationInterceptPlugin extends Plugin {
     }
 
     /** Called by TmfNotificationListenerService for every relevant notification. */
-    public static void dispatchNotification(String packageName, String title, String text, long postedAt) {
+    public static void dispatchNotification(org.json.JSONObject record) {
         if (activeInstance == null) return;
 
         JSObject data = new JSObject();
-        data.put("packageName", packageName == null ? "" : packageName);
-        data.put("title", title == null ? "" : title);
-        data.put("text", text == null ? "" : text);
-        data.put("postedAt", postedAt);
+        for (String key : new String[] { "id", "packageName", "title", "text", "postedAt", "action" }) {
+            data.put(key, record.opt(key));
+        }
         activeInstance.notifyListeners("notificationReceived", data);
     }
 

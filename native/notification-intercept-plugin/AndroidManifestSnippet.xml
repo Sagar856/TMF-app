@@ -19,4 +19,4 @@
     <action android:name="android.service.notification.NotificationListenerService" />
   </intent-filter>
 </service>
-
+<receiver android:name="com.trackmoneyflow.app.PaymentActionReceiver" android:exported="false" />

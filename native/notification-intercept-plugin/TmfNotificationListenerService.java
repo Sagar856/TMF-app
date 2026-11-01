@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
+import android.util.Log;
 
 /**
  * Android NotificationListenerService: once the user grants "Notification
@@ -13,6 +14,25 @@ import android.service.notification.StatusBarNotification;
  * Google Pay, PhonePe, Paytm, or the phone's default SMS app.
  */
 public class TmfNotificationListenerService extends NotificationListenerService {
+
+    @Override
+    public void onListenerConnected() {
+        super.onListenerConnected();
+        try {
+            StatusBarNotification[] notifications = getActiveNotifications();
+            if (notifications != null) {
+                for (StatusBarNotification notification : notifications) onNotificationPosted(notification);
+            }
+        } catch (SecurityException error) {
+            Log.e("TMFInterceptor", "Could not read active payment notifications", error);
+        }
+    }
+
+    @Override
+    public void onListenerDisconnected() {
+        super.onListenerDisconnected();
+        requestRebind(new android.content.ComponentName(this, TmfNotificationListenerService.class));
+    }
 
     @Override
     public void onNotificationPosted(StatusBarNotification sbn) {
@@ -25,6 +45,7 @@ public class TmfNotificationListenerService extends NotificationListenerService 
 
         Notification notification = sbn.getNotification();
         if (notification == null) return;
+        if ((notification.flags & Notification.FLAG_GROUP_SUMMARY) != 0) return;
 
         Bundle extras = notification.extras;
         if (extras == null) return;
@@ -38,6 +59,12 @@ public class TmfNotificationListenerService extends NotificationListenerService 
 
         if (title.isEmpty() && text.isEmpty()) return;
 
-        NotificationInterceptPlugin.dispatchNotification(packageName, title, text, sbn.getPostTime());
+        if (!TransactionEligibility.accepts(packageName, title, text)) return;
+        try {
+            org.json.JSONObject record = InterceptedPaymentStore.capture(this, packageName, title, text, sbn.getPostTime());
+            if (record != null) NotificationInterceptPlugin.dispatchNotification(record);
+        } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+            Log.e("TMFInterceptor", "Could not capture payment notification", error);
+        }
     }
 }
