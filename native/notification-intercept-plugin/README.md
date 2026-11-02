@@ -1,4 +1,4 @@
-# TMF Native Notification Intercept Plugin
+# MINARTH Native Notification Intercept Plugin
 
 This is a hand-authored Capacitor Android plugin that is merged into the
 generated `android/` project by CI (see `scripts/patch-android.mjs` and

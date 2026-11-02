@@ -52,8 +52,8 @@ export async function enrollBiometric(userLabel: string): Promise<boolean> {
     const credential = (await navigator.credentials.create({
       publicKey: {
         challenge,
-        rp: { name: 'MTracker', id: window.location.hostname },
-        user: { id: userId, name: userLabel || 'mtracker-user', displayName: userLabel || 'MTracker user' },
+        rp: { name: 'MINARTH', id: window.location.hostname },
+        user: { id: userId, name: userLabel || 'minarth-user', displayName: userLabel || 'MINARTH user' },
         pubKeyCredParams: [
           { type: 'public-key', alg: -7 }, // ES256
           { type: 'public-key', alg: -257 }, // RS256

@@ -1,0 +1,35 @@
+Mudra
+Mohur
+Sparśa
+Sāṅkhyā
+Arthah 
+Niṣka (निष्का): An ancient Vedic gold coin or ornament used as a unit of value.
+Arthrekha (अर्थरेखा):
+NIDHI
+RITI
+N A M E
+MERN
+MANAS
+MENARTH
+MINARTH -> MANIRT
+Arthriti -> ARITHI
+M I N A R T H
+ARTH RITI MENA
+A R T H I M N 
+
+
+
+
+
+1. I want to add this app into play store, so audit the app for that purpose and fix the loose ends.
+2. while signing up new user, email should be verified using a OTP, and then it should be proceed further.
+3. I want to keep this app subscription basis,
+ - Free features - log transactions, log loans, log normal investments, auto track spending using notifications.
+  - paid features - Real time account balance track, Real time investment tracking.
+4. For now, keep the paid features in comming soon window.
+5. How can I post the new version update or send update to an app, so that it will be auto updated in users mobile without loosing signin information.
+6. All user setting should be auto synced whenever network is detected, and show last sync timestamp in - Settings - > Accounts - > Cloud sync
+7. Redesign the homepage for big screens UI, make it as it was in initial glassy screen image that you generated for 100% adoption.
+8. Animation effects are not working for any page.
+9. Also, Change the theme of initial loading page as per this new glassy UI.
+10. Improve the security of the app as it will be hosted for multi user, and on play store.

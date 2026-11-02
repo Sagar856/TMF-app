@@ -12,7 +12,7 @@
 <!-- Placed as a direct child of <application> -->
 <service
     android:name="com.trackmoneyflow.app.TmfNotificationListenerService"
-    android:label="Track Money Flow Transaction Interceptor"
+    android:label="MINARTH Transaction Interceptor"
     android:exported="true"
     android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
   <intent-filter>

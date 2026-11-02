@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { FinancialAccount, Transaction, AccountType, UserSettings } from '../types/finance';
 import { EmptyState } from './EmptyState';
+import { PremiumComingSoon } from './PremiumComingSoon';
 import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
 import { formatMoney } from '../utils/money';
@@ -321,6 +322,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-16 font-mono text-white">
+      <PremiumComingSoon />
       {/* Top Header Row - ACCOUNTS title, search bar, filter icon, and three dot menu on same row */}
       <div className="flex items-center justify-between gap-2.5 pb-2 border-b border-[#222]">
         {isSearchExpanded ? (

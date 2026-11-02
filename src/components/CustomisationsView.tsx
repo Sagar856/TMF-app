@@ -1340,7 +1340,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                   Personalised Smart Auto-Categorisation
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-[#888] mt-0.5">
-                  When SMS or UPI transactions mention any of these keywords, TMF automatically categorises them accurately
+                  When SMS or UPI transactions mention any of these keywords, MINARTH automatically categorises them accurately
                 </p>
               </div>
             </div>

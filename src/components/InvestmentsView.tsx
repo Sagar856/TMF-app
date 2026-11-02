@@ -43,7 +43,7 @@ import {
 } from 'recharts';
 import { InvestmentRedemptionModal } from './InvestmentRedemptionModal';
 import { InvestmentRedemption, FinancialAccount } from '../types/finance';
-import { fetchStockPrice, fetchMutualFundNav } from '../services/marketDataService';
+import { PremiumComingSoon } from './PremiumComingSoon';
 import { calculateFixedDeposit, roundCurrency, type FdCalculationResult } from '../services/financialCalculations';
 import { parseNumberInput, parsePositiveAmount } from '../utils/numberInput';
 import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } from 'lucide-react';
@@ -115,11 +115,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
   const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
   const [activeViewTab, setActiveViewTab] = useState<'HOLDINGS' | 'REDEMPTIONS' | 'LEDGER'>('HOLDINGS');
-  const [isRefreshingQuotes, setIsRefreshingQuotes] = useState<boolean>(false);
-  const [quoteNotice, setQuoteNotice] = useState<string | null>(null);
-  const [lastQuoteRefreshTime, setLastQuoteRefreshTime] = useState<string>(() => {
-    return new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  });
 
   // Deletion modal state
   const [txnToDelete, setTxnToDelete] = useState<InvestmentTxn | null>(null);
@@ -159,15 +154,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [selectedDemat, setSelectedDemat] = useState<string>('All');
   const [showDematManager, setShowDematManager] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
-
-  // Auto-refresh quotes on page load
-  const hasAutoRefreshedOnMount = React.useRef<boolean>(false);
-  useEffect(() => {
-    if (!hasAutoRefreshedOnMount.current && investments.length > 0) {
-      hasAutoRefreshedOnMount.current = true;
-      handleRefreshMarketQuotes();
-    }
-  }, [investments.length]);
 
   // Global handler to prevent number inputs from changing value on scroll
   useEffect(() => {
@@ -583,80 +569,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       investments.reduce((sum, i) => sum + (i.realizedProfitLoss || 0), 0)
     );
   }, [investments]);
-
-  const handleRefreshMarketQuotes = async () => {
-    setIsRefreshingQuotes(true);
-    let skippedCount = 0;
-    try {
-      for (const inv of investments) {
-        if (inv.type === 'Stocks') {
-          const sym = inv.symbol || inv.name;
-          if (!sym) {
-            skippedCount++;
-            continue;
-          }
-          const quote = await fetchStockPrice(sym);
-          if (quote && quote.status === 'live' && quote.currentPrice > 0) {
-            const sh = inv.shares || (inv.amountInvested / (inv.purchasePrice || quote.currentPrice || 100));
-            const newCurVal = roundCurrency(sh * quote.currentPrice);
-            const returnPct = inv.amountInvested > 0
-              ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
-              : 0;
-            onUpdateInvestment?.({
-              ...inv,
-              symbol: inv.symbol || quote.symbol,
-              currentPrice: quote.currentPrice,
-              currentValue: newCurVal,
-              returnsPercent: returnPct,
-              priceTimestamp: quote.lastUpdated,
-              priceSource: quote.source,
-            });
-          } else {
-            skippedCount++;
-          }
-        } else if (inv.type === 'Mutual Funds') {
-          const code = (inv.schemeCode || '').trim();
-          if (/^\d{5,6}$/.test(code)) {
-            const quote = await fetchMutualFundNav(code);
-            if (quote && quote.status === 'live' && quote.currentPrice > 0) {
-              const u = inv.units || (inv.amountInvested / (inv.purchaseNav || 100));
-              const newCurVal = roundCurrency(u * quote.currentPrice);
-              const returnPct = inv.amountInvested > 0
-                ? roundCurrency(((newCurVal - inv.amountInvested) / inv.amountInvested) * 100)
-                : 0;
-              onUpdateInvestment?.({
-                ...inv,
-                currentNav: quote.currentPrice,
-                currentValue: newCurVal,
-                returnsPercent: returnPct,
-                navDate: quote.lastUpdated.slice(0, 10),
-                priceSource: 'AMFI',
-                priceTimestamp: quote.lastUpdated,
-              });
-            } else {
-              skippedCount++;
-            }
-          } else {
-            skippedCount++;
-          }
-        }
-      }
-
-      if (skippedCount > 0) {
-        setQuoteNotice('Live quotes unavailable — showing your last saved values');
-      } else {
-        setQuoteNotice(null);
-      }
-
-      setLastQuoteRefreshTime(
-        new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-      );
-    } catch {
-      setQuoteNotice('Live quotes unavailable — showing your last saved values');
-    } finally {
-      setIsRefreshingQuotes(false);
-    }
-  };
 
   const handleSaveInvestment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1735,17 +1647,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             <span className="text-[10px] px-1.5 py-0.2 bg-purple-900/60 text-purple-200 rounded font-bold">Sync</span>
           </button>
 
-          <button
-            type="button"
-            disabled={isRefreshingQuotes}
-            onClick={handleRefreshMarketQuotes}
-            className="px-3 py-1.5 bg-[#181820] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-xl text-xs font-mono text-[#aaa] hover:text-white transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="Refresh current NAV & live stock quotes"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-red-400 ${isRefreshingQuotes ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Refresh Quotes</span>
-            <span className="text-[10px] text-[#666]">({lastQuoteRefreshTime})</span>
-          </button>
+          <PremiumComingSoon />
 
           <button
             type="button"
@@ -1764,22 +1666,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       {/* ==================== TAB CONTENT: HOLDINGS VIEW ==================== */}
       {activeViewTab === 'HOLDINGS' && (
         <div className="space-y-4">
-          {quoteNotice && (
-            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 bg-amber-950/40 border border-amber-800/60 rounded-xl text-xs font-mono text-amber-200">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>{quoteNotice}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setQuoteNotice(null)}
-                className="p-1 text-amber-400 hover:text-white rounded transition-colors cursor-pointer"
-                title="Dismiss notice"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {investments.length === 0 ? (
               <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">

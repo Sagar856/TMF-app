@@ -676,66 +676,76 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       </div>
 
       {/* Cash flow trend trajectory */}
-      <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
+      <div className="dashboard-workspace">
+        <div className="dashboard-column">
+          <div className="dashboard-panel-cashflow">
+            <CashflowTrendLineChart transactions={transactions} currencySymbol={currencySymbol} />
+          </div>
+          <div className="dashboard-panel-forecast">
+            <CashflowForecastCard
+              transactions={transactions}
+              accounts={accounts}
+              categories={categories}
+              currencySymbol={currencySymbol}
+            />
+          </div>
+          <div className="dashboard-panel-goals">
+            <SavingsGoalsCard
+              goals={savingsGoals}
+              onChange={onSavingsGoalsChange}
+              currencySymbol={currencySymbol}
+            />
+          </div>
+          <div className="dashboard-panel-categories">
+            <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
+          </div>
+        </div>
 
-      {/* ==================== 4. MONITOR BUDGET ==================== */}
-      <BudgetThresholdMonitor
-        transactions={transactions}
-        categories={categories}
-        currencySymbol={currencySymbol}
-        onNavigateToTransactions={onNavigateToTransactions}
-        onNavigateToCustomisations={onNavigateToCustomisations}
-        onTriggerAlert={onTriggerBudgetAlert}
-        carouselState={carousel.getSectionState('budget')}
-        containerRef={carousel.registerContainer('budget')}
-        contentRef={carousel.registerContent('budget')}
-        onToggleExpand={() => carousel.toggleSection('budget')}
-      />
+        <div className="dashboard-column">
+          <div className="dashboard-panel-trend">
+            <SevenDaySpendingTrendChart
+              transactions={transactions}
+              currencySymbol={currencySymbol}
+              carouselState={carousel.getSectionState('trend')}
+              containerRef={carousel.registerContainer('trend')}
+              contentRef={carousel.registerContent('trend')}
+              onToggleExpand={() => carousel.toggleSection('trend')}
+            />
+          </div>
+          <div className="dashboard-panel-budget">
+            <BudgetThresholdMonitor
+              transactions={transactions}
+              categories={categories}
+              currencySymbol={currencySymbol}
+              onNavigateToTransactions={onNavigateToTransactions}
+              onNavigateToCustomisations={onNavigateToCustomisations}
+              onTriggerAlert={onTriggerBudgetAlert}
+              carouselState={carousel.getSectionState('budget')}
+              containerRef={carousel.registerContainer('budget')}
+              contentRef={carousel.registerContent('budget')}
+              onToggleExpand={() => carousel.toggleSection('budget')}
+            />
+          </div>
+          <div className="dashboard-panel-recurring">
+            <RecurringTransactionsCard
+              transactions={transactions}
+              categories={categories}
+              loans={loans}
+              currencySymbol={currencySymbol}
+              onQuickLogTransaction={onQuickLogTransaction}
+              onNavigateToTransactions={onNavigateToTransactions}
+              carouselState={carousel.getSectionState('recurring')}
+              containerRef={carousel.registerContainer('recurring')}
+              contentRef={carousel.registerContent('recurring')}
+              onToggleExpand={() => carousel.toggleSection('recurring')}
+            />
+          </div>
+        </div>
 
-      <CashflowForecastCard
-        transactions={transactions}
-        accounts={accounts}
-        categories={categories}
-        currencySymbol={currencySymbol}
-      />
-
-      <SavingsGoalsCard
-        goals={savingsGoals}
-        onChange={onSavingsGoalsChange}
-        currencySymbol={currencySymbol}
-      />
-
-      {/* ==================== RECURRING BILLS & UPCOMING PAYMENTS (COLLAPSIBLE) ==================== */}
-      <RecurringTransactionsCard
-        transactions={transactions}
-        categories={categories}
-        loans={loans}
-        currencySymbol={currencySymbol}
-        onQuickLogTransaction={onQuickLogTransaction}
-        onNavigateToTransactions={onNavigateToTransactions}
-        carouselState={carousel.getSectionState('recurring')}
-        containerRef={carousel.registerContainer('recurring')}
-        contentRef={carousel.registerContent('recurring')}
-        onToggleExpand={() => carousel.toggleSection('recurring')}
-      />
-
-      {/* ==================== 5. 7-DAY SPENDING TREND (COLLAPSIBLE) ==================== */}
-      <SevenDaySpendingTrendChart 
-        transactions={transactions} 
-        currencySymbol={currencySymbol}
-        carouselState={carousel.getSectionState('trend')}
-        containerRef={carousel.registerContainer('trend')}
-        contentRef={carousel.registerContent('trend')}
-        onToggleExpand={() => carousel.toggleSection('trend')}
-      />
-
-      {/* ==================== 7. CATEGORY EXPENSE DONUT ==================== */}
-      <CategoryDonutChart transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
-
-      {/* ==================== 8. TOP SPEND CATEGORY & 9. MOST SPEND PLACES & MERCHANTS ==================== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-        <TopCategoriesCard transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
-        <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} month={activeMonthStr} />
+        <div className="dashboard-panel-rankings grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+          <TopCategoriesCard transactions={transactions} categories={categories} currencySymbol={currencySymbol} month={activeMonthStr} />
+          <TopMerchantsCard transactions={transactions} currencySymbol={currencySymbol} month={activeMonthStr} />
+        </div>
       </div>
     </div>
   );

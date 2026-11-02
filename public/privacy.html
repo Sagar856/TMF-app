@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>MINARTH privacy information</title></head>
+<body>
+<main>
+  <h1>MINARTH privacy information</h1>
+  <p>Updated: 2 November 2026. This describes the app's implemented data flows. The operator must add their legal identity, privacy contact and actual provider retention details before publishing to Google Play.</p>
+  <h2>Operator and privacy contact (complete before publication)</h2>
+  <ul>
+    <li>App operator / data controller: [Your full legal name or registered business name, country, and applicable business address].</li>
+    <li>Privacy and deletion contact: [A monitored email address you control].</li>
+    <li>Privacy request process: [How you verify ownership, respond to access/correction/deletion requests, and the actual response timeframe].</li>
+  </ul>
+  <h2>Retention (complete with your actual configuration)</h2>
+  <ul>
+    <li>Live account and financial records: [When records are deleted, including any inactive-account policy].</li>
+    <li>Deletion requests: [Actual live-database deletion timeframe and any legally required exceptions].</li>
+    <li>Supabase database backups: [Backup retention period from your project's plan/configuration, and expiry after deletion].</li>
+    <li>Authentication, hosting and security logs: [Providers, actual retention periods, purposes and any exceptions].</li>
+  </ul>
+  <p>These bracketed fields are not a completed legal policy. Replace every field with verified information and remove this notice before submitting the public URL to Google Play. Do not promise immediate deletion from backups if your providers retain them.</p>
+  <h2>Information used</h2>
+  <p>MINARTH stores your profile, email, financial accounts, transactions, loans, investments, categories and preferences locally. With a configured backend and sign-in, financial records and portable preferences are sent to the operator's Supabase project. Passwords and email verification are handled by Supabase Auth. Cloud rows are restricted to the signed-in user by database policies.</p>
+  <h2>Optional permissions</h2>
+  <p>On Android, notification access lets MINARTH process bank and UPI alerts on-device, including in the background. Parsed payment information and source message text can be included in saved transactions and synced to your cloud account. You can turn off extraction in Settings or revoke notification access in Android Settings. MINARTH does not require SMS inbox or call-log permission.</p>
+  <p>If you enable location tagging, your device location can be attached to a transaction and synced with that record. Notification access and location tagging are off by default for new installations. Push notification permission controls payment prompts and budget alerts. Biometrics and passcode credentials remain device-local.</p>
+  <h2>Other services and storage</h2>
+  <p>Web hosting serves the app and Google Fonts supplies typefaces. These providers receive normal network metadata such as IP addresses. The current build does not offer paid subscriptions or real-time tracking. Receipt attachments, savings goals and manual broker snapshots remain on-device. Exported backup files are under your control.</p>
+  <h2>Controls and deletion</h2>
+  <p>Use Settings to export records, change permissions, sign out, reset records or permanently delete your account. Cloud account deletion removes the associated live database rows. Copies on other offline devices, exported files and provider backups may persist separately. Local browser/WebView storage is not an encrypted vault; use your device screen lock.</p>
+  <p><a href="./delete-account.html">Delete your account and associated data</a></p>
+</main>
+</body>
+</html>

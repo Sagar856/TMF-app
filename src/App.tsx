@@ -13,10 +13,13 @@ import {
   consumePendingStorageReadFailure,
   STORAGE_READ_FAILED_EVENT,
   STORAGE_WRITE_FAILED_EVENT,
+  PREFERENCES_CHANGED_EVENT,
 } from './utils/storage';
-import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'motion/react';
+import { motion, AnimatePresence, MotionConfig } from 'motion/react';
+import { useReducedMotion } from './hooks/useReducedMotion';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
+import { BrandMark } from './components/BrandMark';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { BottomNav } from './components/BottomNav';
@@ -70,7 +73,9 @@ import {
   subscribeToAuthChanges,
   getCurrentUserSession,
   isCloudBackendConfigured,
+  isConfirmedEmailUser,
   signOutUser,
+  deleteUserAccount,
   deleteTransactionFromSupabase,
   deleteAccountFromSupabase,
   deleteCategoryFromSupabase,
@@ -163,7 +168,7 @@ function ensureMandatoryCategories(cats: Category[]): Category[] {
 export default function App() {
   const reduceMotion = useReducedMotion();
   // Navigation Tab
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab] = useState<string>(() => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
 
   const legacyPasscodeRef = useRef<string | null>(null);
   const migrationRef = useRef<Promise<PasscodeCredentials> | null>(null);
@@ -197,8 +202,8 @@ export default function App() {
       locale: ['en', 'IN'].join('-'),
       theme: 'dark',
       passcodeEnabled: false,
-      locationTracking: true,
-      autoExtractSms: true,
+      locationTracking: false,
+      autoExtractSms: false,
       notificationsEnabled: true,
       budgetAlertsEnabled: true,
       sampleDataLoaded: true,
@@ -299,6 +304,7 @@ export default function App() {
   const [authUser, setAuthUser] = useState<{ id: string; name: string; email: string } | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(true);
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
+  const passwordRecoveryRef = useRef(false);
   const isAuthenticated = Boolean(authUser);
 
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
@@ -372,6 +378,7 @@ export default function App() {
   const [passcodeLockRemaining, setPasscodeLockRemaining] = useState<number>(0);
   // Guards against duplicate concurrent cloud-data fetches (initial mount + auth success can both fire)
   const cloudLoadInFlightRef = useRef<boolean>(false);
+  const cloudGenerationRef = useRef(0);
   const [cloudHydrated, setCloudHydrated] = useState<boolean>(false);
   const lastPushedRef = useRef<Record<string, string>>({});
   // Surfaces the most recent backend sync outcome (success or a real error
@@ -382,6 +389,9 @@ export default function App() {
   const schemaWarningShownRef = useRef(false);
   // Set when a sync failed because we were offline; cleared by the online retry.
   const pendingRetryRef = useRef(false);
+  const [lastSettingsSyncAt, setLastSettingsSyncAt] = useState<number | null>(null);
+  const [preferencesRevision, setPreferencesRevision] = useState(0);
+  const preferencesSyncInFlight = useRef(false);
 
   const acknowledgeCloudDeletion = (key: string, ids: string[], result: SyncResult): boolean => {
     if (!result.success) {
@@ -517,6 +527,62 @@ export default function App() {
   // backend — there is no per-user Supabase URL/Key to "connect" anymore.
   const cloudReady = isCloudBackendConfigured() && isAuthenticated;
 
+  useEffect(() => {
+    const changed = () => setPreferencesRevision(value => value + 1);
+    window.addEventListener(PREFERENCES_CHANGED_EVENT, changed);
+    window.addEventListener('storage', changed);
+    return () => {
+      window.removeEventListener(PREFERENCES_CHANGED_EVENT, changed);
+      window.removeEventListener('storage', changed);
+    };
+  }, []);
+
+  const recordSettingsSync = (userId: string) => {
+    const timestamp = Date.now();
+    safeSetItem(`tmf_settings_last_sync_${userId}`, String(timestamp));
+    setLastSettingsSyncAt(timestamp);
+  };
+
+  useEffect(() => {
+    if (!cloudReady || !cloudHydrated || !authUser) return;
+    let preferences;
+    try {
+      preferences = parseCloudSettings({
+        settings: portableSettings(settings),
+        smartRules: safeGetJson<unknown>('tmf_smart_rules', null),
+      });
+    } catch (error) {
+      reportSyncResult('settings', { success: false, error: error instanceof Error ? error.message : 'Invalid preferences.' });
+      return;
+    }
+    const snapshot = JSON.stringify(preferences);
+    const generation = cloudGenerationRef.current;
+    if (lastPushedRef.current.preferences === snapshot) return;
+    const pendingKey = `tmf_settings_pending_${authUser.id}`;
+    safeSetItem(pendingKey, snapshot);
+    const timer = setTimeout(async () => {
+      if (!navigator.onLine || preferencesSyncInFlight.current) return;
+      preferencesSyncInFlight.current = true;
+      try {
+        const result = await syncSettingsToSupabase(preferences);
+        if (generation !== cloudGenerationRef.current) return;
+        reportSyncResult('settings', result);
+        if (result.success) {
+          lastPushedRef.current.preferences = snapshot;
+          if (safeGetItem(pendingKey) === snapshot) safeSetItem(pendingKey, '');
+          recordSettingsSync(authUser.id);
+        }
+      } finally {
+        preferencesSyncInFlight.current = false;
+        // A newer edit may have arrived while this upload was in flight.
+        if (safeGetItem(pendingKey) && safeGetItem(pendingKey) !== snapshot) {
+          setPreferencesRevision(value => value + 1);
+        }
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [settings, cloudReady, cloudHydrated, authUser?.id, preferencesRevision]);
+
   const reportSyncResult = (collection: string, result: SyncResult) => {
     const timestamp = Date.now();
     if (!result.success) {
@@ -614,6 +680,7 @@ export default function App() {
   const handleForceSyncNow = async (): Promise<{ success: boolean; error?: string; warning?: string }> => {
     if (!cloudReady) return { success: false, error: 'Sign in to sync settings to cloud.' };
     if (!cloudHydrated) return { success: false, error: 'Wait for cloud data to finish loading before syncing.' };
+    const generation = cloudGenerationRef.current;
     let preferences;
     try {
       preferences = parseCloudSettings({
@@ -633,6 +700,13 @@ export default function App() {
       syncLoansToSupabase(loans),
     ]);
     const failed = results.find((r) => !r.success);
+    if (generation !== cloudGenerationRef.current) return { success: false, error: 'Account changed during sync. Sign in and retry.' };
+    if (results[0].success && authUser) {
+      lastPushedRef.current.preferences = JSON.stringify(preferences);
+      const pendingKey = `tmf_settings_pending_${authUser.id}`;
+      if (safeGetItem(pendingKey) === JSON.stringify(preferences)) safeSetItem(pendingKey, '');
+      recordSettingsSync(authUser.id);
+    }
     if (failed) {
       setSyncStatus({ collection: 'manual sync', success: false, error: failed.error, timestamp: Date.now() });
       return { success: false, error: failed.error };
@@ -647,7 +721,11 @@ export default function App() {
   useEffect(() => {
     if (!cloudReady) return;
     const handleOnline = () => {
-      if (!pendingRetryRef.current) return;
+      setPreferencesRevision(value => value + 1);
+      if (!cloudHydrated) {
+        void loadCloudData();
+        return;
+      }
       pendingRetryRef.current = false;
       handleForceSyncNow().then((result) => {
         if (result.success) showToast('Back online — changes synced to cloud.', 'success');
@@ -663,6 +741,7 @@ export default function App() {
   const loadCloudData = async () => {
     if (cloudLoadInFlightRef.current) return;
     cloudLoadInFlightRef.current = true;
+    const generation = cloudGenerationRef.current;
     setCloudHydrated(false);
     let fetchThrewError = false;
     try {
@@ -674,17 +753,30 @@ export default function App() {
         fetchLoansFromSupabase(),
         fetchCloudTombstones(),
       ]);
+      if (generation !== cloudGenerationRef.current) return;
 
       try {
         const cloudPreferences = await fetchSettingsFromSupabase();
-        if (cloudPreferences) {
-          setSettings((previous) => ({ ...previous, ...cloudPreferences.settings }));
-          if (cloudPreferences.smartRules !== null) {
-            safeSetItem('tmf_smart_rules', JSON.stringify(cloudPreferences.smartRules));
-          }
+        if (generation !== cloudGenerationRef.current) return;
+        const pending = authUser ? safeGetItem(`tmf_settings_pending_${authUser.id}`) : null;
+        const preferences = pending ? parseCloudSettings(JSON.parse(pending)) : cloudPreferences;
+        if (preferences) {
+          if (!pending) lastPushedRef.current.preferences = JSON.stringify(preferences);
+          setSettings((previous) => ({
+            ...previous,
+            userName: authUser?.name || '',
+            userPhoto: '',
+            ...preferences.settings,
+            userEmail: authUser?.email || '',
+          }));
+          safeSetItem('tmf_smart_rules', JSON.stringify(preferences.smartRules ?? []));
+        } else {
+          setSettings(previous => ({ ...previous, userName: authUser?.name || '', userEmail: authUser?.email || '', userPhoto: '' }));
         }
       } catch (error) {
+        fetchThrewError = true;
         console.error('Could not restore cloud settings:', error);
+        setSyncStatus({ collection: 'settings', success: false, error: 'Could not load your private settings. Retry or sign out.', timestamp: Date.now() });
         showToast(error instanceof Error ? error.message : 'Could not restore cloud settings.', 'error');
       }
 
@@ -839,6 +931,7 @@ export default function App() {
       ));
       if (results.some(success => !success)) fetchThrewError = true;
     } catch (err) {
+      if (generation !== cloudGenerationRef.current) return;
       fetchThrewError = true;
       console.warn('Cloud data fetch failed:', err);
       setSyncStatus({
@@ -848,9 +941,9 @@ export default function App() {
         timestamp: Date.now(),
       });
     } finally {
-      cloudLoadInFlightRef.current = false;
-      if (!fetchThrewError) {
-        setCloudHydrated(true);
+      if (generation === cloudGenerationRef.current) {
+        cloudLoadInFlightRef.current = false;
+        if (!fetchThrewError) setCloudHydrated(true);
       }
     }
   };
@@ -860,12 +953,14 @@ export default function App() {
     if (!cloudReady) return;
     loadCloudData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cloudReady]);
+  }, [cloudReady, authUser?.id]);
 
   // Clears all locally-cached financial data. Used on sign-out so the next
   // person to use this device/browser never sees the previous account's data
   // before their own cloud data has loaded.
   const clearLocalDataOnSignOut = () => {
+    cloudGenerationRef.current++;
+    cloudLoadInFlightRef.current = false;
     setCloudHydrated(false);
     lastPushedRef.current = {};
     setTransactions([]);
@@ -874,6 +969,21 @@ export default function App() {
     setLoans([]);
     setCategories(INITIAL_CATEGORIES);
     setPendingNotifications([]);
+    setSavingsGoals([]);
+    setSettings({
+      userName: '', userEmail: '', userPhoto: '',
+      currencySymbol: '₹', currencyCode: 'INR', locale: 'en-IN', theme: 'dark',
+      passcodeEnabled: false, biometricUnlockEnabled: false, locationTracking: false,
+      autoExtractSms: false, notificationsEnabled: true, budgetAlertsEnabled: true,
+      connectedDematAccounts: [], sampleDataLoaded: false,
+    });
+    setLastSettingsSyncAt(null);
+    setSyncStatus(null);
+    // Remove private caches, rules, tombstones and pending sync state, not the Supabase session key.
+    for (const key of Object.keys(localStorage)) {
+      if (key.startsWith('tmf_')) localStorage.removeItem(key);
+    }
+    void deleteAllReceiptAttachments().catch(error => console.error('Could not clear receipts:', error));
     safeSetItem('tmf_transactions', '[]');
     safeSetItem('tmf_accounts', '[]');
     safeSetItem('tmf_investments', '[]');
@@ -883,7 +993,18 @@ export default function App() {
     resetDuplicateMemory();
     setPaymentActions([]);
     setEditingPaymentId(null);
+    setIsProfileModalOpen(false);
+    setIsAddModalOpen(false);
+    setIsNotificationModalOpen(false);
+    setEditingTransaction(null);
     void clearInterceptedPayments().catch(error => console.warn('Could not clear native payment queue:', error));
+  };
+
+  const prepareUserCache = (userId: string) => {
+    const owner = safeGetItem('tmf_cache_owner');
+    // Unknown legacy caches must never be assigned to whichever user signs in next.
+    if (owner !== userId) clearLocalDataOnSignOut();
+    safeSetItem('tmf_cache_owner', userId);
   };
 
   // Bootstraps the real auth session on launch, and reacts to sign-in /
@@ -891,38 +1012,65 @@ export default function App() {
   // flag — is the actual gate that decides whether the mandatory login
   // screen or the app itself is shown.
   useEffect(() => {
+    let active = true;
+    let authEventReceived = false;
     getCurrentUserSession().then((session) => {
+      if (!active || authEventReceived || passwordRecoveryRef.current) return;
       if (session?.user) {
+        prepareUserCache(session.user.id);
+        const savedSync = Number(safeGetItem(`tmf_settings_last_sync_${session.user.id}`));
+        setLastSettingsSyncAt(savedSync > 0 ? savedSync : null);
         setAuthUser({
           id: session.user.id,
           name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
           email: session.user.email || '',
         });
+      } else {
+        setAuthUser(null);
+        clearLocalDataOnSignOut();
       }
       setAuthLoading(false);
+    }).catch(error => {
+      if (!active) return;
+      console.error('Could not restore sign-in:', error);
+      setAuthUser(null);
+      setAuthLoading(false);
+      showToast('Could not restore sign-in. Please sign in again.', 'error');
     });
 
     const unsubscribe = subscribeToAuthChanges((event, session) => {
+      authEventReceived = true;
+      setAuthLoading(false);
       if (event === 'PASSWORD_RECOVERY') {
+        passwordRecoveryRef.current = true;
+        clearLocalDataOnSignOut();
+        setAuthUser(null);
         setIsPasswordRecovery(true);
         return;
       }
 
       if (event === 'SIGNED_OUT') {
+        passwordRecoveryRef.current = false;
         setAuthUser(null);
+        setIsPasswordRecovery(false);
         clearLocalDataOnSignOut();
         return;
       }
+      if (passwordRecoveryRef.current) return;
 
-      if (session?.user) {
+      if (session?.user && isConfirmedEmailUser(session.user)) {
+        prepareUserCache(session.user.id);
         setAuthUser({
           id: session.user.id,
           name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
           email: session.user.email || '',
         });
+      } else {
+        setAuthUser(null);
+        clearLocalDataOnSignOut();
       }
     });
-    return unsubscribe;
+    return () => { active = false; unsubscribe(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -2102,24 +2250,38 @@ export default function App() {
   // onAuthStateChange listener above — this just updates the display name/
   // email and triggers an immediate cloud fetch so the user doesn't have to
   // wait for the next render cycle.
-  const handleAuthSuccess = async (user: { name: string; emailOrPhone: string }) => {
-    const updatedSettings = {
-      ...settings,
+  const handleAuthSuccess = (user: { name: string; emailOrPhone: string }) => {
+    setSettings(previous => ({
+      ...previous,
       userName: user.name,
       userEmail: user.emailOrPhone,
-    };
-    setSettings(updatedSettings);
+    }));
     setIsPasswordRecovery(false);
-
-    if (isCloudBackendConfigured()) {
-      await loadCloudData();
-    }
   };
 
   const handleSignOut = async () => {
-    await signOutUser();
+    try {
+      await signOutUser();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Sign out failed. Please retry.', 'error');
+    }
     // clearLocalDataOnSignOut() + setAuthUser(null) happen automatically via
     // the SIGNED_OUT event from subscribeToAuthChanges above.
+  };
+
+  const handleRequestDeleteAccount = () => {
+    setConfirmConfig({
+      title: 'Permanently delete your account?',
+      description: 'This deletes your sign-in account and all associated cloud financial data and preferences. Export a backup first. This cannot be undone.',
+      confirmLabel: 'Delete my account',
+      intent: 'danger',
+      icon: 'trash',
+      onConfirm: () => {
+        void deleteUserAccount().catch(error => {
+          showToast(error instanceof Error ? error.message : 'Account deletion failed. Please retry.', 'error', 8000);
+        });
+      },
+    });
   };
 
   // Demo Sample Data & Reset Handlers with in-app Confirmation Dialogs
@@ -2231,7 +2393,7 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', url);
-    downloadAnchor.setAttribute('download', `MTracker_Backup_${todayLocalISO()}.json`);
+    downloadAnchor.setAttribute('download', `MINARTH_Backup_${todayLocalISO()}.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
@@ -2390,34 +2552,23 @@ export default function App() {
   // 0. App Launch Motion Loader
   if (isAppLoading || passcodeMigrationPending) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-obsidian text-white font-mono p-6 relative overflow-hidden select-none">
-        {/* Ambient Glowing Red Backdrop */}
-        <div className="absolute w-96 h-96 bg-red-600/15 rounded-full blur-3xl pointer-events-none animate-pulse" />
+      <div className="identity-glass app-launch flex flex-col items-center justify-center h-screen text-content-1 font-mono p-6 relative overflow-hidden select-none">
+        <div className="absolute w-96 h-96 bg-violet-600/15 rounded-full blur-3xl pointer-events-none motion-safe:animate-pulse" />
 
         <motion.div
-          initial={{ opacity: 0, scale: 0.85 }}
+          initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, ease: 'easeOut' }}
-          className="flex flex-col items-center space-y-6 relative z-10 text-center max-w-xs"
+          transition={{ duration: reduceMotion ? 0 : 0.5, ease: 'easeOut' }}
+          className="identity-glass-panel flex flex-col items-center space-y-6 relative z-10 text-center w-full max-w-sm rounded-3xl border border-line p-8"
         >
-          {/* Animated Logo Ring */}
-          <div className="relative flex items-center justify-center">
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 8, repeat: Infinity, ease: 'linear' }}
-              className="w-20 h-20 rounded-full border-2 border-dashed border-red-600/60"
-            />
-            <div className="absolute w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center shadow-[0_0_25px_rgba(220,38,38,0.6)]">
-              <span className="font-mono font-black text-white text-base tracking-wider">MTracker</span>
-            </div>
-          </div>
+          <BrandMark className="w-20 h-20" />
 
           <div>
             <h1 className="text-sm font-bold tracking-[0.25em] text-white uppercase font-mono">
-              MTracker
+              MINARTH
             </h1>
             <p className="text-[10px] text-[#777] font-mono mt-1 uppercase tracking-widest">
-              Initializing Engine
+              Clarity for your money
             </p>
           </div>
 
@@ -2426,13 +2577,13 @@ export default function App() {
             <motion.div
               initial={{ width: '0%' }}
               animate={{ width: '100%' }}
-              transition={{ duration: 0.9, ease: 'easeInOut' }}
-              className="h-full bg-gradient-to-r from-red-600 via-red-500 to-emerald-400 rounded-full shadow-[0_0_10px_rgba(220,38,38,0.8)]"
+              transition={{ duration: reduceMotion ? 0 : 0.9, ease: 'easeInOut' }}
+              className="h-full bg-gradient-to-r from-violet-600 via-violet-400 to-indigo-300 rounded-full"
             />
           </div>
 
           <div className="text-[9px] text-[#555] font-mono uppercase tracking-widest">
-            Automatic Interceptions Active
+            Preparing your private workspace
           </div>
         </motion.div>
       </div>
@@ -2445,10 +2596,14 @@ export default function App() {
   // as guest" — an account is required, and the login screen cannot be
   // dismissed without actually signing in/registering (or verifying a
   // password-recovery link).
-  if (!authLoading && (!authUser || isPasswordRecovery) && isCloudBackendConfigured()) {
+  if (authLoading) {
+    return <div role="status" className="identity-glass min-h-screen flex items-center justify-center text-content-1">Checking your sign-in...</div>;
+  }
+  if (!authUser || isPasswordRecovery) {
     return (
       <Suspense fallback={<div role="status" className="min-h-screen bg-black" />}>
         <AuthModal
+          key={isPasswordRecovery ? 'recovery' : 'login'}
           initialMode={isPasswordRecovery ? 'set_new_password' : 'login'}
           canClose={false}
           onClose={() => {}}
@@ -2457,6 +2612,14 @@ export default function App() {
         />
       </Suspense>
     );
+  }
+
+  if (cloudReady && !cloudHydrated) {
+    return <div className="identity-glass min-h-screen flex flex-col gap-4 items-center justify-center text-content-1 p-6">
+      <p role={syncStatus?.success === false ? 'alert' : 'status'}>{syncStatus?.success === false ? syncStatus.error : 'Loading your private account...'}</p>
+      {syncStatus?.success === false && <button type="button" onClick={() => void loadCloudData()} className="rounded-xl bg-violet-600 px-4 py-2">Retry</button>}
+      <button type="button" onClick={handleSignOut} className="text-sm underline">Sign out</button>
+    </div>;
   }
 
   // Security Passcode Lock Screen
@@ -2472,8 +2635,8 @@ export default function App() {
           <div className="w-12 h-12 bg-obsidian border border-nothing rounded-full flex items-center justify-center mx-auto mb-4 text-red-500">
             <Lock className="w-6 h-6" />
           </div>
-          <h2 className="text-xl font-mono font-bold uppercase mb-1">MTracker Passcode Lock</h2>
-          <p className="text-xs text-[#777] font-mono mb-6">Enter your security PIN to access MTracker</p>
+          <h2 className="text-xl font-mono font-bold uppercase mb-1">MINARTH Passcode Lock</h2>
+          <p className="text-xs text-[#777] font-mono mb-6">Enter your security PIN to access MINARTH</p>
 
           <form onSubmit={handlePasscodeUnlock} className="space-y-4">
             <input
@@ -2539,6 +2702,7 @@ export default function App() {
           pendingNotificationsCount={pendingNotifications.length}
           pendingEmiCount={pendingEmiRequests.length}
           currencySymbol={settings.currencySymbol}
+          locationTrackingEnabled={settings.locationTracking}
         />
       </div>
 
@@ -2763,6 +2927,8 @@ export default function App() {
               onForceSyncNow={handleForceSyncNow}
               isAuthenticated={isAuthenticated}
               authUserEmail={authUser?.email || null}
+              lastSettingsSyncAt={lastSettingsSyncAt}
+              onDeleteUserAccount={handleRequestDeleteAccount}
               onSignOut={handleSignOut}
               onOpenProfile={() => setIsProfileModalOpen(true)}
               onNavigateToTab={setActiveTab}

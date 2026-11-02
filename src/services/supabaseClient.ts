@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient, AuthChangeEvent, Session } from '@supabase/supabase-js';
 import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord } from '../types/finance';
 import { CloudSettings, parseCloudSettings } from '../utils/cloudSettings';
+import { isStrongPassword } from '../utils/passwordPolicy';
 
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
@@ -112,33 +113,76 @@ export async function checkBackendReachable(): Promise<boolean> {
 // SUPABASE AUTHENTICATION HELPERS
 // ===============================================
 
-export async function signUpUser(email: string, pass: string, fullName: string) {
-  const client = getSupabaseClient();
-  if (!client) throw new Error("Cloud backend is not configured for this build");
+export function isConfirmedEmailUser(user: Session['user'] | null | undefined): boolean {
+  return Boolean(user?.email && user.email_confirmed_at);
+}
 
-  const emailRedirectTo = getAuthRedirectUrl();
-
-  const { data, error } = await client.auth.signUp({
-    email,
-    password: pass,
-    options: {
-      data: {
-        full_name: fullName,
-      },
-      emailRedirectTo,
-    },
+/** Signup verification must not publish SIGNED_IN to the application's persistent client. */
+export function createEmailRegistration() {
+  const env = import.meta.env;
+  if (!getSupabaseClient()) throw new Error('Cloud backend is not configured for this build');
+  const client = createClient(env.VITE_SUPABASE_URL.trim(), env.VITE_SUPABASE_ANON_KEY.trim(), {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: `tmf-registration-${crypto.randomUUID()}` },
   });
+  let requestedEmail = '';
+  let verifiedEmail = '';
+  let revision = 0;
+  return {
+    reset() {
+      revision++;
+      requestedEmail = '';
+      verifiedEmail = '';
+    },
+    async sendCode(email: string) {
+      const request = ++revision;
+      requestedEmail = '';
+      verifiedEmail = '';
+      const normalized = email.trim().toLowerCase();
+      const { error } = await client.auth.signInWithOtp({ email: normalized, options: { shouldCreateUser: true } });
+      if (error) throw error;
+      if (request === revision) requestedEmail = normalized;
+    },
+    async verifyCode(email: string, token: string) {
+      const normalized = email.trim().toLowerCase();
+      if (!requestedEmail || requestedEmail !== normalized) throw new Error('Request a code for this email first.');
+      if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the numeric code from your email.');
+      const request = revision;
+      const { data, error } = await client.auth.verifyOtp({ email: normalized, token, type: 'email' });
+      if (error) throw error;
+      if (request !== revision || requestedEmail !== normalized) throw new Error('Email changed. Request a new code.');
+      if (!data.session || !isConfirmedEmailUser(data.user) || data.user?.email?.toLowerCase() !== normalized) {
+        throw new Error('A verified email session is required.');
+      }
+      verifiedEmail = normalized;
+    },
+    async complete(email: string, password: string, fullName: string) {
+      const normalized = email.trim().toLowerCase();
+      if (verifiedEmail !== normalized || !verifiedEmail) throw new Error('Verify your email before creating an account.');
+      if (!isStrongPassword(password)) throw new Error('Complete all password requirements.');
+      const request = revision;
+      const { data: { user }, error: userError } = await client.auth.getUser();
+      if (userError) throw userError;
+      if (request !== revision || !isConfirmedEmailUser(user) || user?.email?.toLowerCase() !== normalized) {
+        throw new Error('Email verification expired. Request a new code.');
+      }
+      const { error } = await client.auth.updateUser({ password, data: { full_name: fullName } });
+      if (error) throw error;
+      if (request !== revision) throw new Error('Email changed. Request a new code.');
+      // Only after verified ownership and password setup may the main app sign in.
+      const data = await signInUser(normalized, password);
+      verifiedEmail = '';
+      return data;
+    },
+  };
+}
 
-  if (error) {
-    if (error.message?.toLowerCase().includes('requested path is invalid')) {
-      throw new Error(
-        `Supabase rejected the confirmation redirect URL "${emailRedirectTo}". Add this exact URL to your ` +
-        `Supabase project's Authentication → URL Configuration → Redirect URLs list, then try again.`
-      );
-    }
-    throw error;
-  }
-  return data;
+export async function deleteUserAccount(): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Cloud backend is not configured for this build');
+  const { error } = await client.rpc('delete_own_account');
+  if (error) throw new Error(`Account deletion failed: ${error.message}`);
+  const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
+  if (signOutError) throw new Error(`Account deleted, but local sign-out failed: ${signOutError.message}. Restart the app.`);
 }
 
 export async function signInUser(email: string, pass: string) {
@@ -151,20 +195,27 @@ export async function signInUser(email: string, pass: string) {
   });
 
   if (error) throw error;
+  if (!data.session || !isConfirmedEmailUser(data.user)) {
+    const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
+    if (signOutError) throw new Error(`Email verification is required; could not clear the rejected session: ${signOutError.message}`);
+    throw new Error('Verify your email before signing in.');
+  }
   return data;
 }
 
 export async function signOutUser() {
   const client = getSupabaseClient();
   if (!client) return;
-  await client.auth.signOut();
+  const { error } = await client.auth.signOut();
+  if (error) throw error;
 }
 
 export async function getCurrentUserSession() {
   const client = getSupabaseClient();
   if (!client) return null;
-  const { data } = await client.auth.getSession();
-  return data.session;
+  const { data, error } = await client.auth.getSession();
+  if (error) throw error;
+  return data.session && isConfirmedEmailUser(data.session.user) ? data.session : null;
 }
 
 // Sends a real password-reset email via Supabase Auth. The link redirects
@@ -201,9 +252,11 @@ export async function sendPasswordResetEmail(email: string): Promise<void> {
 export async function updatePassword(newPassword: string): Promise<void> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Cloud backend is not configured for this build');
+  if (!isStrongPassword(newPassword)) throw new Error('Complete all password requirements.');
 
   const { error } = await client.auth.updateUser({ password: newPassword });
   if (error) throw error;
+  await signOutUser();
 }
 
 // Subscribes to Supabase auth state changes (e.g. to detect password-recovery
