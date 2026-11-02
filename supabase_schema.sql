@@ -19,6 +19,23 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- A JWT alone is not sufficient: the current account must still exist and
+-- have a confirmed email. Confirm email must also be enabled in Auth settings.
+CREATE OR REPLACE FUNCTION public.has_verified_email()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE id = auth.uid() AND email IS NOT NULL AND email_confirmed_at IS NOT NULL
+  );
+$$;
+REVOKE ALL ON FUNCTION public.has_verified_email() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.has_verified_email() TO authenticated;
+
 -- Portable preferences and category rules. Device credentials never belong here.
 CREATE TABLE IF NOT EXISTS public.user_preferences (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),
@@ -28,9 +45,29 @@ ALTER TABLE public.user_preferences ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users manage own preferences" ON public.user_preferences;
 CREATE POLICY "Users manage own preferences" ON public.user_preferences
   FOR ALL TO authenticated
-  USING (auth.uid() = user_id)
-  WITH CHECK (auth.uid() = user_id);
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.user_preferences TO authenticated;
+
+-- Self-service deletion: the caller cannot supply another user's ID.
+-- All app tables reference auth.users with ON DELETE CASCADE.
+CREATE OR REPLACE FUNCTION public.delete_own_account()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  caller uuid := auth.uid();
+BEGIN
+  IF caller IS NULL THEN
+    RAISE EXCEPTION 'Authentication required';
+  END IF;
+  DELETE FROM auth.users WHERE id = caller;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.delete_own_account() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.delete_own_account() TO authenticated;
 
 -- 1. Transactions Table (User isolated with composite PK)
 CREATE TABLE IF NOT EXISTS public.transactions (
@@ -260,19 +297,31 @@ DROP POLICY IF EXISTS "Users can access their own user_settings" ON public.user_
 -- Strict per-user policies: only the authenticated owner can read/write their
 -- own rows. No anonymous access, no NULL-owner bypass.
 CREATE POLICY "Users can access their own transactions" ON public.transactions
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 
 CREATE POLICY "Users can access their own categories" ON public.categories
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 
 CREATE POLICY "Users can access their own financial_accounts" ON public.financial_accounts
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 
 CREATE POLICY "Users can access their own investments" ON public.investments
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 
 CREATE POLICY "Users can access their own loans" ON public.loans
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));
 
 CREATE POLICY "Users can access their own user_settings" ON public.user_settings
-  FOR ALL TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL TO authenticated
+  USING (auth.uid() = user_id AND (SELECT public.has_verified_email()))
+  WITH CHECK (auth.uid() = user_id AND (SELECT public.has_verified_email()));

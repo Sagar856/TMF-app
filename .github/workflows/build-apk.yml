@@ -70,14 +70,14 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: TMF-app-debug
+          name: MINARTH-debug
           path: ${{ steps.apk.outputs.path }}
 
       - name: Create/refresh "latest" GitHub Release with APK
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest-apk
-          name: TMF App — Latest Android Build
+          name: MINARTH — Latest Android Build
           body: |
             Automatically built from the latest `main` branch commit.
             This is a **debug-signed** APK intended for direct sideloading /

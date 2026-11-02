@@ -13,7 +13,7 @@
  *
  * Usage: node scripts/patch-android.mjs
  */
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +25,7 @@ const javaPackageDir = join(androidAppDir, 'src', 'main', 'java', 'com', 'trackm
 const manifestPath = join(androidAppDir, 'src', 'main', 'AndroidManifest.xml');
 const mainActivityPath = join(javaPackageDir, 'MainActivity.java');
 const drawableDir = join(androidAppDir, 'src', 'main', 'res', 'drawable');
+const resDir = dirname(drawableDir);
 
 const pluginSrcDir = join(repoRoot, 'native', 'notification-intercept-plugin');
 
@@ -36,6 +37,40 @@ function fail(msg) {
 if (!existsSync(join(repoRoot, 'android'))) {
   fail('android/ folder not found. Run "npx cap add android" first.');
 }
+
+// API 36 is required for new Play submissions from August 2026.
+const variablesPath = join(repoRoot, 'android', 'variables.gradle');
+const rootGradlePath = join(repoRoot, 'android', 'build.gradle');
+const wrapperPath = join(repoRoot, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties');
+const appGradlePath = join(androidAppDir, 'build.gradle');
+for (const path of [variablesPath, rootGradlePath, wrapperPath, appGradlePath]) {
+  if (!existsSync(path)) fail(`Generated Gradle file missing: ${path}`);
+}
+let variables = readFileSync(variablesPath, 'utf8');
+for (const key of ['compileSdkVersion', 'targetSdkVersion']) {
+  const pattern = new RegExp(`${key}\\s*=\\s*\\d+`);
+  if (!pattern.test(variables)) fail(`Missing ${key} in variables.gradle`);
+  variables = variables.replace(pattern, `${key} = 36`);
+}
+writeFileSync(variablesPath, variables);
+let rootGradle = readFileSync(rootGradlePath, 'utf8');
+if (!/com\.android\.tools\.build:gradle:[\d.]+/.test(rootGradle)) fail('Android Gradle Plugin version not found');
+rootGradle = rootGradle.replace(/com\.android\.tools\.build:gradle:[\d.]+/g, 'com.android.tools.build:gradle:8.13.2');
+writeFileSync(rootGradlePath, rootGradle);
+let wrapper = readFileSync(wrapperPath, 'utf8');
+if (!/gradle-[\d.]+-(?:all|bin)\.zip/.test(wrapper)) fail('Gradle wrapper version not found');
+wrapper = wrapper.replace(/gradle-[\d.]+-(all|bin)\.zip/g, 'gradle-8.13-$1.zip');
+writeFileSync(wrapperPath, wrapper);
+const { version } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+const versionCode = Number(process.env.ANDROID_VERSION_CODE || 1);
+if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2100000000) fail('Invalid ANDROID_VERSION_CODE');
+let appGradle = readFileSync(appGradlePath, 'utf8');
+if (!/versionCode\s+\d+/.test(appGradle) || !/versionName\s+"[^"]+"/.test(appGradle)) fail('Generated Android version fields missing');
+appGradle = appGradle.replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
+  .replace(/versionName\s+"[^"]+"/, `versionName "${version}"`);
+if (!appGradle.includes("apply from: 'minarth-release.gradle'")) appGradle += "\napply from: 'minarth-release.gradle'\n";
+writeFileSync(appGradlePath, appGradle);
+copyFileSync(join(repoRoot, 'scripts', 'android-release.gradle'), join(androidAppDir, 'minarth-release.gradle'));
 
 // 1. Copy Java plugin sources
 mkdirSync(javaPackageDir, { recursive: true });
@@ -49,9 +84,52 @@ mkdirSync(drawableDir, { recursive: true });
 copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_stat_tmf.xml'), join(drawableDir, 'ic_stat_tmf.xml'));
 console.log('[patch-android] Copied ic_stat_tmf.xml notification icon');
 
+// Keep the package identity stable while updating existing and fresh installs.
+const stringsPath = join(resDir, 'values', 'strings.xml');
+if (!existsSync(stringsPath)) fail(`strings.xml not found at ${stringsPath}`);
+let strings = readFileSync(stringsPath, 'utf8');
+for (const name of ['app_name', 'title_activity_main']) {
+  const entry = new RegExp(`(<string\\s+name="${name}"[^>]*>)[\\s\\S]*?(</string>)`);
+  if (!entry.test(strings)) fail(`Missing ${name} in strings.xml`);
+  strings = strings.replace(entry, '$1MINARTH$2');
+}
+writeFileSync(stringsPath, strings, 'utf8');
+const foreground = join(pluginSrcDir, 'res', 'drawable', 'ic_minarth_foreground.xml');
+if (!existsSync(foreground)) fail('MINARTH vector missing. Run node scripts/generate-icons.mjs');
+copyFileSync(foreground, join(drawableDir, 'ic_launcher_foreground.xml'));
+writeFileSync(join(drawableDir, 'ic_launcher_background.xml'),
+  '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#211e30"/></shape>\n');
+const launcherPng = join(repoRoot, 'public', 'icons', 'icon-512.png');
+if (!existsSync(launcherPng)) fail('MINARTH PNG missing. Run node scripts/generate-icons.mjs');
+for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+  const folder = join(resDir, `mipmap-${density}`);
+  mkdirSync(folder, { recursive: true });
+  for (const name of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
+    copyFileSync(launcherPng, join(folder, name));
+  }
+}
+const adaptiveDir = join(resDir, 'mipmap-anydpi-v26');
+mkdirSync(adaptiveDir, { recursive: true });
+for (const name of ['ic_launcher.xml', 'ic_launcher_round.xml']) {
+  writeFileSync(join(adaptiveDir, name), `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@drawable/ic_launcher_background"/>
+  <foreground android:drawable="@drawable/ic_launcher_foreground"/>
+  <monochrome android:drawable="@drawable/ic_launcher_foreground"/>
+</adaptive-icon>\n`);
+}
+for (const folder of readdirSync(resDir, { withFileTypes: true })) {
+  if (folder.isDirectory() && /^drawable(?:-|$)/.test(folder.name)) {
+    const splash = join(resDir, folder.name, 'splash.png');
+    if (existsSync(splash)) copyFileSync(launcherPng, splash);
+  }
+}
+console.log('[patch-android] Installed MINARTH name, launcher icons and splash artwork');
+
 // 3. Patch AndroidManifest.xml (idempotent — skips if already patched)
 if (!existsSync(manifestPath)) fail(`AndroidManifest.xml not found at ${manifestPath}`);
 let manifest = readFileSync(manifestPath, 'utf8');
+manifest = manifest.replace(/\s+android:(?:allowBackup|usesCleartextTraffic)="[^"]*"/g, '');
+manifest = manifest.replace('<application', '<application android:allowBackup="false" android:usesCleartextTraffic="false"');
 
 if (!manifest.includes('BIND_NOTIFICATION_LISTENER_SERVICE')) {
   manifest = manifest.replace(
@@ -59,7 +137,7 @@ if (!manifest.includes('BIND_NOTIFICATION_LISTENER_SERVICE')) {
     `$1\n    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />`
   );
 
-  const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="Track Money Flow Transaction Interceptor"\n            android:exported="true"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
+  const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="MINARTH Transaction Interceptor"\n            android:exported="true"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
 
   manifest = manifest.replace(/\s*<\/application>/, `\n${serviceBlock}`);
 
@@ -75,6 +153,8 @@ if (!manifest.includes('com.trackmoneyflow.app.PaymentActionReceiver')) {
 if (!manifest.includes('android.permission.POST_NOTIFICATIONS')) {
   manifest = manifest.replace(/(<manifest[^>]*>)/, '$1\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />');
 }
+manifest = manifest.replace(/android:label="Track Money Flow Transaction Interceptor"/g,
+  'android:label="MINARTH Transaction Interceptor"');
 writeFileSync(manifestPath, manifest, 'utf8');
 
 // 4. Register the plugin class in MainActivity.java (idempotent)

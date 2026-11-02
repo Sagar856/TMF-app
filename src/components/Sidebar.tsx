@@ -9,6 +9,7 @@ import {
   MapPin
 } from 'lucide-react';
 import { DownloadAppCard } from './DownloadAppCard';
+import { BrandMark } from './BrandMark';
 
 interface SidebarProps {
   activeTab: string;
@@ -16,6 +17,7 @@ interface SidebarProps {
   pendingNotificationsCount: number;
   pendingEmiCount?: number;
   currencySymbol: string;
+  locationTrackingEnabled?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   pendingNotificationsCount,
   pendingEmiCount = 0,
+  locationTrackingEnabled = false,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Main' },
@@ -38,13 +41,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Brand Logo Header */}
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 tmf-logo-box flex items-center justify-center rounded-md shadow-sm border shrink-0">
-            <div className="w-3.5 h-3.5 tmf-logo-box-dot rounded-full flex items-center justify-center">
-              <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse"></div>
-            </div>
-          </div>
+          <BrandMark />
           <div>
-            <h1 className="text-lg font-bold tracking-tight uppercase font-mono tmf-logo-text">MTracker</h1>
+            <h1 className="text-lg font-bold tracking-tight uppercase font-mono minarth-logo-text">MINARTH</h1>
             <div className="text-[8px] text-slate-500 dark:text-[#888] tracking-[0.2em] font-mono">SMART EXPENSE TRACKER</div>
           </div>
         </div>
@@ -116,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="flex items-center justify-between px-2 text-[10px] font-mono text-[#555]">
           <span className="flex items-center gap-1">
-            <MapPin className="w-3 h-3 text-red-500" /> GPS ACTIVE
+            <MapPin className="w-3 h-3 text-red-500" /> {locationTrackingEnabled ? 'LOCATION TAGGING ON' : 'LOCATION OFF'}
           </span>
           <span>v{__APP_VERSION__}</span>
         </div>

@@ -34,6 +34,7 @@ import {
   Headphones,
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
+import { PremiumComingSoon } from './PremiumComingSoon';
 import { PasscodeSetupModal } from './PasscodeSetupModal';
 import { BrokerPortfoliosSection } from './settings/BrokerPortfoliosSection';
 import {
@@ -68,6 +69,8 @@ interface SettingsViewProps {
   isAuthenticated?: boolean;
   authUserEmail?: string | null;
   onSignOut?: () => void;
+  onDeleteUserAccount?: () => void;
+  lastSettingsSyncAt?: number | null;
   onOpenProfile?: () => void;
   onNavigateToTab?: (tab: string) => void;
 }
@@ -78,7 +81,7 @@ const SETTINGS_GROUPS = [
   { id: 'appearance', label: 'Appearance', icon: Palette, keywords: 'theme light dark display auto expand dashboard scroll currency region locale' },
   { id: 'privacy', label: 'Privacy & Security', icon: Lock, keywords: 'mask balances net worth location gps tagging app lock pin passcode biometrics fingerprint auto lock delete confirmations reset data privacy' },
   { id: 'help', label: 'Help and Support', icon: Headphones, keywords: 'help support troubleshooting notification background battery permissions backup github issues feature requests' },
-  { id: 'about', label: 'About', icon: Info, keywords: 'version mtracker track money flow android download apk' },
+  { id: 'about', label: 'About', icon: Info, keywords: 'version minarth mtracker track money flow android download apk' },
 ] as const;
 type SettingsGroup = typeof SETTINGS_GROUPS[number]['id'];
 
@@ -112,10 +115,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   isAuthenticated = false,
   authUserEmail = null,
   onSignOut,
+  onDeleteUserAccount,
+  lastSettingsSyncAt,
   onOpenProfile,
   onNavigateToTab,
 }) => {
-  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('delete-account') ? 'account' : null
+  );
+  const [notificationDisclosureAccepted, setNotificationDisclosureAccepted] = useState(false);
   const [settingsSearch, setSettingsSearch] = useState('');
   const [customisationOpen, setCustomisationOpen] = useState(false);
   const categoriesMenuRef = useRef<HTMLElement>(null);
@@ -196,7 +204,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
     setBiometricBusy(true);
     try {
-      const ok = await enrollBiometric(authUserEmail || settings.userEmail || settings.userName || 'MTracker');
+      const ok = await enrollBiometric(authUserEmail || settings.userEmail || settings.userName || 'MINARTH');
       if (!ok) {
         setBiometricError('Biometric enrolment was cancelled or is not supported here. You can keep using the PIN.');
         return;
@@ -246,9 +254,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
   const lastSyncLabel = useMemo(() => {
-    if (!syncStatus?.timestamp) return null;
-    return new Date(syncStatus.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  }, [syncStatus?.timestamp]);
+    if (!lastSettingsSyncAt) return null;
+    return new Date(lastSettingsSyncAt).toLocaleString();
+  }, [lastSettingsSyncAt]);
   const cloudTone: 'emerald' | 'red' | 'amber' | 'neutral' = !isAuthenticated
     ? 'neutral'
     : syncStatus && !syncStatus.success
@@ -386,14 +394,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     ? syncStatus.warning
                     : lastSyncLabel
                     ? `Last synced at ${lastSyncLabel}. Changes sync automatically a moment after you make them.`
-                    : 'Changes sync automatically a moment after you make them.'
+                    : 'No successful settings sync yet. Changes upload automatically when connected.'
                 }
                 infoId="cloud-sync-info"
                 infoTitle="Cloud sync"
-                infoContent="Changes are saved locally first. Sync settings at the top saves your preferences, category rules and financial data to your private cloud space. Passcodes, biometrics and device permissions stay local."
+                infoContent="Preferences and category rules upload automatically after edits and when connectivity returns. The timestamp records a successful settings upload, not a failed attempt. Passcodes, biometrics and device permissions stay local."
               >
               </SettingRow>
 
+              <SettingRow label="Last successful settings sync" description={lastSyncLabel || 'Not synced yet on this device.'} />
+              <SettingRow label="Plan" description="Manual tracking and notification-based spending capture are free.">
+                <PremiumComingSoon />
+              </SettingRow>
+              {isAuthenticated && onDeleteUserAccount && (
+                <SettingRow label="Delete account" description="Permanently delete your sign-in account and associated cloud data. This is different from resetting your records.">
+                  <SettingButton variant="danger" icon={Trash2} onClick={onDeleteUserAccount}>Delete account</SettingButton>
+                </SettingRow>
+              )}
               {isAuthenticated && onSignOut && (
                 <SettingRow label="Sign out" description="Clears this device's local copy. Your cloud data stays safe.">
                   <SettingButton onClick={onSignOut} icon={LogOut} iconClassName="text-red-500">
@@ -487,10 +504,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {isAndroid ? (
                 <SettingRow
                   label="Notification access"
-                  description="Lets the Android service read bank & UPI alerts in real time. Nothing leaves your device."
+                  description="MINARTH reads bank and UPI notifications, including in the background, to detect payments. Parsed transactions and their source message text may sync to your private cloud account when saved. Other notifications are not used for financial tracking."
                   badge={<StatusPill tone={notifAccessGranted ? 'emerald' : 'red'}>{notifAccessGranted ? 'Granted' : 'Not granted'}</StatusPill>}
                 >
                   <SettingButton
+                    disabled={!notifAccessGranted && !notificationDisclosureAccepted}
                     icon={BellRing}
                     iconClassName="text-red-500"
                     onClick={async () => {
@@ -507,6 +525,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   description="Automatic capture of bank/UPI alerts is available in the Android app. Use manual entry on the web."
                   badge={<StatusPill tone="neutral">Android only</StatusPill>}
                 />
+              )}
+              {isAndroid && !notifAccessGranted && (
+                <label className="flex items-start gap-2 py-3 text-xs text-content-2">
+                  <input type="checkbox" checked={notificationDisclosureAccepted} onChange={event => setNotificationDisclosureAccepted(event.target.checked)} />
+                  I agree to notification access for payment detection and understand the cloud storage described above. I can revoke access in Android Settings.
+                </label>
               )}
 
               <SettingRow
@@ -563,7 +587,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingRow label="Mask balances by default" description="Hide net worth and totals until you tap the eye icon." htmlFor="sw-mask-balances">
                 <SettingSwitch id="sw-mask-balances" label="Mask balances by default" checked={settings.defaultNetWorthMasked !== false} onChange={v => update({ defaultNetWorthMasked: v })} />
               </SettingRow>
-              <SettingRow label="Location tagging" description="Attach the place where a transaction happened (uses device GPS)." htmlFor="sw-location">
+              <SettingRow label="Location tagging"               description="Attach device GPS location to transactions. Saved locations sync with your financial records when signed in." htmlFor="sw-location">
                 <SettingSwitch id="sw-location" label="Location tagging" checked={settings.locationTracking} onChange={v => update({ locationTracking: v })} />
               </SettingRow>
               <SettingRow
@@ -651,6 +675,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </SettingSection>
             <SettingSection id="settings-privacy" title="Privacy" icon={Shield}>
               <SettingRow label="Your data" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security." />
+              <a className="text-xs underline text-content-1" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+              <p className="mt-2 text-xs text-content-2">App updates from Google Play keep your sign-in and local data. Auto-update timing is controlled by Google Play and your device settings. Uninstalling or clearing app data removes the local session.</p>
             </SettingSection>
             </div>
             </div>
@@ -696,7 +722,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   type="file"
                   accept=".json,application/json"
                   className="hidden"
-                  aria-label="Select MTracker JSON backup"
+                  aria-label="Select MINARTH JSON backup"
                   onChange={(event) => void handleBackupFileSelection(event.target.files?.[0])}
                 />
                 <SettingButton
@@ -757,7 +783,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {/* ============ ABOUT ============ */}
             <div hidden={selectedGroup !== 'about'}>
             <SettingSection id="settings-about" title="About" icon={Info} iconClassName="text-content-3">
-              <SettingRow label="Version" description="MTracker · Track Money Flow">
+              <SettingRow label="Version" description="MINARTH · Clarity for your money">
                 <StatusPill tone="neutral">v{__APP_VERSION__}</StatusPill>
               </SettingRow>
               <SettingRow

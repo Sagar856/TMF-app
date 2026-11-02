@@ -1,460 +1,237 @@
-import React, { useState } from 'react';
-import { X, Mail, Lock, CheckCircle2, ShieldCheck, ArrowRight, RefreshCw } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { X, Mail, CheckCircle2 } from 'lucide-react';
+import { BrandMark } from './BrandMark';
+import { PasswordField } from './PasswordField';
 import { UserSettings } from '../types/finance';
-import { signInUser, signUpUser, sendPasswordResetEmail, updatePassword, getSupabaseClient, getAuthRedirectUrl } from '../services/supabaseClient';
+import { useDialog } from '../hooks/useDialog';
+import { isStrongPassword } from '../utils/passwordPolicy';
+import { createEmailRegistration, getSupabaseClient, sendPasswordResetEmail, signInUser, updatePassword } from '../services/supabaseClient';
 
+type AuthMode = 'login' | 'register' | 'verify_email' | 'forgot_password' | 'set_new_password';
 interface AuthModalProps {
-  initialMode?: 'login' | 'register' | 'forgot_password' | 'set_new_password';
+  initialMode?: AuthMode;
   onClose: () => void;
-  onSuccess: (updatedUser: { name: string; emailOrPhone: string }) => void;
+  onSuccess: (user: { name: string; emailOrPhone: string }) => void;
   settings?: UserSettings;
-  /** When false (the default mandatory sign-in gate), hides the X button and
-   * disables backdrop-click-to-dismiss — the app requires a real account,
-   * so there is no way to "skip" login without actually authenticating. */
   canClose?: boolean;
 }
 
-// Real authentication only: Supabase email/password auth (free tier).
-// No simulated OTPs, no hardcoded bypass codes, no default weak passwords.
-export const AuthModal: React.FC<AuthModalProps> = ({
-  initialMode = 'login',
-  onClose,
-  onSuccess,
-  canClose = true,
-}) => {
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot_password' | 'set_new_password'>(initialMode);
+export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onClose, onSuccess, canClose = true }) => {
+  const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [verifiedEmail, setVerifiedEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [resendAfter, setResendAfter] = useState(0);
+  const [now, setNow] = useState(Date.now);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const registration = useRef<ReturnType<typeof createEmailRegistration> | null>(null);
+  const emailRevision = useRef(0);
+  const dialogRef = useDialog({ isOpen: true, onClose: () => { if (canClose && !busy) onClose(); } });
+  const configured = Boolean(getSupabaseClient());
+  const registering = mode === 'register' || mode === 'verify_email';
+  const normalizedEmail = email.trim().toLowerCase();
+  const emailVerified = Boolean(verifiedEmail && verifiedEmail === normalizedEmail);
+  const strong = isStrongPassword(password);
+  const passwordsMatch = Boolean(confirmPassword && password === confirmPassword);
+  const cooldown = Math.max(0, Math.ceil((resendAfter - now) / 1000));
 
-  const [name, setName] = useState<string>('');
-  const [email, setEmail] = useState<string>('');
-  const [password, setPassword] = useState<string>('');
-  const [confirmPassword, setConfirmPassword] = useState<string>('');
-  const [newPassword, setNewPassword] = useState<string>('');
+  useEffect(() => {
+    if (!resendAfter) return;
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [resendAfter]);
 
-  const [isVerifying, setIsVerifying] = useState<boolean>(false);
-  const [errorMsg, setErrorMsg] = useState<string>('');
-  const [successMsg, setSuccessMsg] = useState<string>('');
+  useEffect(() => () => { registration.current?.reset(); }, []);
 
-  const supabaseConfigured = Boolean(getSupabaseClient());
-
-  const resetFeedback = () => {
-    setErrorMsg('');
-    setSuccessMsg('');
+  const clearFeedback = () => { setError(''); setSuccess(''); };
+  const changeMode = (next: AuthMode) => {
+    emailRevision.current++;
+    registration.current?.reset();
+    registration.current = null;
+    setMode(next);
+    // Login/autofill values must never become signup or recovery password values.
+    setPassword('');
+    setConfirmPassword('');
+    setOtp('');
+    setCodeSent(false);
+    setVerifiedEmail('');
+    clearFeedback();
+  };
+  const changeEmail = (value: string) => {
+    emailRevision.current++;
+    registration.current?.reset();
+    setEmail(value);
+    setVerifiedEmail('');
+    setCodeSent(false);
+    setOtp('');
+    clearFeedback();
+  };
+  const reportError = (reason: unknown, fallback: string) => {
+    setError(reason instanceof Error ? reason.message : fallback);
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    resetFeedback();
-
-    if (!email.trim() || !password) {
-      setErrorMsg('Please enter your email and a password.');
+  const sendCode = async () => {
+    clearFeedback();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setError('Enter a valid email address first.');
       return;
     }
-    if (password.length < 8) {
-      setErrorMsg('Password must be at least 8 characters long.');
+    if (Date.now() < resendAfter) {
+      setError('Please wait before requesting another code.');
       return;
     }
-    if (password !== confirmPassword) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
-    if (!supabaseConfigured) {
-      setErrorMsg('Cloud backend is not configured for this build');
-      return;
-    }
-
-    setIsVerifying(true);
+    const revision = emailRevision.current;
+    setBusy(true);
+    setVerifiedEmail('');
+    setOtp('');
     try {
-      await signUpUser(email.trim(), password, name.trim() || email.split('@')[0]);
-      setIsVerifying(false);
-      setSuccessMsg(
-        `Account created! Check your email for a confirmation link, then sign in. ` +
-        `(If the link errors with "requested path is invalid", the app owner needs to add ` +
-        `"${getAuthRedirectUrl()}" to Supabase → Authentication → URL Configuration → Redirect URLs.)`
-      );
-      setTimeout(() => setMode('login'), 2500);
-    } catch (err: any) {
-      setIsVerifying(false);
-      if (err?.message?.toLowerCase().includes('already registered')) {
-        setErrorMsg('This email is already registered. Please sign in instead.');
-        setMode('login');
+      registration.current ??= createEmailRegistration();
+      await registration.current.sendCode(normalizedEmail);
+      if (revision !== emailRevision.current) return;
+      setCodeSent(true);
+      setResendAfter(Date.now() + 60_000);
+      setNow(Date.now());
+      setSuccess('Verification code requested. Check your inbox and spam folder.');
+    } catch (reason) {
+      reportError(reason, 'Could not send a code. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verifyCode = async () => {
+    clearFeedback();
+    const revision = emailRevision.current;
+    setBusy(true);
+    try {
+      if (!registration.current) throw new Error('Request a code first.');
+      await registration.current.verifyCode(normalizedEmail, otp.trim());
+      if (revision !== emailRevision.current) return;
+      setVerifiedEmail(normalizedEmail);
+      setSuccess('Email verified. Set your password, then create your account.');
+    } catch (reason) {
+      reportError(reason, 'Verification failed. Request a new code.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    clearFeedback();
+    if (!configured) { setError('Cloud backend is not configured for this build.'); return; }
+    if (registering && !emailVerified) { setError('Verify your email before creating an account.'); return; }
+    if ((registering || mode === 'set_new_password') && (!strong || !passwordsMatch)) {
+      setError('Complete the password requirements and make both passwords match.');
+      return;
+    }
+    setBusy(true);
+    try {
+      if (mode === 'forgot_password') {
+        await sendPasswordResetEmail(normalizedEmail);
+        setSuccess('If this email has an account, a password reset link has been sent. Open it to continue.');
+      } else if (mode === 'set_new_password') {
+        await updatePassword(password);
+        changeMode('login');
+        setSuccess('Password updated. Sign in with your new password.');
       } else {
-        setErrorMsg(err?.message || 'Registration failed. Please try again.');
+        if (registering && !registration.current) throw new Error('Request and verify a code first.');
+        const data = registering
+          ? await registration.current?.complete(normalizedEmail, password, name.trim() || normalizedEmail.split('@')[0])
+          : await signInUser(normalizedEmail, password);
+        if (!data?.user) throw new Error('Sign-in did not return a user.');
+        onSuccess({ name: data.user.user_metadata?.full_name || normalizedEmail.split('@')[0], emailOrPhone: data.user.email || normalizedEmail });
+        onClose();
       }
+    } catch (reason) {
+      reportError(reason, 'Authentication failed. Please try again.');
+    } finally {
+      setBusy(false);
     }
   };
-
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    resetFeedback();
-
-    if (!email.trim() || !password) {
-      setErrorMsg('Please enter both your email and password.');
-      return;
-    }
-
-    if (!supabaseConfigured) {
-      setErrorMsg('Cloud backend is not configured for this build');
-      return;
-    }
-
-    setIsVerifying(true);
-    try {
-      const data = await signInUser(email.trim(), password);
-      setIsVerifying(false);
-      const userObj = data?.user;
-      onSuccess({
-        name: userObj?.user_metadata?.full_name || email.split('@')[0] || 'User',
-        emailOrPhone: userObj?.email || email.trim(),
-      });
-      setSuccessMsg('Login successful!');
-      setTimeout(() => onClose(), 800);
-    } catch (err: any) {
-      setIsVerifying(false);
-      setErrorMsg(err?.message || 'Invalid credentials or user not found.');
-    }
-  };
-
-  const handleSendResetEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    resetFeedback();
-
-    if (!email.trim()) {
-      setErrorMsg('Please enter your registered email address.');
-      return;
-    }
-    if (!supabaseConfigured) {
-      setErrorMsg('Cloud backend is not configured for this build');
-      return;
-    }
-
-    setIsVerifying(true);
-    try {
-      await sendPasswordResetEmail(email.trim());
-      setIsVerifying(false);
-      setSuccessMsg(
-        `A password reset link has been sent to your email. Open it to continue. ` +
-        `(If the link errors with "requested path is invalid", the app owner needs to add ` +
-        `"${getAuthRedirectUrl()}" to Supabase → Authentication → URL Configuration → Redirect URLs.)`
-      );
-    } catch (err: any) {
-      setIsVerifying(false);
-      setErrorMsg(err?.message || 'Failed to send reset email.');
-    }
-  };
-
-  const handleSetNewPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    resetFeedback();
-
-    if (!newPassword || newPassword.length < 8) {
-      setErrorMsg('Password must be at least 8 characters long.');
-      return;
-    }
-
-    setIsVerifying(true);
-    try {
-      await updatePassword(newPassword);
-      setIsVerifying(false);
-      setSuccessMsg('Password updated successfully! Please sign in.');
-      setTimeout(() => setMode('login'), 1500);
-    } catch (err: any) {
-      setIsVerifying(false);
-      setErrorMsg(err?.message || 'Failed to update password.');
-    }
-  };
+  const heading = registering ? 'Create New Account' : mode === 'login' ? 'Sign In To MINARTH'
+    : mode === 'set_new_password' ? 'Set New Password' : 'Reset Password';
+  const inputClass = 'w-full px-3 py-2 bg-surface-2 border border-line rounded-xl text-xs text-content-1 focus:outline-none focus:border-violet-500';
+  const actionClass = 'rounded-xl bg-violet-600 hover:bg-violet-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed';
 
   return (
     <div className="identity-glass identity-login fixed inset-0 z-modal flex items-center justify-center p-4 bg-black/80 backdrop-blur-md font-mono">
-      {/* Background Overlay — clicking it does nothing when canClose is false */}
-      <div className="fixed inset-0" onClick={canClose ? onClose : undefined} />
-
-      {/* Modal Dialog */}
-      <div role="dialog" aria-modal="true" aria-labelledby="auth-heading" className="identity-glass-panel relative z-10 bg-[#0d0d0e] border border-[#26262a] w-full max-w-md rounded-3xl p-6 shadow-2xl text-white space-y-5 my-auto animate-in zoom-in-95 duration-200">
-        
-        {/* Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-[#222]">
+      <div className="fixed inset-0" onClick={canClose && !busy ? onClose : undefined} />
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="auth-heading" tabIndex={-1}
+        className="identity-glass-panel relative z-10 w-full max-w-md rounded-3xl p-6 text-content-1 space-y-5 my-auto animate-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
           <div className="flex items-center gap-2.5">
-            <div className="identity-glass-accent w-8 h-8 rounded-xl bg-red-950/60 border border-red-600/50 flex items-center justify-center text-red-500">
-              <ShieldCheck className="w-4 h-4" />
-            </div>
+            <BrandMark />
             <div>
-              <h3 id="auth-heading" className="text-xs font-bold uppercase tracking-wider text-white">
-                {mode === 'register'
-                  ? 'Create New Account'
-                  : mode === 'login'
-                  ? 'Sign In To MTracker'
-                  : mode === 'set_new_password'
-                  ? 'Set New Password'
-                  : 'Reset Password'}
-              </h3>
-              <p className="text-[10px] text-[#777]">
-                {mode === 'register'
-                  ? 'Secure email + password account'
-                  : mode === 'login'
-                  ? 'Enter your credentials'
-                  : mode === 'set_new_password'
-                  ? 'Choose a new password for your account'
-                  : 'We will email you a reset link'}
+              <h3 id="auth-heading" className="text-xs font-bold uppercase tracking-wider">{heading}</h3>
+              <p className="text-[10px] text-content-2">
+                {registering ? 'Verify email first, then set a password' : mode === 'login' ? 'Enter your credentials'
+                  : mode === 'set_new_password' ? 'Choose and confirm a strong password' : 'We will email you a reset link'}
               </p>
             </div>
           </div>
-
-          {canClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close sign-in"
-              className="p-1.5 rounded-xl bg-[#1a1a1a] text-[#888] hover:text-white hover:bg-surface-3 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+          {canClose && <button type="button" disabled={busy} onClick={onClose} aria-label="Close sign-in"><X className="w-4 h-4" /></button>}
         </div>
-
-        {!supabaseConfigured && (
-          <div className="p-3 bg-yellow-950/50 border border-yellow-800/60 rounded-xl text-yellow-400 text-[11px]">
-            This app requires an MTracker account to continue — your data stays private to you via secure, per-user database rules.
-          </div>
-        )}
-
-        {/* Error / Success Feedback Banners */}
-        {errorMsg && (
-          <div className="p-3 bg-red-950/60 border border-red-800/80 rounded-xl text-red-400 text-xs flex items-center gap-2">
-            <X className="w-4 h-4 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
-
-        {successMsg && (
-          <div className="p-3 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-emerald-400 text-xs flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
-
-        {/* ==================== 1. REGISTER MODE ==================== */}
-        {mode === 'register' && (
-          <>
-            <form onSubmit={handleRegister} className="space-y-3.5">
-              <div>
-                <label className="block text-[10px] text-[#777] uppercase mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="John Doe"
-                  className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] text-[#777] uppercase mb-1 flex items-center gap-1">
-                  <Mail className="w-3 h-3" /> Email Address
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] text-[#777] uppercase mb-1">Password</label>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Min. 8 characters"
-                    className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-[#777] uppercase mb-1">Confirm</label>
-                  <input
-                    type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                    required
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={isVerifying}
-                className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
-              >
-                {isVerifying && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isVerifying ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT'}</span>
-                {!isVerifying && <ArrowRight className="w-3.5 h-3.5" />}
-              </button>
-            </form>
-
-            {/* Bottom switch mode link */}
-            <div className="text-center pt-2 border-t border-[#222] text-[10px] text-[#777]">
-              Already have an account?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  resetFeedback();
-                  setMode('login');
-                }}
-                className="text-red-400 font-bold hover:underline cursor-pointer"
-              >
-                Sign In
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ==================== 2. LOGIN MODE ==================== */}
-        {mode === 'login' && (
-          <>
-            <form onSubmit={handleLogin} className="space-y-3.5">
-              <div>
-                <label className="block text-[10px] text-[#777] uppercase mb-1 flex items-center gap-1">
-                  <Mail className="w-3 h-3" /> Email Address
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[10px] text-[#777] uppercase flex items-center gap-1">
-                    <Lock className="w-3 h-3" /> Password
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetFeedback();
-                      setMode('forgot_password');
-                    }}
-                    className="text-[9px] text-red-400 hover:underline cursor-pointer"
-                  >
-                    Forgot Password?
-                  </button>
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isVerifying}
-                className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
-              >
-                {isVerifying && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isVerifying ? 'AUTHENTICATING...' : 'SIGN IN'}</span>
-              </button>
-            </form>
-
-            {/* Bottom switch mode link */}
-            <div className="text-center pt-2 border-t border-[#222] text-[10px] text-[#777]">
-              Don't have an account?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  resetFeedback();
-                  setMode('register');
-                }}
-                className="text-red-400 font-bold hover:underline cursor-pointer"
-              >
-                Register Now
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ==================== 3. FORGOT PASSWORD MODE ==================== */}
-        {mode === 'forgot_password' && (
-          <>
-            <form onSubmit={handleSendResetEmail} className="space-y-3.5">
-              <div>
-                <label className="block text-[10px] text-[#777] uppercase mb-1">
-                  Registered Email Address
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="user@example.com"
-                  className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                  required
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isVerifying}
-                className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
-              >
-                {isVerifying && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isVerifying ? 'SENDING...' : 'SEND RESET LINK'}</span>
-              </button>
-            </form>
-
-            <div className="text-center pt-2 border-t border-[#222] text-[10px] text-[#777]">
-              Remembered your password?{' '}
-              <button
-                type="button"
-                onClick={() => {
-                  resetFeedback();
-                  setMode('login');
-                }}
-                className="text-red-400 font-bold hover:underline cursor-pointer"
-              >
-                Back to Sign In
-              </button>
-            </div>
-          </>
-        )}
-
-        {/* ==================== 4. SET NEW PASSWORD (after recovery redirect) ==================== */}
-        {mode === 'set_new_password' && (
-          <form onSubmit={handleSetNewPassword} className="space-y-3.5">
+        {!configured && <p role="alert" className="text-xs text-amber-400">Cloud backend is not configured for this build. Sign-in is unavailable.</p>}
+        {error && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-400">{error}</p>}
+        {success && <p role="status" className="flex gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-3 text-xs text-emerald-400"><CheckCircle2 className="w-4 h-4 shrink-0" />{success}</p>}
+        <form key={mode} onSubmit={submit} className="space-y-3.5" autoComplete={registering ? 'off' : 'on'}>
+          {registering && (
+            <label className="block text-[10px] text-content-2 uppercase">Full name
+              <input name="name" autoComplete="name" value={name} onChange={event => setName(event.target.value)} placeholder="John Doe" disabled={busy} className={`${inputClass} mt-1`} />
+            </label>
+          )}
+          {mode !== 'set_new_password' && (
             <div>
-              <label className="block text-[10px] text-[#777] uppercase mb-1">New Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="Min. 8 characters"
-                className="w-full px-3 py-2 bg-[#141414] border border-[#262626] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                required
-              />
+              <label htmlFor="auth-email" className="flex items-center gap-1 text-[10px] text-content-2 uppercase mb-1"><Mail className="w-3 h-3" />{mode === 'forgot_password' ? 'Registered email address' : 'Email address'}</label>
+              <div className="flex gap-2">
+                <input id="auth-email" name="email" type="email" value={email} onChange={event => changeEmail(event.target.value)}
+                  autoComplete={registering ? 'email' : 'username'} placeholder="user@example.com" required disabled={busy} className={`${inputClass} min-w-0 flex-1`} />
+                {registering && <button type="button" onClick={sendCode} disabled={busy || emailVerified || cooldown > 0 || !configured} className={actionClass}>
+                  {emailVerified ? 'Verified' : cooldown > 0 ? `Wait ${cooldown}s` : codeSent ? 'Resend code' : 'Verify'}
+                </button>}
+              </div>
+              {registering && codeSent && !emailVerified && (
+                <div className="mt-3 space-y-2">
+                  <label htmlFor="auth-otp" className="block text-[10px] text-content-2 uppercase">Email verification code</label>
+                  <div className="flex gap-2">
+                    <input id="auth-otp" name="otp" value={otp} onChange={event => setOtp(event.target.value)} inputMode="numeric"
+                      autoComplete="one-time-code" pattern="[0-9]{6,10}" minLength={6} maxLength={10} disabled={busy}
+                      className={`${inputClass} min-w-0 flex-1 tracking-widest`} />
+                    <button type="button" onClick={verifyCode} disabled={busy || !/^\d{6,10}$/.test(otp)} className={actionClass}>Verify code</button>
+                  </div>
+                </div>
+              )}
+              {emailVerified && <p role="status" className="mt-2 text-xs text-emerald-500">Email verified</p>}
             </div>
-
-            <button
-              type="submit"
-              disabled={isVerifying}
-              className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs uppercase rounded-xl transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
-            >
-              {isVerifying && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-              <span>{isVerifying ? 'UPDATING...' : 'UPDATE PASSWORD'}</span>
+          )}
+          {mode !== 'forgot_password' && (
+            <PasswordField key={`${mode}-password`} label={mode === 'set_new_password' ? 'New password' : 'Password'}
+              value={password} onChange={setPassword} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+              showRequirements={registering || mode === 'set_new_password'} />
+          )}
+          {(registering || mode === 'set_new_password') && (
+            <PasswordField key={`${mode}-confirm`} label="Confirm password" value={confirmPassword} onChange={setConfirmPassword}
+              autoComplete="new-password" matches={passwordsMatch} />
+          )}
+          {mode === 'login' && <button type="button" disabled={busy} onClick={() => changeMode('forgot_password')} className="text-xs text-violet-300">Forgot Password?</button>}
+          <button type="submit" disabled={busy || !configured || ((registering || mode === 'set_new_password') && (!strong || !passwordsMatch || (registering && !emailVerified)))}
+            className={`${actionClass} w-full py-3 uppercase`}>
+            {busy ? 'Please wait...' : registering ? 'Create account' : mode === 'login' ? 'Sign in' : mode === 'set_new_password' ? 'Update password' : 'Send reset link'}
+          </button>
+        </form>
+        {mode !== 'set_new_password' && (
+          <div className="text-center pt-2 border-t border-line text-[10px] text-content-2">
+            {mode === 'login' ? "Don't have an account? " : registering ? 'Already have an account? ' : 'Remembered your password? '}
+            <button type="button" disabled={busy} onClick={() => changeMode(mode === 'login' ? 'register' : 'login')} className="font-bold text-violet-300">
+              {mode === 'login' ? 'Register Now' : 'Back to Sign In'}
             </button>
-          </form>
+          </div>
         )}
-
       </div>
     </div>
   );

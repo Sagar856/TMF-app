@@ -1,5 +1,6 @@
 export const STORAGE_WRITE_FAILED_EVENT = 'tmf-storage-write-failed';
 export const STORAGE_READ_FAILED_EVENT = 'tmf-storage-read-failed';
+export const PREFERENCES_CHANGED_EVENT = 'tmf-preferences-changed';
 
 let pendingStorageReadFailure = false;
 
@@ -73,6 +74,9 @@ export function safeGetStringArray(key: string): string[] {
 export function safeSetItem(key: string, value: string): boolean {
   try {
     localStorage.setItem(key, value);
+    if (key === 'tmf_smart_rules' && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event(PREFERENCES_CHANGED_EVENT));
+    }
     return true;
   } catch (error) {
     console.warn(`Could not save local storage key "${key}":`, error);

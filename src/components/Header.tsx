@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, MapPin, Search, Sun, Moon, User } from 'lucide-react';
 import { motion } from 'motion/react';
 import { DownloadAppCard } from './DownloadAppCard';
+import { BrandMark } from './BrandMark';
 
 interface HeaderProps {
   userName?: string;
@@ -51,14 +52,10 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="h-14 sm:h-16 border-b border-nothing bg-carbon px-3 sm:px-6 flex items-center justify-between shrink-0">
       {/* Top Left: App Name as Brand Logo */}
       <div className="flex items-center gap-2.5">
-        <div className="w-7 h-7 sm:w-8 sm:h-8 tmf-logo-box flex items-center justify-center rounded-md shadow-sm border shrink-0">
-          <div className="w-3.5 h-3.5 tmf-logo-box-dot rounded-full flex items-center justify-center">
-            <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-pulse" />
-          </div>
-        </div>
+        <BrandMark className="w-7 h-7 sm:w-8 sm:h-8" />
         <div className="flex flex-col">
-          <span className="text-base sm:text-lg font-black font-mono tracking-wider tmf-logo-text uppercase select-none leading-none">
-            MTracker
+          <span className="text-base sm:text-lg font-black font-mono tracking-wider minarth-logo-text uppercase select-none leading-none">
+            MINARTH
           </span>
           <span className="text-[8px] sm:text-[9px] font-mono tracking-[0.2em] text-[#777] hidden sm:inline-block leading-tight">
             SMART EXPENSE TRACKER

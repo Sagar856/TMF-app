@@ -1,0 +1,23 @@
+def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
+if (releaseRequested) {
+    def signingEnv = ['TMF_RELEASE_STORE_FILE', 'TMF_RELEASE_STORE_PASSWORD', 'TMF_RELEASE_KEY_ALIAS', 'TMF_RELEASE_KEY_PASSWORD']
+    signingEnv.each { name ->
+        if (!System.getenv(name)) throw new GradleException("Missing release signing environment variable: ${name}")
+    }
+    android {
+        signingConfigs {
+            release {
+                storeFile file(System.getenv('TMF_RELEASE_STORE_FILE'))
+                storePassword System.getenv('TMF_RELEASE_STORE_PASSWORD')
+                keyAlias System.getenv('TMF_RELEASE_KEY_ALIAS')
+                keyPassword System.getenv('TMF_RELEASE_KEY_PASSWORD')
+            }
+        }
+        buildTypes {
+            release {
+                signingConfig signingConfigs.release
+                debuggable false
+            }
+        }
+    }
+}

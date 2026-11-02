@@ -1,5 +1,5 @@
 {
-  "name": "MTracker",
+  "name": "MINARTH",
   "description": "Clean, minimalist smart finance tracker with automated UPI/SMS payment detection, accounts, investments, loans and customizable budgets.",
   "requestFramePermissions": ["geolocation"],
   "majorCapabilities": []

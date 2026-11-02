@@ -51,12 +51,21 @@ test('categories and budgets remain a separate menu below preferences', (context
       onExportBackupJSON={() => {}}
       onRestoreBackupJSON={() => {}}
       onResetAllData={() => {}}
+      lastSettingsSyncAt={1700000000000}
+      syncStatus={{ collection: 'settings', success: false, error: 'Offline', timestamp: 1800000000000 }}
+      onDeleteUserAccount={() => {}}
+      isAuthenticated
     />
   );
   assert.doesNotMatch(markup, /data-settings-group="categories"/);
   assert.match(markup, /<section aria-label="Categories &amp; Budgets"/);
   assert.match(markup, /aria-label="Categories and budgets sections"/);
   assert.doesNotMatch(markup, /id="categories-budgets-heading"/);
+  assert.match(markup, /Last successful settings sync/);
+  assert.ok(markup.includes(new Date(1700000000000).toLocaleString()));
+  assert.ok(!markup.includes(new Date(1800000000000).toLocaleString()));
+  assert.match(markup, /Delete account/);
+  assert.match(markup, /Real-time tracking/);
   assert.ok(markup.indexOf('aria-label="Categories &amp; Budgets"') > markup.indexOf('aria-label="Settings sections"'));
   for (const section of ['budgets', 'categories', 'accounts', 'rules']) {
     assert.match(markup, new RegExp(`data-section="${section}"`));

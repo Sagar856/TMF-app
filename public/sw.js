@@ -1,4 +1,4 @@
-/* MTracker service worker — offline app shell.
+/* MINARTH service worker — offline app shell.
  * - Precaches the HTML shell and whatever hashed assets the shell references.
  * - Navigation requests: network-first, fall back to the cached shell.
  * - Same-origin static assets: stale-while-revalidate.
@@ -6,7 +6,7 @@
  * The version comes from the `?v=` query the app registers with, so each
  * release gets fresh caches and old ones are purged on activate.
  */
-const VERSION = new URL(self.location.href).searchParams.get('v') || 'dev';
+const VERSION = `${new URL(self.location.href).searchParams.get('v') || 'dev'}-minarth`;
 const SHELL_CACHE = `tmf-shell-${VERSION}`;
 const ASSET_CACHE = `tmf-assets-${VERSION}`;
 const SHELL_URL = new URL('./', self.location.href).pathname;

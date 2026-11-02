@@ -8,6 +8,14 @@
 [functions]
   directory = "netlify/functions"
 
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-Frame-Options = "DENY"
+    Permissions-Policy = "camera=(), microphone=()"
+
 [[redirects]]
   from = "/api/stock-quote"
   to = "/.netlify/functions/stock-quote"

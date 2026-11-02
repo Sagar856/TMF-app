@@ -1,0 +1,60 @@
+name: Build signed Play bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_code:
+        description: 'Android versionCode (integer higher than every previous Play upload)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  play-bundle:
+    runs-on: ubuntu-latest
+    environment: play-release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - run: npm ci
+      - run: npm run lint && npm test && npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      - run: npx cap add android && npx cap sync android && npm run android:patch
+        env:
+          ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      - name: Decode upload key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "Missing upload keystore"; exit 1; }
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/minarth-upload.jks"
+      - name: Build signed release AAB
+        working-directory: android
+        env:
+          TMF_RELEASE_STORE_FILE: ${{ runner.temp }}/minarth-upload.jks
+          TMF_RELEASE_STORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_STORE_PASSWORD }}
+          TMF_RELEASE_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+          TMF_RELEASE_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
+        run: chmod +x gradlew && ./gradlew bundleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MINARTH-play-bundle
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/minarth-upload.jks"

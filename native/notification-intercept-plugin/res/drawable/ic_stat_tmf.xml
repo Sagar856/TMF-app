@@ -1,11 +1,6 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp"
-    android:height="24dp"
-    android:viewportWidth="24"
-    android:viewportHeight="24"
-    android:tint="#FFFFFF">
-  <!-- Simple monochrome "flow" glyph used as the status-bar notification icon. -->
-  <path
-      android:fillColor="#FFFFFF"
-      android:pathData="M12,2 L4,13 H11 L10,22 L20,9 H13 Z" />
+    android:width="24dp" android:height="24dp" android:viewportWidth="320" android:viewportHeight="320">
+  <group android:translateX="-96" android:translateY="-96">
+    <path android:fillColor="#FFFFFF" android:pathData="M128,360 L128,152 L174,152 L256,248 L338,152 L384,152 L384,360 L330,360 L330,240 L256,326 L182,240 L182,360 Z"/>
+  </group>
 </vector>
