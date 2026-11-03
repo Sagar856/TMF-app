@@ -1,5 +1,5 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoanRecord, Repayment, UserSettings, FinancialAccount, LoanStructure, LoanInstallment } from '../types/finance';
 import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, TrendingDown, TrendingUp, Wallet, FileText, MoreVertical, Eye, EyeOff, AlertTriangle, Calendar, Percent, Building2, CheckCircle2 } from 'lucide-react';
@@ -14,6 +14,7 @@ import { getEffectiveLoanStatus } from '../utils/loanStatus';
 interface LoansViewProps {
   loans: LoanRecord[];
   accounts?: FinancialAccount[];
+  openAddLoanRequest?: number;
   onAddLoan: (loan: LoanRecord, accountId?: string, recordInLedger?: boolean) => void;
   onRecordRepayment: (loanId: string, repayment: Repayment, accountId?: string, recordInLedger?: boolean) => void;
   onSettleLoan?: (loanId: string, accountId?: string, recordInLedger?: boolean) => void;
@@ -36,6 +37,7 @@ interface LoansViewProps {
 export const LoansView: React.FC<LoansViewProps> = ({
   loans,
   accounts = [],
+  openAddLoanRequest = 0,
   onAddLoan,
   onRecordRepayment,
   onSettleLoan,
@@ -65,6 +67,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
+  const lastAddLoanRequestRef = useRef(0);
   const [repayModalLoan, setRepayModalLoan] = useState<LoanRecord | null>(null);
   const [settleModalLoan, setSettleModalLoan] = useState<LoanRecord | null>(null);
   const [editModalLoan, setEditModalLoan] = useState<LoanRecord | null>(null);
@@ -95,6 +98,12 @@ export const LoansView: React.FC<LoansViewProps> = ({
   });
   const [newNotes, setNewNotes] = useState<string>('');
   const [newType, setNewType] = useState<'loan' | 'lend'>('loan');
+
+  useEffect(() => {
+    if (openAddLoanRequest <= lastAddLoanRequestRef.current) return;
+    lastAddLoanRequestRef.current = openAddLoanRequest;
+    setIsAddModalOpen(true);
+  }, [openAddLoanRequest]);
 
   // Repayment form
   const [repayAmount, setRepayAmount] = useState<string>('');
@@ -1196,10 +1205,10 @@ export const LoansView: React.FC<LoansViewProps> = ({
           ALL LOANS & LENDS
         </h3>
 
-        <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto">
+        <div className="finance-data-table bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto">
           <div className="min-w-[860px]">
             {/* Table Header */}
-            <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
+            <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
               <div className="col-span-2">DATE</div>
               <div className="col-span-1">TYPE</div>
               <div className="col-span-2">PERSON</div>
@@ -1224,7 +1233,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                 return (
                   <React.Fragment key={item.id}>
                     {/* Parent Row */}
-                    <div className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-colors">
+                    <div className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-colors">
                       {/* Date with expand toggle */}
                       <div
                         onClick={() => toggleExpand(item.id)}
@@ -1310,14 +1319,14 @@ export const LoansView: React.FC<LoansViewProps> = ({
 
                     {/* Expanded Sub-Table: PAYMENT HISTORY */}
                     {isExpanded && (
-                      <div className="bg-[#0a0a0a] border-b border-[#222] px-6 py-4 space-y-3">
+                      <div className="finance-payment-history bg-[#0a0a0a] border-b border-[#222] px-6 py-4 space-y-3">
                         <div className="text-[10px] font-bold tracking-widest text-[#777] uppercase">
                           PAYMENT HISTORY – {item.personOrBank.toUpperCase()}
                         </div>
 
                         {item.repayments && item.repayments.length > 0 ? (
                           <div className="space-y-1 text-xs font-mono">
-                            <div className="grid grid-cols-12 text-[#666] text-[10px] uppercase font-bold border-b border-line pb-1">
+                            <div className="finance-table-head grid grid-cols-12 text-[#666] text-[10px] uppercase font-bold border-b border-line pb-1">
                               <div className="col-span-3">DATE</div>
                               <div className="col-span-3">AMOUNT</div>
                               <div className="col-span-3">REFERENCE</div>
@@ -1327,7 +1336,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
                             {item.repayments.map((rep) => (
                               <div
                                 key={rep.id}
-                                className="grid grid-cols-12 text-[#aaa] py-1 border-b border-line items-center"
+                                className="finance-table-row grid grid-cols-12 text-[#aaa] py-1 border-b border-line items-center"
                               >
                                 <div className="col-span-3">{formatDateDisplay(rep.date)}</div>
                                 <div className="col-span-3 font-bold text-emerald-400">
@@ -1368,7 +1377,7 @@ export const LoansView: React.FC<LoansViewProps> = ({
       {/* ==================== REPAYMENT MODAL ==================== */}
       {repayModalLoan && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-sm w-full shadow-2xl relative">
+          <div className="finance-dialog-glass bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-sm w-full shadow-2xl relative">
             <div className="flex justify-between items-center mb-4 pb-3 border-b border-[#222]">
               <h3 className="text-xs font-mono font-bold text-white uppercase tracking-wider">
                 RECORD REPAYMENT
@@ -1704,12 +1713,17 @@ export const LoansView: React.FC<LoansViewProps> = ({
                   </label>
                   <input
                     type="text"
+                    list="loan-person-suggestions"
+                    autoComplete="off"
                     required
                     placeholder="e.g. HDFC Bank, Amazon Pay, Rahul"
                     value={newPerson}
                     onChange={(e) => setNewPerson(e.target.value)}
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                   />
+                  <datalist id="loan-person-suggestions">
+                    {uniquePersons.map((person) => <option key={person} value={person} />)}
+                  </datalist>
                 </div>
                 <div>
                   <label className="block text-[9px] font-bold text-[#aaa] uppercase tracking-wider mb-1">

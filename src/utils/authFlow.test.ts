@@ -13,7 +13,11 @@ const bundle = buildSync({
   define: { 'import.meta.env': JSON.stringify({ VITE_SUPABASE_URL: 'https://test.supabase.co', VITE_SUPABASE_ANON_KEY: 'public-test-key', BASE_URL: '/' }) },
 }).outputFiles[0].text;
 
-function load(auth: Record<string, unknown>, rpc?: (name: string) => unknown, registrationAuth = auth) {
+function load(
+  auth: Record<string, unknown>,
+  rpc: (name: string, args?: Record<string, unknown>) => unknown = async () => ({ data: false, error: null }),
+  registrationAuth = auth
+) {
   const module = { exports: {} };
   const require = createRequire(import.meta.url);
   runInNewContext(bundle, {
@@ -71,8 +75,84 @@ test('signup verifies on an isolated client before password creation or main sig
   await assert.rejects(registration.complete('different@example.test', 'Strong-password1!', 'User'), /Verify your email/);
   await registration.complete(user.email, 'Strong-password1!', 'User');
   assert.deepEqual(calls, ['send', 'verify', 'set-password', 'main-sign-in']);
+  await assert.rejects(registration.verifyCode(user.email, '123456'), /Request a code/);
   registration.reset();
   await assert.rejects(registration.complete(user.email, 'Strong-password1!', 'User'), /Verify your email/);
+});
+
+test('existing normalized email is checked before OTP and no code is sent', async () => {
+  let sent = false;
+  const api = load({
+    signInWithOtp: async () => { sent = true; return { error: null }; },
+  }, async (name, args) => {
+    assert.equal(name, 'registration_email_exists');
+    assert.equal(args?.candidate_email, user.email);
+    return { data: true, error: null };
+  });
+  await assert.rejects(api.createEmailRegistration().sendCode(`  ${user.email.toUpperCase()} `), api.EmailAlreadyRegisteredError);
+  assert.equal(sent, false);
+});
+
+test('new email lookup completes before sending and same-flow resends remain available', async () => {
+  const calls: string[] = [];
+  let failResend = false;
+  const api = load({
+    signInWithOtp: async () => {
+      calls.push('send');
+      return { error: failResend ? new Error('Rate limited') : null };
+    },
+  }, async () => {
+    calls.push('lookup');
+    return { data: false, error: null };
+  });
+  const registration = api.createEmailRegistration();
+  await registration.sendCode(user.email);
+  failResend = true;
+  await assert.rejects(registration.sendCode(user.email), /Rate limited/);
+  failResend = false;
+  await registration.sendCode(user.email);
+  assert.deepEqual(calls, ['lookup', 'send', 'send', 'send']);
+  registration.reset();
+  await registration.sendCode(user.email);
+  assert.deepEqual(calls, ['lookup', 'send', 'send', 'send', 'lookup', 'send']);
+});
+
+test('lookup failure, missing migration and invalid responses never send an OTP', async () => {
+  for (const result of [
+    { data: null, error: { code: 'PGRST202', message: 'Not found' } },
+    { data: null, error: { message: 'Database unavailable' } },
+    { data: null, error: null },
+  ]) {
+    let sent = false;
+    const api = load({
+      signInWithOtp: async () => { sent = true; return { error: null }; },
+    }, async () => result);
+    await assert.rejects(api.createEmailRegistration().sendCode(user.email), /migration|Could not check/);
+    assert.equal(sent, false);
+  }
+});
+
+test('changing email during lookup prevents a stale OTP request', async () => {
+  let finish: (value: unknown) => void = () => {};
+  let sent = false;
+  const api = load({
+    signInWithOtp: async () => { sent = true; return { error: null }; },
+  }, () => new Promise(resolve => { finish = resolve; }));
+  const registration = api.createEmailRegistration();
+  const pending = registration.sendCode(user.email);
+  registration.reset();
+  finish({ data: false, error: null });
+  await assert.rejects(pending, /Email changed/);
+  assert.equal(sent, false);
+});
+
+test('invalid email never queries the backend or sends a code', async () => {
+  const api = load({
+    signInWithOtp: async () => { assert.fail('Unexpected OTP'); },
+  }, async () => { assert.fail('Unexpected lookup'); });
+  const registration = api.createEmailRegistration();
+  await assert.rejects(registration.sendCode('not an email'), /valid email/);
+  await assert.rejects(registration.sendCode(`${'x'.repeat(250)}@test.example`), /valid email/);
 });
 
 test('expired OTP and resend rate limits surface errors; no local bypass', async () => {

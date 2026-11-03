@@ -129,7 +129,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
     <div className="glass-chart bg-carbon border border-nothing p-4 sm:p-6 rounded-2xl sm:rounded-3xl space-y-4">
       {/* Header Title */}
       <div className="flex items-center gap-2">
-        <Activity className="w-4 h-4 text-red-500" />
+        <Activity className="w-4 h-4 text-violet-300" />
         <h3 className="text-xs sm:text-sm font-mono font-bold uppercase tracking-widest text-white">
           Cash Flow Trend Trajectory
         </h3>

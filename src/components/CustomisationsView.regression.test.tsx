@@ -61,5 +61,33 @@ test('budget settings keep editing and filters with a concise monthly summary', 
   );
   assert.doesNotMatch(sharedSearchMarkup, /Search categories and budgets settings/);
   assert.match(sharedSearchMarkup, /data-section="accounts"/);
+  assert.match(sharedSearchMarkup, /Manage accounts/);
   assert.doesNotMatch(sharedSearchMarkup, /data-section="budgets"|data-section="categories"|data-section="rules"/);
+});
+
+test('manage accounts appends its footer after account controls and hides it on the menu', (context) => {
+  const storage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: { getItem: () => null } });
+  context.after(() => {
+    if (storage) Object.defineProperty(globalThis, 'localStorage', storage);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  });
+  const props = {
+    categories: [], currencySymbol: '$',
+    onAddCategory: () => {}, onUpdateCategory: () => {}, onDeleteCategory: () => {},
+    accountsFooter: <section id="broker-footer">Manual Broker Portfolios</section>,
+  };
+  const menu = renderToStaticMarkup(<CustomisationsView {...props} />);
+  assert.doesNotMatch(menu, /id="broker-footer"/);
+  const accounts = renderToStaticMarkup(<CustomisationsView {...props} openAccountsRequest={1} />);
+  assert.match(accounts, /Manage accounts/);
+  assert.ok(accounts.indexOf('id="broker-footer"') > accounts.indexOf('aria-label="accounts search and actions"'));
+  assert.match(accounts, /id="broker-footer">Manual Broker Portfolios/);
+  for (const section of ['budgets', 'categories', 'accounts', 'rules'] as const) {
+    const opened = renderToStaticMarkup(<CustomisationsView {...props} openSectionRequest={{ section, requestId: 1 }} />);
+    assert.match(opened, /id="settings-customisations-heading"/);
+    assert.match(opened, /Back to categories and budgets menu/);
+    if (section === 'accounts') assert.match(opened, /id="broker-footer"/);
+    else assert.doesNotMatch(opened, /id="broker-footer"/);
+  }
 });

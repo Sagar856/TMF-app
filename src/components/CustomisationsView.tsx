@@ -56,6 +56,10 @@ interface CustomisationsViewProps {
   currencySymbol: string;
   settingsSearch?: string;
   onSectionOpenChange?: (isOpen: boolean) => void;
+  accountsFooter?: React.ReactNode;
+  openAccountsRequest?: number;
+  resetToMenuRequest?: number;
+  openSectionRequest?: { section: 'budgets' | 'categories' | 'accounts' | 'rules'; requestId: number };
 }
 
 // Icon catalog for category selection
@@ -98,11 +102,15 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   currencySymbol,
   settingsSearch,
   onSectionOpenChange,
+  accountsFooter,
+  openAccountsRequest = 0,
+  resetToMenuRequest = 0,
+  openSectionRequest,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Navigation
-  const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>('budgets');
-  const [showSectionMenu, setShowSectionMenu] = useState(true);
+  const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>(openSectionRequest?.section ?? (openAccountsRequest > 0 ? 'accounts' : 'budgets'));
+  const [showSectionMenu, setShowSectionMenu] = useState(openAccountsRequest === 0 && !openSectionRequest);
   const [sectionSearch, setSectionSearch] = useState('');
   const menuSearch = settingsSearch ?? sectionSearch;
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -111,9 +119,35 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   const sectionLinks = [
     { id: 'budgets', label: 'Budgets', icon: TrendingUp, keywords: 'monthly limits spending alerts' },
     { id: 'categories', label: 'Categories', icon: Layers, keywords: 'income expense investment subcategories tags' },
-    { id: 'accounts', label: 'Accounts', icon: Building2, keywords: 'bank cards wallet upi balances' },
+    { id: 'accounts', label: 'Manage accounts', icon: Building2, keywords: 'bank cards wallet upi balances manual broker portfolios' },
     { id: 'rules', label: 'Auto-categorise', icon: Sparkles, keywords: 'automatic rules keywords merchant' },
   ] as const;
+
+  useEffect(() => {
+    if (!openAccountsRequest) return;
+    setActiveTab('accounts');
+    setSearchQuery('');
+    setExpandedFilters({ budgets: false, categories: false, accounts: false });
+    setShowSectionMenu(false);
+  }, [openAccountsRequest]);
+
+  useEffect(() => {
+    if (!resetToMenuRequest) return;
+    visitedSectionRef.current = false;
+    setShowSectionMenu(true);
+    setSearchQuery('');
+    setSectionSearch('');
+    setExpandedFilters({ budgets: false, categories: false, accounts: false });
+  }, [resetToMenuRequest]);
+
+  useEffect(() => {
+    if (!openSectionRequest) return;
+    setActiveTab(openSectionRequest.section);
+    setSearchQuery('');
+    setSectionSearch('');
+    setExpandedFilters({ budgets: false, categories: false, accounts: false });
+    setShowSectionMenu(false);
+  }, [openSectionRequest]);
 
   useEffect(() => {
     if (settingsSearch !== undefined && settingsSearch.trim()) {
@@ -687,7 +721,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {!showSectionMenu && (
         <div className="flex items-center gap-3">
           <SettingButton icon={ArrowLeft} aria-label="Back to categories and budgets menu" onClick={() => { closeFilters(); setShowSectionMenu(true); }}>Back</SettingButton>
-          <h3 ref={sectionHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 focus:outline-none">{sectionLinks.find(link => link.id === activeTab)?.label}</h3>
+          <h3 id="settings-customisations-heading" ref={sectionHeadingRef} tabIndex={-1} className="text-base font-bold text-content-1 focus:outline-none">{sectionLinks.find(link => link.id === activeTab)?.label}</h3>
         </div>
       )}
       <div hidden={showSectionMenu}>
@@ -1323,6 +1357,8 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
           )}
         </div>
       )}
+
+      {activeTab === 'accounts' && accountsFooter}
 
       {/* ========================================================================= */}
       {/* 6. TAB 4: SMART AUTO-CATEGORISATION RULES                                 */}

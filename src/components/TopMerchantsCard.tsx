@@ -79,7 +79,7 @@ export const TopMerchantsCard: React.FC<TopMerchantsCardProps> = ({
       {/* Visual Header */}
       <div className="flex items-center justify-between pb-2 border-b border-nothing">
         <div className="flex items-center gap-2 min-w-0">
-          <MapPin className="w-4 h-4 text-red-500 animate-pulse shrink-0" />
+          <MapPin className="w-4 h-4 text-violet-300 animate-pulse shrink-0" />
           <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-white truncate">
             Most Spend Places & Merchants
           </h3>

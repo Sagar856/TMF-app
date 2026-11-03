@@ -1,6 +1,2 @@
-<vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp" android:viewportWidth="320" android:viewportHeight="320">
-  <group android:translateX="-96" android:translateY="-96">
-    <path android:fillColor="#FFFFFF" android:pathData="M128,360 L128,152 L174,152 L256,248 L338,152 L384,152 L384,360 L330,360 L330,240 L256,326 L182,240 L182,360 Z"/>
-  </group>
-</vector>
+<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
+    android:src="@drawable/ic_minarth_notification" android:gravity="fill" android:filter="true"/>

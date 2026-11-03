@@ -135,7 +135,7 @@ export const Header: React.FC<HeaderProps> = ({
           onClick={onOpenProfile}
           aria-label={`Open profile for ${userName}`}
           className="p-0.5 bg-graphite border border-nothing/60 hover:border-red-600/80 rounded-full shadow-sm transition-all nav-lift cursor-pointer group shrink-0"
-          title="Click to view/edit User Profile & Photo"
+          title="Open Profile settings"
         >
           {userPhoto ? (
             <img

@@ -36,6 +36,32 @@ $$;
 REVOKE ALL ON FUNCTION public.has_verified_email() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.has_verified_email() TO authenticated;
 
+-- Exact-email registration preflight. Intentionally reveals account existence,
+-- but never exposes auth.users rows, IDs, metadata, or credentials.
+CREATE OR REPLACE FUNCTION public.registration_email_exists(candidate_email text)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+  normalized_email text := pg_catalog.lower(pg_catalog.btrim(candidate_email));
+BEGIN
+  IF normalized_email IS NULL OR pg_catalog.length(normalized_email) > 254
+     OR normalized_email !~ '^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$' THEN
+    RAISE EXCEPTION 'Invalid email address' USING ERRCODE = '22023';
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM auth.users
+    WHERE pg_catalog.lower(email) = normalized_email
+      AND deleted_at IS NULL
+  );
+END;
+$$;
+REVOKE ALL ON FUNCTION public.registration_email_exists(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.registration_email_exists(text) TO anon, authenticated;
+
 -- Portable preferences and category rules. Device credentials never belong here.
 CREATE TABLE IF NOT EXISTS public.user_preferences (
   user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE DEFAULT auth.uid(),

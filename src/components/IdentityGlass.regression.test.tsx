@@ -7,7 +7,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import type { AuthModal as AuthComponent } from './AuthModal';
-import type { UserProfileModal as ProfileComponent } from './UserProfileModal';
+import type { ProfileSettings as ProfileComponent } from './settings/ProfileSettings';
 
 test('identity glass keeps all auth modes and the non-dismissible sign-in gate', () => {
   const bundle = buildSync({
@@ -42,7 +42,7 @@ test('identity glass keeps all auth modes and the non-dismissible sign-in gate',
       assert.match(markup, /disabled=""[^>]*>Create account<\/button>/);
       assert.match(markup, /autoComplete="new-password"/i);
       assert.match(markup, /aria-label="Show password"/);
-      assert.match(markup, /Pending: At least 8 characters/);
+      assert.doesNotMatch(markup, /Password requirements|Pending: At least 8 characters/);
     }
     if (initialMode === 'set_new_password') {
       assert.match(markup, /Confirm password/);
@@ -55,35 +55,40 @@ test('identity glass keeps all auth modes and the non-dismissible sign-in gate',
     /aria-label="Close sign-in"/);
 });
 
-test('profile glass retains profile actions and all four navigation tabs', () => {
+test('profile settings expose personal details and sign out without a modal', () => {
   const bundle = buildSync({
-    entryPoints: [fileURLToPath(new URL('./UserProfileModal.tsx', import.meta.url))],
+    entryPoints: [fileURLToPath(new URL('./settings/ProfileSettings.tsx', import.meta.url))],
     bundle: true, platform: 'node', format: 'cjs', packages: 'external', write: false,
     define: { 'import.meta.env': '{}' },
   });
-  const module: { exports: Partial<{ UserProfileModal: typeof ProfileComponent }> } = { exports: {} };
+  const module: { exports: Partial<{ ProfileSettings: typeof ProfileComponent }> } = { exports: {} };
   runInNewContext(bundle.outputFiles[0].text, {
     module, exports: module.exports, require: createRequire(import.meta.url), console,
   });
-  const { UserProfileModal } = module.exports;
-  assert.ok(UserProfileModal);
+  const { ProfileSettings } = module.exports;
+  assert.ok(ProfileSettings);
   const markup = renderToStaticMarkup(
-    <UserProfileModal
+    <ProfileSettings
       settings={{
         userName: 'Test', userEmail: 'test@example.com', currencySymbol: '$', currencyCode: 'USD',
         passcodeEnabled: false, locationTracking: false, autoExtractSms: false,
         notificationsEnabled: false,
       }}
-      accounts={[]} onClose={() => {}} onUpdateSettings={() => {}}
-      onExportData={() => {}} onSignOut={() => {}}
+      authUserEmail="account@example.com"
+      onUpdateSettings={() => {}} onSignOut={() => {}}
     />
   );
-  assert.match(markup, /identity-glass-panel/);
-  assert.match(markup, /aria-labelledby="profile-heading"/);
-  for (const tab of ['Profile', 'Security', 'Accounts', 'Preferences']) {
-    assert.match(markup, new RegExp(`aria-label="${tab}" aria-pressed="${tab === 'Profile'}"`));
-  }
-  for (const action of ['Upload Photo', 'Save Changes', 'Export Backup', 'Sign Out']) {
+  assert.match(markup, /id="settings-profile"/);
+  assert.match(markup, /Profile settings/);
+  assert.match(markup, /<button type="submit" disabled=""[^>]*>[\s\S]*?Save Changes<\/button>/);
+  assert.match(markup, /for="profile-display-name"/);
+  assert.match(markup, /for="profile-contact-email"/);
+  assert.match(markup, /This email identifies your account and cannot be edited/);
+  assert.match(markup, /<input id="profile-contact-email"[^>]*readOnly=""[^>]*value="account@example.com"/i);
+  assert.doesNotMatch(markup, /value="test@example.com"/);
+  assert.doesNotMatch(markup.match(/<input id="profile-display-name"[^>]*>/)?.[0] || '', /readonly|disabled/i);
+  assert.doesNotMatch(markup, /role="dialog"|aria-modal|Export Backup|Profile sections/);
+  for (const action of ['Upload Photo', 'Save Changes', 'Sign out']) {
     assert.match(markup, new RegExp(action));
   }
 });

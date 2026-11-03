@@ -1,3 +1,6 @@
+import { NativeBiometric } from '@capgo/capacitor-native-biometric';
+import { Capacitor } from '@capacitor/core';
+
 /**
  * Device biometric unlock via the WebAuthn platform authenticator
  * (Windows Hello, Touch ID, Android biometrics). No server is involved: we
@@ -19,6 +22,14 @@ function fromBase64Url(value: string): Uint8Array {
 
 export async function isBiometricAvailable(): Promise<boolean> {
   if (typeof window === 'undefined' || !window.isSecureContext) return false;
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      return (await NativeBiometric.isAvailable({ useFallback: false })).isAvailable;
+    } catch (error) {
+      console.warn('Could not check Android biometrics:', error);
+      return false;
+    }
+  }
   if (!('PublicKeyCredential' in window) || !navigator.credentials) return false;
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -46,6 +57,19 @@ export function clearBiometricEnrollment(): void {
 /** Registers a platform credential bound to this device. Resolves false if the user cancels or it is unsupported. */
 export async function enrollBiometric(userLabel: string): Promise<boolean> {
   if (!(await isBiometricAvailable())) return false;
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      await NativeBiometric.verifyIdentity({
+        reason: `Enable biometric unlock for ${userLabel || 'MINARTH'}`,
+        title: 'Enable biometric unlock',
+      });
+      localStorage.setItem(CREDENTIAL_KEY, 'native-authenticator');
+      return true;
+    } catch (error) {
+      console.warn('Android biometric enrollment was not completed:', error);
+      return false;
+    }
+  }
   try {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const userId = crypto.getRandomValues(new Uint8Array(16));
@@ -82,6 +106,18 @@ export async function verifyBiometric(): Promise<boolean> {
     }
   })();
   if (!stored || !(await isBiometricAvailable())) return false;
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      await NativeBiometric.verifyIdentity({
+        reason: 'Unlock MINARTH',
+        title: 'Unlock MINARTH',
+      });
+      return true;
+    } catch (error) {
+      console.warn('Android biometric verification was not completed:', error);
+      return false;
+    }
+  }
   try {
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const assertion = (await navigator.credentials.get({

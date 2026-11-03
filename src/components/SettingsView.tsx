@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord } from '../types/finance';
 import { BackupRestoreData, parseBackupJson } from '../utils/backup';
+import { searchSettings, type SettingsGroup, type SettingsSearchEntry, type CustomisationSection } from '../utils/settingsSearch';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
 import { requestPushNotificationPermission } from '../services/localNotifications';
+import { requestDeviceLocationPermission } from '../services/locationService';
 import { clearBiometricEnrollment, enrollBiometric, isBiometricAvailable, isBiometricEnrolled } from '../services/biometric';
 import {
   Shield,
@@ -25,18 +27,20 @@ import {
   Info,
   ExternalLink,
   Tags,
-  Landmark,
   ChevronRight,
   KeyRound,
   Upload,
   Search,
   ArrowLeft,
   Headphones,
+  X,
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 import { PremiumComingSoon } from './PremiumComingSoon';
 import { PasscodeSetupModal } from './PasscodeSetupModal';
+import { PermissionDisclosureModal, type PermissionDisclosure } from './PermissionDisclosureModal';
 import { BrokerPortfoliosSection } from './settings/BrokerPortfoliosSection';
+import { AccountPasswordSettings, ProfileSettings } from './settings/ProfileSettings';
 import {
   SettingSection,
   SettingRow,
@@ -71,19 +75,18 @@ interface SettingsViewProps {
   onSignOut?: () => void;
   onDeleteUserAccount?: () => void;
   lastSettingsSyncAt?: number | null;
-  onOpenProfile?: () => void;
-  onNavigateToTab?: (tab: string) => void;
+  openProfileRequest?: number;
 }
 
 const SETTINGS_GROUPS = [
-  { id: 'account', label: 'Account', icon: UserCircle2, keywords: 'profile name email photo sign out cloud sync brokers portfolios categories budgets accounts data backup export restore sample demo' },
-  { id: 'notifications', label: 'Notifications', icon: BellRing, keywords: 'notification access android upi sms interceptor auto extract push alerts budget threshold' },
-  { id: 'appearance', label: 'Appearance', icon: Palette, keywords: 'theme light dark display auto expand dashboard scroll currency region locale' },
-  { id: 'privacy', label: 'Privacy & Security', icon: Lock, keywords: 'mask balances net worth location gps tagging app lock pin passcode biometrics fingerprint auto lock delete confirmations reset data privacy' },
-  { id: 'help', label: 'Help and Support', icon: Headphones, keywords: 'help support troubleshooting notification background battery permissions backup github issues feature requests' },
-  { id: 'about', label: 'About', icon: Info, keywords: 'version minarth mtracker track money flow android download apk' },
+  { id: 'profile', label: 'Profile settings', icon: UserCircle2 },
+  { id: 'account', label: 'Account setting', icon: Cloud },
+  { id: 'notifications', label: 'Notifications', icon: BellRing },
+  { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'privacy', label: 'Privacy & Security', icon: Lock },
+  { id: 'help', label: 'Help and Support', icon: Headphones },
+  { id: 'about', label: 'About', icon: Info },
 ] as const;
-type SettingsGroup = typeof SETTINGS_GROUPS[number]['id'];
 
 const CURRENCIES = [
   { symbol: '₹', code: 'INR', locale: 'en-IN', name: '₹ INR' },
@@ -117,22 +120,97 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSignOut,
   onDeleteUserAccount,
   lastSettingsSyncAt,
-  onOpenProfile,
-  onNavigateToTab,
+  openProfileRequest = 0,
 }) => {
   const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(() =>
-    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('delete-account') ? 'account' : null
+    openProfileRequest > 0 ? 'profile' :
+      typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('delete-account') ? 'account' : null
   );
   const [notificationDisclosureAccepted, setNotificationDisclosureAccepted] = useState(false);
+  const [permissionDisclosure, setPermissionDisclosure] = useState<PermissionDisclosure | null>(null);
+  const [permissionRequestBusy, setPermissionRequestBusy] = useState(false);
+  const [locationPermissionError, setLocationPermissionError] = useState('');
   const [settingsSearch, setSettingsSearch] = useState('');
   const [customisationOpen, setCustomisationOpen] = useState(false);
+  const [openAccountsRequest, setOpenAccountsRequest] = useState(0);
+  const [resetCustomisationRequest, setResetCustomisationRequest] = useState(0);
+  const [openSectionRequest, setOpenSectionRequest] = useState<{ section: CustomisationSection; requestId: number }>();
+  const [searchTarget, setSearchTarget] = useState<{ id: string; requestId: number }>();
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchResultsRef = useRef<HTMLUListElement>(null);
   const categoriesMenuRef = useRef<HTMLElement>(null);
   const groupHeadingRef = useRef<HTMLHeadingElement>(null);
   const menuRef = useRef<HTMLElement>(null);
   const lastGroupRef = useRef<SettingsGroup | null>(null);
-  const visibleGroups = SETTINGS_GROUPS.filter(group =>
-    `${group.label} ${group.keywords}`.toLowerCase().includes(settingsSearch.trim().toLowerCase())
-  );
+  const isSearching = settingsSearch.trim().length > 0;
+  const searchResults = useMemo(() => searchSettings(settingsSearch, {
+    isAuthenticated,
+    canDeleteAccount: Boolean(onDeleteUserAccount),
+    canSignOut: Boolean(onSignOut),
+    passcodeEnabled: settings.passcodeEnabled,
+  }), [settingsSearch, isAuthenticated, onDeleteUserAccount, onSignOut, settings.passcodeEnabled]);
+
+  const changeSearch = (value: string) => {
+    setSettingsSearch(value);
+    setSelectedGroup(null);
+    setSearchTarget(undefined);
+    lastGroupRef.current = null;
+    if (customisationOpen) {
+      setCustomisationOpen(false);
+      setResetCustomisationRequest(request => request + 1);
+    }
+  };
+
+  const openSearchResult = (entry: SettingsSearchEntry) => {
+    setSettingsSearch('');
+    if (entry.section) {
+      const section = entry.section;
+      setSelectedGroup(null);
+      setOpenSectionRequest(previous => ({ section, requestId: (previous?.requestId || 0) + 1 }));
+    } else if (entry.group) {
+      setCustomisationOpen(false);
+      setSelectedGroup(entry.group);
+    }
+    const targetId = !settings.passcodeEnabled && (entry.id === 'biometrics' || entry.id === 'auto-lock') ? 'sw-passcode' : entry.targetId;
+    setSearchTarget(previous => ({ id: targetId, requestId: (previous?.requestId || 0) + 1 }));
+  };
+
+  useEffect(() => {
+    if (!searchTarget || isSearching) return;
+    let target: HTMLElement | null = null;
+    let previousTabIndex: string | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      const element = document.getElementById(searchTarget.id);
+      if (!element || element.closest('[hidden]')) return;
+      target = element.matches(':disabled') ? element.closest<HTMLElement>('[data-setting-row]') || element : element;
+      previousTabIndex = target.getAttribute('tabindex');
+      target.setAttribute('tabindex', '-1');
+      target.setAttribute('data-settings-search-target', 'true');
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'center', behavior: 'auto' });
+      timer = setTimeout(() => target?.removeAttribute('data-settings-search-target'), 4000);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      if (timer) clearTimeout(timer);
+      if (target) {
+        target.removeAttribute('data-settings-search-target');
+        if (previousTabIndex === null) target.removeAttribute('tabindex');
+        else target.setAttribute('tabindex', previousTabIndex);
+      }
+    };
+  }, [searchTarget, isSearching, selectedGroup, customisationOpen]);
+
+  useEffect(() => {
+    if (!openProfileRequest) return;
+    setSettingsSearch('');
+    setOpenAccountsRequest(0);
+    setSearchTarget(undefined);
+    setResetCustomisationRequest(request => request + 1);
+    setCustomisationOpen(false);
+    setSelectedGroup('profile');
+  }, [openProfileRequest]);
 
   const update = (patch: Partial<UserSettings>) => onUpdateSettings({ ...settings, ...patch });
 
@@ -156,20 +234,51 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       update({ notificationsEnabled: false });
       return;
     }
-    setRequestingNotificationPermission(true);
+    setPermissionDisclosure('notifications');
+  };
+
+  const handleAllowPermission = async () => {
+    if (!permissionDisclosure) return;
+    setPermissionRequestBusy(true);
     try {
-      const granted = await requestPushNotificationPermission();
-      if (!granted) {
-        setNotificationPermissionError('Notification permission was not granted. Allow notifications in your browser or device settings.');
-        return;
+      if (permissionDisclosure === 'notifications') {
+        setRequestingNotificationPermission(true);
+        const granted = await requestPushNotificationPermission();
+        if (!granted) {
+          setNotificationPermissionError('Notification permission was not granted. Allow notifications in your browser or device settings.');
+          return;
+        }
+        onUpdateSettings({ ...latestSettingsRef.current, notificationsEnabled: true });
+      } else {
+        setLocationPermissionError('');
+        const granted = await requestDeviceLocationPermission();
+        if (!granted) {
+          setLocationPermissionError('Location permission was not granted. Allow location access in your device or browser settings, then try again.');
+          return;
+        }
+        onUpdateSettings({ ...latestSettingsRef.current, locationTracking: true });
       }
-      onUpdateSettings({ ...latestSettingsRef.current, notificationsEnabled: true });
     } catch (error) {
-      console.warn('Could not request notification permission:', error);
-      setNotificationPermissionError('Could not request notification permission. Please try again.');
+      console.warn(`Could not request ${permissionDisclosure} permission:`, error);
+      if (permissionDisclosure === 'notifications') {
+        setNotificationPermissionError('Could not request notification permission. Please try again.');
+      } else {
+        setLocationPermissionError('Could not request location permission. Please try again.');
+      }
     } finally {
       setRequestingNotificationPermission(false);
+      setPermissionRequestBusy(false);
+      setPermissionDisclosure(null);
     }
+  };
+
+  const handleToggleLocation = (next: boolean) => {
+    setLocationPermissionError('');
+    if (!next) {
+      update({ locationTracking: false });
+      return;
+    }
+    setPermissionDisclosure('location');
   };
 
   /* ---------------- Passcode ---------------- */
@@ -273,7 +382,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     } else if (lastGroupRef.current) {
       menuRef.current?.querySelector<HTMLButtonElement>(`[data-settings-group="${lastGroupRef.current}"]`)?.focus();
     }
-  }, [selectedGroup]);
+  }, [selectedGroup, openProfileRequest]);
 
   const theme = settings.theme || 'dark';
   const sampleLoaded = settings.sampleDataLoaded !== false;
@@ -288,17 +397,30 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="relative min-w-0 flex-1 max-w-xs">
               <Search aria-hidden="true" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-content-3 pointer-events-none" />
               <input
+                ref={searchInputRef}
                 type="search"
                 value={settingsSearch}
-                onChange={event => {
-                  setSettingsSearch(event.target.value);
-                  setSelectedGroup(null);
-                  lastGroupRef.current = null;
+                onChange={event => changeSearch(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Escape') {
+                    event.preventDefault();
+                    changeSearch('');
+                  } else if (isSearching && (event.key === 'ArrowDown' || event.key === 'Enter')) {
+                    event.preventDefault();
+                    if (event.key === 'Enter' && searchResults[0]) openSearchResult(searchResults[0]);
+                    else searchResultsRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+                  }
                 }}
+                aria-controls={isSearching ? 'settings-search-results' : undefined}
+                aria-describedby={isSearching ? 'settings-search-status' : undefined}
                 aria-label="Search settings"
                 placeholder="Search settings..."
-                className="w-full h-10 pl-9 pr-3 rounded-lg bg-surface-2 text-xs text-content-1 border border-line focus:outline-none focus:border-red-500"
+                className="w-full h-10 pl-9 pr-10 rounded-lg bg-surface-2 text-xs text-content-1 border border-line focus:outline-none focus:border-red-500"
               />
+              {settingsSearch && <button type="button" aria-label="Clear settings search" className="absolute right-0 top-0 h-10 w-10 flex items-center justify-center text-content-2 hover:text-content-1" onClick={() => {
+                changeSearch('');
+                searchInputRef.current?.focus();
+              }}><X aria-hidden="true" className="h-4 w-4" /></button>}
             </div>
           {onForceSyncNow && (
             <SettingButton
@@ -324,7 +446,43 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
       </div>
 
-        <section hidden={customisationOpen} aria-labelledby="preferences-heading" className="max-w-3xl mx-auto">
+      {isSearching && (
+        <section aria-labelledby="settings-search-heading" className="max-w-3xl mx-auto space-y-3">
+          <h3 id="settings-search-heading" className="text-base font-bold text-content-1">Search results</h3>
+          <p id="settings-search-status" role="status" aria-live="polite" className="text-xs text-content-3">
+            {searchResults.length ? `${searchResults.length} ${searchResults.length === 1 ? 'setting' : 'settings'} found` : 'No settings found. Try a term such as password, backup, theme or bank account.'}
+          </p>
+          <ul id="settings-search-results" ref={searchResultsRef} className="rounded-2xl bg-surface-1 border border-line divide-y divide-line" onKeyDown={event => {
+            if (event.key === 'Escape') {
+              event.preventDefault();
+              changeSearch('');
+              searchInputRef.current?.focus();
+              return;
+            }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            const buttons = Array.from<HTMLButtonElement>(searchResultsRef.current?.querySelectorAll<HTMLButtonElement>('button') || []);
+            const index = buttons.findIndex(button => button === document.activeElement);
+            if (index < 0) return;
+            event.preventDefault();
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+            buttons[next]?.focus();
+          }}>
+            {searchResults.map(result => (
+              <li key={result.id}>
+                <button type="button" data-settings-result={result.id} onClick={() => openSearchResult(result)} className="flex w-full items-center gap-3 px-4 py-4 text-left text-content-1 rounded-xl hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-red-500">
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="block text-sm font-semibold">{result.title}</span>
+                    <span className="block text-[11px] text-content-2">{result.path}</span>
+                    <span className="block text-xs text-content-3">{result.description}</span>
+                  </span>
+                  <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-content-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+        <section hidden={isSearching || customisationOpen} aria-labelledby="preferences-heading" className="max-w-3xl mx-auto">
           <h3 id="preferences-heading" className="text-base font-bold text-content-1 mb-4">Preferences</h3>
           <div hidden={selectedGroup !== null}>
           <nav
@@ -332,7 +490,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             aria-label="Settings sections"
             className="rounded-2xl bg-surface-1 border border-line divide-y divide-[var(--border-nothing)] px-4"
           >
-            {visibleGroups.map((group) => {
+            {SETTINGS_GROUPS.map((group) => {
               const Icon = group.icon;
               return (
                 <button
@@ -349,7 +507,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               );
             })}
           </nav>
-          {visibleGroups.length === 0 && <p role="status" className="text-xs text-content-3 py-6 text-center">No settings match your search.</p>}
           </div>
           {selectedGroup && (
             <div className="flex items-center gap-3 mb-5">
@@ -358,12 +515,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
           <div className="min-w-0">
+            <div hidden={selectedGroup !== 'profile'}>
+              <ProfileSettings settings={settings} authUserEmail={authUserEmail} onUpdateSettings={onUpdateSettings} onSignOut={isAuthenticated ? onSignOut : undefined} />
+            </div>
             <div hidden={selectedGroup !== 'account'}>
             <div className="space-y-5">
             {/* ============ PROFILE & ACCOUNT ============ */}
             <SettingSection
-              id="settings-profile"
-              title="Profile & Account"
+              id="settings-account"
+              title="Account setting"
               icon={UserCircle2}
               iconClassName="text-red-500"
               badge={
@@ -373,17 +533,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               }
             >
               <SettingRow
-                label={settings.userName || 'Your profile'}
-                description={authUserEmail || settings.userEmail || 'Name, email and photo shown across the app.'}
-              >
-                {onOpenProfile && (
-                  <SettingButton onClick={onOpenProfile} icon={ChevronRight} iconClassName="text-content-3">
-                    Edit profile
-                  </SettingButton>
-                )}
-              </SettingRow>
-
-              <SettingRow
+                id="settings-cloud-sync"
                 label="Cloud sync"
                 description={
                   !isAuthenticated
@@ -403,25 +553,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
 
               <SettingRow label="Last successful settings sync" description={lastSyncLabel || 'Not synced yet on this device.'} />
-              <SettingRow label="Plan" description="Manual tracking and notification-based spending capture are free.">
+              <SettingRow id="settings-plan" label="Plan" description="Manual tracking and notification-based spending capture are free.">
                 <PremiumComingSoon />
               </SettingRow>
-              {isAuthenticated && onDeleteUserAccount && (
-                <SettingRow label="Delete account" description="Permanently delete your sign-in account and associated cloud data. This is different from resetting your records.">
-                  <SettingButton variant="danger" icon={Trash2} onClick={onDeleteUserAccount}>Delete account</SettingButton>
-                </SettingRow>
-              )}
-              {isAuthenticated && onSignOut && (
-                <SettingRow label="Sign out" description="Clears this device's local copy. Your cloud data stays safe.">
-                  <SettingButton onClick={onSignOut} icon={LogOut} iconClassName="text-red-500">
-                    Sign out
-                  </SettingButton>
-                </SettingRow>
-              )}
             </SettingSection>
-            <div id="settings-brokers" className="scroll-mt-24">
-              <BrokerPortfoliosSection settings={settings} investments={investments} onUpdateSettings={onUpdateSettings} />
-            </div>
             </div>
             </div>
 
@@ -430,6 +565,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div className="space-y-5">
             <SettingSection id="settings-appearance" title="Appearance & Display" icon={Palette}>
               <SettingRow
+                id="settings-theme"
                 label="Theme"
                 description="Obsidian dark or Ceramic light across every screen."
                 badge={<StatusPill tone="red">{theme}</StatusPill>}
@@ -503,6 +639,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             >
               {isAndroid ? (
                 <SettingRow
+                  id="settings-notification-access"
                   label="Notification access"
                   description="MINARTH reads bank and UPI notifications, including in the background, to detect payments. Parsed transactions and their source message text may sync to your private cloud account when saved. Other notifications are not used for financial tracking."
                   badge={<StatusPill tone={notifAccessGranted ? 'emerald' : 'red'}>{notifAccessGranted ? 'Granted' : 'Not granted'}</StatusPill>}
@@ -521,6 +658,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </SettingRow>
               ) : (
                 <SettingRow
+                  id="settings-notification-access"
                   label="Notification access"
                   description="Automatic capture of bank/UPI alerts is available in the Android app. Use manual entry on the web."
                   badge={<StatusPill tone="neutral">Android only</StatusPill>}
@@ -583,21 +721,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {/* ============ SECURITY & PRIVACY ============ */}
             <div hidden={selectedGroup !== 'privacy'}>
             <div className="space-y-5">
+            {isAuthenticated && <AccountPasswordSettings email={authUserEmail || ''} />}
             <SettingSection id="settings-security" title="Security & Privacy" icon={Lock}>
               <SettingRow label="Mask balances by default" description="Hide net worth and totals until you tap the eye icon." htmlFor="sw-mask-balances">
                 <SettingSwitch id="sw-mask-balances" label="Mask balances by default" checked={settings.defaultNetWorthMasked !== false} onChange={v => update({ defaultNetWorthMasked: v })} />
               </SettingRow>
-              <SettingRow label="Location tagging"               description="Attach device GPS location to transactions. Saved locations sync with your financial records when signed in." htmlFor="sw-location">
-                <SettingSwitch id="sw-location" label="Location tagging" checked={settings.locationTracking} onChange={v => update({ locationTracking: v })} />
+              <SettingRow label="Location tagging" description="Ask before accessing device location; attach it only to transactions you choose to save. Saved locations sync with your financial records when signed in." htmlFor="sw-location">
+                <SettingSwitch id="sw-location" label="Location tagging" checked={settings.locationTracking} onChange={handleToggleLocation} />
               </SettingRow>
+              {locationPermissionError && <p role="alert" className="py-2 text-[11px] text-red-600 dark:text-red-400">{locationPermissionError}</p>}
               <SettingRow
-                label="App lock (PIN)"
+                label="App passcode protection"
                 description="Require a 4–6 digit PIN every time the app opens."
                 htmlFor="sw-passcode"
                 badge={settings.passcodeEnabled ? <StatusPill tone="emerald">On</StatusPill> : undefined}
               >
                 {settings.passcodeEnabled && (
-                  <SettingButton icon={KeyRound} iconClassName="text-content-3" onClick={() => setShowPasscodeSetup(true)}>
+                  <SettingButton id="settings-change-pin" icon={KeyRound} iconClassName="text-content-3" onClick={() => setShowPasscodeSetup(true)}>
                     Change PIN
                   </SettingButton>
                 )}
@@ -628,6 +768,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   {biometricError && <p role="alert" className="py-2 text-[11px] text-red-600 dark:text-red-400">{biometricError}</p>}
 
                   <SettingRow
+                    id="settings-auto-lock"
                     label="Auto-lock"
                     description="Re-lock after the app has been in the background for this long."
                   >
@@ -648,6 +789,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               )}
 
               <SettingRow
+                id="settings-delete-confirmations"
                 label="Skip delete confirmations"
                 description="Delete records immediately without a confirmation dialog. You can always restore from a backup."
                 stacked
@@ -667,12 +809,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
             </SettingSection>
 
-            {/* ============ BROKER PORTFOLIOS ============ */}
-            <SettingSection id="settings-danger" title="Danger zone" icon={Trash2} iconClassName="text-red-600" tone="danger">
-              <SettingRow label="Reset all data" description="Permanently wipes all local and cloud accounts, transactions, investments, loans and categories. Export a backup first.">
-                <SettingButton variant="danger" icon={Trash2} onClick={onResetAllData}>Reset all data</SettingButton>
-              </SettingRow>
-            </SettingSection>
             <SettingSection id="settings-privacy" title="Privacy" icon={Shield}>
               <SettingRow label="Your data" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security." />
               <a className="text-xs underline text-content-1" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
@@ -697,14 +833,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 }}>
                   Categories
                 </SettingButton>
-                {onNavigateToTab && (
-                  <SettingButton icon={Landmark} iconClassName="text-content-3" onClick={() => onNavigateToTab('accounts')}>
-                    Accounts
-                  </SettingButton>
-                )}
+                <SettingButton icon={Building2} iconClassName="text-content-3" onClick={() => {
+                  setSettingsSearch('');
+                  setSelectedGroup(null);
+                  setOpenAccountsRequest(request => request + 1);
+                }}>Manage accounts</SettingButton>
               </SettingRow>
 
               <SettingRow
+                id="settings-export"
                 label="Export backup (JSON)"
                 description="All transactions, investments, loans, categories, accounts and preferences in one file."
               >
@@ -714,6 +851,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
 
               <SettingRow
+                id="settings-restore"
                 label="Restore from backup"
                 description="Validates the file and shows record counts before replacing current data."
               >
@@ -762,8 +900,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   }}
                 />
               </SettingRow>
+            <div className="pt-5">
+              <SettingSection id="settings-danger" title="Danger zone" icon={Trash2} iconClassName="text-red-600" tone="danger">
+                <SettingRow id="settings-reset-data" label="Reset all data" description="Permanently wipes all local and cloud accounts, transactions, investments, loans and categories. Export a backup first.">
+                  <SettingButton variant="danger" icon={Trash2} onClick={onResetAllData}>Reset all data</SettingButton>
+                </SettingRow>
+                {isAuthenticated && onDeleteUserAccount && (
+                  <SettingRow id="settings-delete-account" label="Delete account" description="Permanently delete your sign-in account and associated cloud data. This is different from resetting your records.">
+                    <SettingButton variant="danger" icon={Trash2} onClick={onDeleteUserAccount}>Delete account</SettingButton>
+                  </SettingRow>
+                )}
+              </SettingSection>
+            </div>
             </SettingSection>
-
             </div>
 
             <div hidden={selectedGroup !== 'help'}>
@@ -774,7 +923,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <SettingRow label="Back up your data" description="Export a JSON backup before resetting data. Restore validates your file before replacing records.">
                   <SettingButton onClick={() => setSelectedGroup('account')} icon={Database}>Data & Backup</SettingButton>
                 </SettingRow>
-                <SettingRow label="Report an issue or request a feature" description="Get help through the project's GitHub issues. Never include private bank messages or account details.">
+                <SettingRow id="settings-report-issue" label="Report an issue or request a feature" description="Get help through the project's GitHub issues. Never include private bank messages or account details.">
                   <a href="https://github.com/Sagar856/TMF-app/issues" target="_blank" rel="noreferrer" className="text-xs text-content-1 flex items-center gap-1.5">GitHub issues <ExternalLink className="w-3 h-3" /></a>
                 </SettingRow>
               </SettingSection>
@@ -783,10 +932,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             {/* ============ ABOUT ============ */}
             <div hidden={selectedGroup !== 'about'}>
             <SettingSection id="settings-about" title="About" icon={Info} iconClassName="text-content-3">
-              <SettingRow label="Version" description="MINARTH · Clarity for your money">
+              <SettingRow id="settings-version" label="Version" description="MINARTH · Clarity for your money">
                 <StatusPill tone="neutral">v{__APP_VERSION__}</StatusPill>
               </SettingRow>
               <SettingRow
+                id="settings-android"
                 label="Android app"
                 description="Install the APK to enable real-time UPI/SMS capture."
               >
@@ -799,7 +949,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Download APK
                 </a>
               </SettingRow>
-              <SettingRow label="Open source" description="Issues and feature requests are welcome.">
+              <SettingRow id="settings-source" label="Open source" description="Issues and feature requests are welcome.">
                 <a
                   href="https://github.com/Sagar856/TMF-app"
                   target="_blank"
@@ -814,11 +964,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </section>
 
-      <section ref={categoriesMenuRef} hidden={selectedGroup !== null} aria-label="Categories & Budgets" className="max-w-3xl mx-auto border-t border-line pt-5">
+      <section ref={categoriesMenuRef} hidden={isSearching || selectedGroup !== null} aria-label="Categories & Budgets" className="max-w-3xl mx-auto border-t border-line pt-5">
         {!customisationOpen && <h3 className="text-base font-bold text-content-1 mb-4">Categories &amp; Budgets</h3>}
         <CustomisationsView
+          resetToMenuRequest={resetCustomisationRequest}
+          openSectionRequest={openSectionRequest}
+          openAccountsRequest={openAccountsRequest}
           onSectionOpenChange={setCustomisationOpen}
-          settingsSearch={settingsSearch}
+          settingsSearch=""
           categories={categories}
           accounts={accounts}
           transactions={transactions}
@@ -829,15 +982,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           onUpdateAccount={onUpdateAccount}
           onDeleteAccount={onDeleteAccount}
           currencySymbol={settings.currencySymbol}
+          accountsFooter={<div id="settings-brokers" className="scroll-mt-24"><BrokerPortfoliosSection settings={settings} investments={investments} onUpdateSettings={onUpdateSettings} /></div>}
         />
       </section>
 
+      {!isSearching && selectedGroup === null && !customisationOpen && isAuthenticated && onSignOut && (
+        <div className="max-w-3xl mx-auto flex justify-end border-t border-line pt-5">
+          <SettingButton icon={LogOut} onClick={onSignOut}>Sign out</SettingButton>
+        </div>
+      )}
       {showPasscodeSetup && (
         <PasscodeSetupModal
           onClose={() => setShowPasscodeSetup(false)}
           onSave={(credentials) => {
             update({ ...credentials, passcodeEnabled: true });
             setShowPasscodeSetup(false);
+          }}
+        />
+      )}
+
+      {permissionDisclosure && (
+        <PermissionDisclosureModal
+          permission={permissionDisclosure}
+          busy={permissionRequestBusy}
+          onAllow={() => void handleAllowPermission()}
+          onCancel={() => {
+            if (permissionRequestBusy) return;
+            setPermissionDisclosure(null);
           }}
         />
       )}

@@ -926,7 +926,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       {/* Add / Edit Account Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 overflow-y-auto">
-          <div className="bg-[#111111] border border-[#222] w-full max-w-lg rounded-3xl p-6 space-y-4 my-auto text-white">
+          <div className="finance-dialog-glass bg-[#111111] border border-[#222] w-full max-w-lg rounded-3xl p-6 space-y-4 my-auto text-white">
             <div className="flex items-center justify-between border-b border-[#222] pb-3">
               <h3 className="text-sm font-bold text-white uppercase">
                 {editingAcc ? 'EDIT FINANCIAL ACCOUNT' : 'ADD NEW ACCOUNT'}

@@ -41,6 +41,8 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]');
+        if (dialogs.length > 0 && dialogs[dialogs.length - 1] !== root) return;
         event.stopPropagation();
         onCloseRef.current();
         return;

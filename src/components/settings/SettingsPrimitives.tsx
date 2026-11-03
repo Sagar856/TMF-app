@@ -62,6 +62,7 @@ export const SettingSection: React.FC<SettingSectionProps> = ({
 /* ------------------------------------------------------------------ */
 
 interface SettingRowProps {
+  id?: string;
   label: string;
   description?: string;
   infoId?: string;
@@ -76,6 +77,7 @@ interface SettingRowProps {
 }
 
 export const SettingRow: React.FC<SettingRowProps> = ({
+  id,
   label,
   description,
   infoId,
@@ -88,7 +90,7 @@ export const SettingRow: React.FC<SettingRowProps> = ({
 }) => {
   const LabelTag: 'label' | 'div' = htmlFor ? 'label' : 'div';
   return (
-    <div className={`py-3 first:pt-1 last:pb-1 gap-3 ${stacked ? 'flex flex-col' : 'flex items-center justify-between'}`}>
+    <div id={id} data-setting-row="" className={`py-3 first:pt-1 last:pb-1 gap-3 ${stacked ? 'flex flex-col' : 'flex items-center justify-between'}`}>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 flex-wrap">
           <LabelTag htmlFor={htmlFor} className="text-xs font-mono font-bold text-content-1">

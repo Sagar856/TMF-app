@@ -1,6 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import { useReducedMotion } from '../hooks/useReducedMotion';
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentRecord, InvestmentType, Transaction, UserSettings } from '../types/finance';
 import {
@@ -72,6 +72,7 @@ interface InvestmentsViewProps {
   currencySymbol: string;
   settings: UserSettings;
   onUpdateSettings: (newSettings: UserSettings) => void;
+  openAddAssetRequest?: number;
 }
 
 interface InvestmentTxn {
@@ -108,6 +109,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   currencySymbol,
   settings,
   onUpdateSettings,
+  openAddAssetRequest = 0,
 }) => {
   const formatAmount = useMoneyFormatter();
   const reduceMotion = useReducedMotion();
@@ -216,6 +218,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [isSearchingMf, setIsSearchingMf] = useState<boolean>(false);
   const [mfSearchResults, setMfSearchResults] = useState<Array<{ schemeCode: number; schemeName: string }>>([]);
   const [showMfSearchResults, setShowMfSearchResults] = useState<boolean>(false);
+  const lastAddAssetRequestRef = useRef(0);
 
   const resetForm = () => {
     setEditingInv(null);
@@ -248,6 +251,13 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setShowMfSearchResults(false);
     setMfSearchResults([]);
   };
+
+  useEffect(() => {
+    if (openAddAssetRequest <= lastAddAssetRequestRef.current) return;
+    lastAddAssetRequestRef.current = openAddAssetRequest;
+    resetForm();
+    setShowAddModal(true);
+  }, [openAddAssetRequest]);
 
   const handleSearchMfCode = async () => {
     const q = (name || schemeCode).trim();
@@ -1463,14 +1473,14 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
             role="region"
             aria-label="Investment ledger transactions table"
             tabIndex={0}
-            className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
+            className="finance-data-table bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
           >
             <p className="px-3 pt-2 text-[10px] text-[#888] sm:hidden">
               Scroll horizontally to view all table columns.
             </p>
             <div className="min-w-[860px]">
               {/* Table Header */}
-              <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
+              <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
                 <div className="col-span-2">DATE</div>
                 <div className="col-span-3">CATEGORY / ASSET</div>
                 <div className="col-span-2">ACCOUNT</div>
@@ -1488,7 +1498,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 filteredTxns.map((tx) => (
                   <div
                     key={tx.id}
-                    className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5"
+                    className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5"
                   >
                     <div className="col-span-2 text-[#aaa] truncate">
                       {formatDateDisplay(tx.date)}
@@ -1876,7 +1886,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
           <div className="bg-surface-1 border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
             <div className="min-w-[860px]">
-              <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-surface-1">
+              <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-surface-1">
                 <div className="col-span-2">DATE</div>
                 <div className="col-span-3">ASSET / NOTE</div>
                 <div className="col-span-2 text-right">GROSS PROCEEDS</div>
@@ -1893,7 +1903,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 allRedemptions.map((red) => (
                   <div
                     key={red.id}
-                    className="grid grid-cols-12 px-4 py-3 border-b border-line items-center text-xs text-white hover:bg-surface-3 transition-all"
+                    className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-line items-center text-xs text-white hover:bg-surface-3 transition-all"
                   >
                     <div className="col-span-2 text-[#aaa] font-mono">
                       {formatDateDisplay(red.date)}
@@ -1963,7 +1973,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           {viewMode === 'table' ? (
             <div className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm">
               <div className="min-w-[860px]">
-                <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
+                <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
                   <div className="col-span-2">DATE</div>
                   <div className="col-span-3">CATEGORY / ASSET</div>
                   <div className="col-span-2">ACCOUNT</div>
@@ -1980,7 +1990,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   filteredTxns.map((tx) => (
                     <div
                       key={tx.id}
-                      className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all"
+                      className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all"
                     >
                       <div className="col-span-2 text-[#aaa] truncate">
                         {formatDateDisplay(tx.date)}
@@ -2079,7 +2089,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       {/* Modal for adding/editing investment with comprehensive asset forms */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
-          <div className="bg-[#121217] border border-line p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
+          <div className="finance-dialog-glass bg-[#121217] border border-line p-5 sm:p-6 rounded-3xl max-w-lg w-full shadow-2xl relative max-h-[92vh] overflow-y-auto space-y-4 text-white font-mono">
             <div className="flex justify-between items-center pb-3 border-b border-[#222]">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-xl bg-red-950/70 border border-red-700/60 flex items-center justify-center text-red-400">

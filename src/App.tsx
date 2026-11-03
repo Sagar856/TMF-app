@@ -4,6 +4,9 @@
  */
 
 import React, { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
+import { Capacitor } from '@capacitor/core';
+import { StatusBar, Style as StatusBarStyle } from '@capacitor/status-bar';
 import {
   safeGetItem,
   safeGetJson,
@@ -19,7 +22,7 @@ import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import { useReducedMotion } from './hooks/useReducedMotion';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { BrandMark } from './components/BrandMark';
+import { AppLaunchLoader } from './components/AppLaunchLoader';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { BottomNav } from './components/BottomNav';
@@ -126,7 +129,6 @@ const LoansView = lazy(() => import('./components/LoansView').then((module) => (
 const AccountsView = lazy(() => import('./components/AccountsView').then((module) => ({ default: module.AccountsView })));
 const CustomisationsView = lazy(() => import('./components/CustomisationsView').then((module) => ({ default: module.CustomisationsView })));
 const SettingsView = lazy(() => import('./components/SettingsView').then((module) => ({ default: module.SettingsView })));
-const UserProfileModal = lazy(() => import('./components/UserProfileModal').then((module) => ({ default: module.UserProfileModal })));
 const NotificationPromptModal = lazy(() => import('./components/NotificationPromptModal').then((module) => ({ default: module.NotificationPromptModal })));
 const SmsSimulatorWidget = lazy(() => import('./components/SmsSimulatorWidget').then((module) => ({ default: module.SmsSimulatorWidget })));
 const EditTransactionModal = lazy(() => import('./components/EditTransactionModal').then((module) => ({ default: module.EditTransactionModal })));
@@ -138,6 +140,12 @@ const EmiConfirmationPromptModal = lazy(() => import('./components/EmiConfirmati
 // Max wrong passcode attempts before a cooldown lockout kicks in.
 const MAX_PASSCODE_ATTEMPTS = 5;
 const PASSCODE_LOCKOUT_MS = 30_000;
+
+function dismissTopDialog(): boolean {
+  if (!document.querySelector('[role="dialog"][aria-modal="true"]')) return false;
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  return true;
+}
 
 function ensureMandatoryCategories(cats: Category[]): Category[] {
   let updated = [...cats];
@@ -169,6 +177,21 @@ export default function App() {
   const reduceMotion = useReducedMotion();
   // Navigation Tab
   const [activeTab, setActiveTab] = useState<string>(() => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
+  const [openAssetRequest, setOpenAssetRequest] = useState(0);
+  const [openLoanRequest, setOpenLoanRequest] = useState(0);
+  const [openProfileRequest, setOpenProfileRequest] = useState(0);
+  const openProfileSettings = () => {
+    setOpenProfileRequest(request => request + 1);
+    setActiveTab('settings');
+  };
+  const popNavigationRef = useRef(false);
+  const navigationDepthRef = useRef(0);
+
+  useEffect(() => {
+    if (activeTab !== 'loans') setOpenLoanRequest(0);
+    if (activeTab !== 'investments') setOpenAssetRequest(0);
+    if (activeTab !== 'settings') setOpenProfileRequest(0);
+  }, [activeTab]);
 
   const legacyPasscodeRef = useRef<string | null>(null);
   const migrationRef = useRef<Promise<PasscodeCredentials> | null>(null);
@@ -310,7 +333,6 @@ export default function App() {
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState<boolean>(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
   const [modalInitialCategoryType, setModalInitialCategoryType] = useState<CategoryType>('Expense');
   const [topBarToast, setTopBarToast] = useState<ToastMessage | null>(null);
@@ -489,6 +511,97 @@ export default function App() {
   useEffect(() => {
     mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [activeTab]);
+
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+  useEffect(() => {
+    window.history.replaceState({ minarthTab: activeTab }, '');
+    const handlePopState = (event: PopStateEvent) => {
+      if (dismissTopDialog()) {
+        window.history.pushState({ minarthTab: activeTabRef.current }, '');
+        return;
+      }
+      const tab = event.state?.minarthTab;
+      if (typeof tab !== 'string') return;
+      popNavigationRef.current = true;
+      navigationDepthRef.current = Math.max(0, navigationDepthRef.current - 1);
+      setActiveTab(tab);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const previousTabRef = useRef(activeTab);
+  useEffect(() => {
+    if (previousTabRef.current === activeTab) return;
+    previousTabRef.current = activeTab;
+    if (popNavigationRef.current) {
+      popNavigationRef.current = false;
+      return;
+    }
+    navigationDepthRef.current += 1;
+    window.history.pushState({ minarthTab: activeTab }, '');
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    void Promise.all([
+      StatusBar.setOverlaysWebView({ overlay: false }),
+      StatusBar.setBackgroundColor({ color: settings.theme === 'light' ? '#f4f4f6' : '#09090c' }),
+      StatusBar.setStyle({ style: settings.theme === 'light' ? StatusBarStyle.Dark : StatusBarStyle.Light }),
+    ]).catch((error) => console.warn('Could not configure the native status bar:', error));
+  }, [settings.theme]);
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== 'android') return;
+    let active = true;
+    let removeListener: (() => void) | undefined;
+
+    void CapacitorApp.addListener('backButton', () => {
+      if (!active) return;
+      if (confirmConfig) {
+        setConfirmConfig(null);
+      } else if (activeBudgetPushAlert) {
+        setActiveBudgetPushAlert(null);
+      } else if (isSimulatorOpen) {
+        setIsSimulatorOpen(false);
+      } else if (isEmiModalOpen) {
+        setIsEmiModalOpen(false);
+      } else if (isNotificationModalOpen) {
+        setIsNotificationModalOpen(false);
+      } else if (isAddModalOpen || editingTransaction) {
+        setIsAddModalOpen(false);
+        setEditingTransaction(null);
+        setEditingPaymentId(null);
+      } else if (dismissTopDialog()) {
+        return;
+      } else if (settings.passcodeEnabled && !isUnlocked) {
+        void CapacitorApp.exitApp();
+      } else if (navigationDepthRef.current > 0) {
+        window.history.back();
+      } else {
+        void CapacitorApp.exitApp();
+      }
+    }).then((listener) => {
+      if (active) removeListener = () => { void listener.remove(); };
+      else void listener.remove();
+    }).catch((error) => console.warn('Could not register Android back navigation:', error));
+
+    return () => {
+      active = false;
+      removeListener?.();
+    };
+  }, [
+    activeBudgetPushAlert,
+    confirmConfig,
+    editingTransaction,
+    isAddModalOpen,
+    isEmiModalOpen,
+    isNotificationModalOpen,
+    isSimulatorOpen,
+    isUnlocked,
+    settings.passcodeEnabled,
+  ]);
 
   // One-time local migration: back-fill `kind` and canonical `accountId` on
   // records created before those fields existed.
@@ -993,7 +1106,7 @@ export default function App() {
     resetDuplicateMemory();
     setPaymentActions([]);
     setEditingPaymentId(null);
-    setIsProfileModalOpen(false);
+    setOpenProfileRequest(0);
     setIsAddModalOpen(false);
     setIsNotificationModalOpen(false);
     setEditingTransaction(null);
@@ -2549,44 +2662,15 @@ export default function App() {
     );
   }
 
-  // 0. App Launch Motion Loader
-  if (isAppLoading || passcodeMigrationPending) {
+  const waitingForPrivateAccount = Boolean(authUser) && !isPasswordRecovery && cloudReady && !cloudHydrated;
+  if (isAppLoading || passcodeMigrationPending || authLoading || waitingForPrivateAccount) {
     return (
-      <div className="identity-glass app-launch flex flex-col items-center justify-center h-screen text-content-1 font-mono p-6 relative overflow-hidden select-none">
-        <div className="absolute w-96 h-96 bg-violet-600/15 rounded-full blur-3xl pointer-events-none motion-safe:animate-pulse" />
-
-        <motion.div
-          initial={{ opacity: 0, scale: reduceMotion ? 1 : 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: reduceMotion ? 0 : 0.5, ease: 'easeOut' }}
-          className="identity-glass-panel flex flex-col items-center space-y-6 relative z-10 text-center w-full max-w-sm rounded-3xl border border-line p-8"
-        >
-          <BrandMark className="w-20 h-20" />
-
-          <div>
-            <h1 className="text-sm font-bold tracking-[0.25em] text-white uppercase font-mono">
-              MINARTH
-            </h1>
-            <p className="text-[10px] text-[#777] font-mono mt-1 uppercase tracking-widest">
-              Clarity for your money
-            </p>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="w-full bg-[#1c1c1c] h-1.5 rounded-full overflow-hidden border border-[#333]">
-            <motion.div
-              initial={{ width: '0%' }}
-              animate={{ width: '100%' }}
-              transition={{ duration: reduceMotion ? 0 : 0.9, ease: 'easeInOut' }}
-              className="h-full bg-gradient-to-r from-violet-600 via-violet-400 to-indigo-300 rounded-full"
-            />
-          </div>
-
-          <div className="text-[9px] text-[#555] font-mono uppercase tracking-widest">
-            Preparing your private workspace
-          </div>
-        </motion.div>
-      </div>
+      <AppLaunchLoader
+        reduceMotion={reduceMotion}
+        error={waitingForPrivateAccount && syncStatus?.success === false ? syncStatus.error : undefined}
+        onRetry={() => void loadCloudData()}
+        onSignOut={handleSignOut}
+      />
     );
   }
 
@@ -2596,12 +2680,9 @@ export default function App() {
   // as guest" — an account is required, and the login screen cannot be
   // dismissed without actually signing in/registering (or verifying a
   // password-recovery link).
-  if (authLoading) {
-    return <div role="status" className="identity-glass min-h-screen flex items-center justify-center text-content-1">Checking your sign-in...</div>;
-  }
   if (!authUser || isPasswordRecovery) {
     return (
-      <Suspense fallback={<div role="status" className="min-h-screen bg-black" />}>
+      <Suspense fallback={<AppLaunchLoader reduceMotion={reduceMotion} />}>
         <AuthModal
           key={isPasswordRecovery ? 'recovery' : 'login'}
           initialMode={isPasswordRecovery ? 'set_new_password' : 'login'}
@@ -2612,14 +2693,6 @@ export default function App() {
         />
       </Suspense>
     );
-  }
-
-  if (cloudReady && !cloudHydrated) {
-    return <div className="identity-glass min-h-screen flex flex-col gap-4 items-center justify-center text-content-1 p-6">
-      <p role={syncStatus?.success === false ? 'alert' : 'status'}>{syncStatus?.success === false ? syncStatus.error : 'Loading your private account...'}</p>
-      {syncStatus?.success === false && <button type="button" onClick={() => void loadCloudData()} className="rounded-xl bg-violet-600 px-4 py-2">Retry</button>}
-      <button type="button" onClick={handleSignOut} className="text-sm underline">Sign out</button>
-    </div>;
   }
 
   // Security Passcode Lock Screen
@@ -2747,7 +2820,7 @@ export default function App() {
           onOpenNotifications={() => setIsNotificationModalOpen(true)}
           onOpenEmiConfirmations={() => setIsEmiModalOpen(true)}
           onOpenAddTransaction={() => handleOpenAddModal()}
-          onOpenProfile={() => setIsProfileModalOpen(true)}
+          onOpenProfile={openProfileSettings}
           currencySymbol={settings.currencySymbol}
           currencyCode={settings.currencyCode}
           locationTracking={settings.locationTracking}
@@ -2857,6 +2930,7 @@ export default function App() {
 
           {activeTab === 'investments' && (
             <InvestmentsView
+              openAddAssetRequest={openAssetRequest}
               investments={investments}
               transactions={transactions}
               accounts={accounts}
@@ -2876,6 +2950,7 @@ export default function App() {
             <LoansView
               loans={loans}
               accounts={accounts}
+              openAddLoanRequest={openLoanRequest}
               onAddLoan={handleAddLoan}
               onRecordRepayment={handleRecordRepayment}
               onSettleLoan={handleSettleLoan}
@@ -2930,8 +3005,7 @@ export default function App() {
               lastSettingsSyncAt={lastSettingsSyncAt}
               onDeleteUserAccount={handleRequestDeleteAccount}
               onSignOut={handleSignOut}
-              onOpenProfile={() => setIsProfileModalOpen(true)}
-              onNavigateToTab={setActiveTab}
+              openProfileRequest={openProfileRequest}
             />
           )}
             </motion.div>
@@ -2941,9 +3015,21 @@ export default function App() {
 
         {/* Global Floating Action Button for Home, Txns, Invest, Loans */}
         <FloatingActionButton
-          onClick={() => handleOpenAddModal()}
+          onClick={() => {
+            if (activeTab === 'investments') setOpenAssetRequest((request) => request + 1);
+            else if (activeTab === 'loans') setOpenLoanRequest((request) => request + 1);
+            else if (activeTab === 'transactions') handleOpenAddModal('Expense');
+            else handleOpenAddModal();
+          }}
           scrollContainerRef={mainScrollRef}
           visible={['dashboard', 'transactions', 'investments', 'loans'].includes(activeTab)}
+          label={activeTab === 'transactions'
+            ? 'Add transaction'
+            : activeTab === 'loans'
+              ? 'Add loan or lend'
+              : activeTab === 'investments'
+                ? 'Add asset'
+                : 'Add record'}
         />
 
         {/* Mobile Bottom Navigation Bar - Fixed/Sticky with Safe Area Inset Support */}
@@ -2995,20 +3081,6 @@ export default function App() {
       </AnimatePresence>
 
       {/* Global Modals */}
-
-      {/* 1. User Profile Modal */}
-      {isProfileModalOpen && (
-        <Suspense fallback={null}>
-          <UserProfileModal
-            settings={settings}
-            accounts={accounts}
-            onClose={() => setIsProfileModalOpen(false)}
-            onUpdateSettings={setSettings}
-            onExportData={handleExportBackupJSON}
-            onSignOut={handleSignOut}
-          />
-        </Suspense>
-      )}
 
       {/* 2. UPI/SMS Intercept Notification Prompt Modal (The core requested feature!) */}
       {isNotificationModalOpen && (
@@ -3082,7 +3154,7 @@ export default function App() {
       {/* 4. Add / Edit Record Modal — keyed so switching between add/edit or
           between two transactions always starts from fresh form state. */}
       {(isAddModalOpen || Boolean(editingTransaction)) && (
-        <Suspense fallback={null}>
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-modal flex items-center justify-center bg-backdrop/80 text-content-1">Opening transaction form…</div>}>
           <EditTransactionModal
             key={
               editingTransaction

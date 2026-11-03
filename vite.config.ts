@@ -4,8 +4,13 @@ import tailwindcss from '@tailwindcss/vite';
 import https from 'https';
 import http from 'http';
 import fs from 'fs';
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
+const windowsCacheDir = join(tmpdir(), `minarth-vite-${createHash('sha256')
+  .update(new URL('.', import.meta.url).href).digest('hex').slice(0, 12)}`);
 
 function stockQuotePlugin(): Plugin {
   return {
@@ -105,6 +110,8 @@ function stockQuotePlugin(): Plugin {
 // https://vitejs.dev/config/
 export default defineConfig({
   base: './',
+  // Workspace file locks on Windows can prevent Vite from committing its dependency cache.
+  cacheDir: process.platform === 'win32' ? windowsCacheDir : undefined,
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
@@ -113,13 +120,16 @@ export default defineConfig({
     tailwindcss(),
     stockQuotePlugin(),
   ],
+  optimizeDeps: {
+    include: ['@capacitor/geolocation'],
+  },
   server: {
     port: 3000,
     host: '0.0.0.0',
     allowedHosts: true,
     watch: {
+      usePolling: process.platform === 'win32',
       ignored: ['**/.tmp_video_inspection/**', '**/android/**'],
     },
   },
 });
-

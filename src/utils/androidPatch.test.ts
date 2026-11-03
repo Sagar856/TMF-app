@@ -62,7 +62,32 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.match(readFileSync(join(app, 'res', 'mipmap-anydpi-v26', 'ic_launcher.xml'), 'utf8'),
       /@drawable\/ic_launcher_foreground/);
     assert.match(readFileSync(join(app, 'res', 'drawable', 'ic_launcher_foreground.xml'), 'utf8'),
-      /viewportWidth="512"/);
+      /@drawable\/minarth_launcher_foreground/);
+    for (const name of ['ic_launcher.xml', 'ic_launcher_round.xml']) {
+      const adaptive = readFileSync(join(app, 'res', 'mipmap-anydpi-v26', name), 'utf8');
+      assert.match(adaptive, /<background android:drawable="@drawable\/ic_launcher_background"/);
+      assert.match(adaptive, /<foreground android:drawable="@drawable\/ic_launcher_foreground"/);
+      assert.match(adaptive, /<monochrome android:drawable="@drawable\/ic_minarth_monochrome"/);
+    }
+    assert.match(readFileSync(join(app, 'res', 'drawable', 'ic_launcher_background.xml'), 'utf8'), /#e9e9fa/);
+    assert.deepEqual(
+      readFileSync(join(app, 'res', 'drawable', 'minarth_launcher_foreground.png')),
+      readFileSync(join(root, 'public', 'icons', 'icon-adaptive-foreground.png')),
+    );
+    for (const file of ['ic_minarth_monochrome.png', 'ic_minarth_notification.png']) {
+      assert.deepEqual(
+        readFileSync(join(app, 'res', 'drawable', file)),
+        readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'drawable', file)),
+      );
+    }
+    assert.match(readFileSync(join(app, 'res', 'drawable', 'ic_stat_tmf.xml'), 'utf8'),
+      /@drawable\/ic_minarth_notification/);
+    for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+      assert.deepEqual(
+        readFileSync(join(app, 'res', `mipmap-${density}`, 'ic_launcher_foreground.png')),
+        readFileSync(join(root, 'public', 'icons', 'icon-adaptive-foreground.png')),
+      );
+    }
     for (const path of [
       join(app, 'res', 'mipmap-mdpi', 'ic_launcher.png'),
       join(app, 'res', 'mipmap-xxxhdpi', 'ic_launcher_round.png'),

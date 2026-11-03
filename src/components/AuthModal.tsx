@@ -5,7 +5,7 @@ import { PasswordField } from './PasswordField';
 import { UserSettings } from '../types/finance';
 import { useDialog } from '../hooks/useDialog';
 import { isStrongPassword } from '../utils/passwordPolicy';
-import { createEmailRegistration, getSupabaseClient, sendPasswordResetEmail, signInUser, updatePassword } from '../services/supabaseClient';
+import { createEmailRegistration, EmailAlreadyRegisteredError, getSupabaseClient, sendPasswordResetEmail, signInUser, updatePassword } from '../services/supabaseClient';
 
 type AuthMode = 'login' | 'register' | 'verify_email' | 'forgot_password' | 'set_new_password';
 interface AuthModalProps {
@@ -30,6 +30,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
   const [now, setNow] = useState(Date.now);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [existingEmail, setExistingEmail] = useState('');
   const registration = useRef<ReturnType<typeof createEmailRegistration> | null>(null);
   const emailRevision = useRef(0);
   const dialogRef = useDialog({ isOpen: true, onClose: () => { if (canClose && !busy) onClose(); } });
@@ -61,6 +62,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
     setOtp('');
     setCodeSent(false);
     setVerifiedEmail('');
+    setExistingEmail('');
     clearFeedback();
   };
   const changeEmail = (value: string) => {
@@ -70,6 +72,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
     setVerifiedEmail('');
     setCodeSent(false);
     setOtp('');
+    setExistingEmail('');
     clearFeedback();
   };
   const reportError = (reason: unknown, fallback: string) => {
@@ -99,7 +102,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
       setNow(Date.now());
       setSuccess('Verification code requested. Check your inbox and spam folder.');
     } catch (reason) {
-      reportError(reason, 'Could not send a code. Please try again.');
+      if (revision !== emailRevision.current) return;
+      if (reason instanceof EmailAlreadyRegisteredError) {
+        setCodeSent(false);
+        setExistingEmail(normalizedEmail);
+      } else {
+        reportError(reason, 'Could not send a code. Please try again.');
+      }
     } finally {
       setBusy(false);
     }
@@ -153,7 +162,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
       setBusy(false);
     }
   };
-  const heading = registering ? 'Create New Account' : mode === 'login' ? 'Sign In To MINARTH'
+  const heading = existingEmail ? 'Account already exists' : registering ? 'Create New Account' : mode === 'login' ? 'Sign In To MINARTH'
     : mode === 'set_new_password' ? 'Set New Password' : 'Reset Password';
   const inputClass = 'w-full px-3 py-2 bg-surface-2 border border-line rounded-xl text-xs text-content-1 focus:outline-none focus:border-violet-500';
   const actionClass = 'rounded-xl bg-violet-600 hover:bg-violet-500 px-3 py-2 text-xs font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed';
@@ -169,7 +178,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
             <div>
               <h3 id="auth-heading" className="text-xs font-bold uppercase tracking-wider">{heading}</h3>
               <p className="text-[10px] text-content-2">
-                {registering ? 'Verify email first, then set a password' : mode === 'login' ? 'Enter your credentials'
+                {existingEmail ? 'Continue with your existing account' : registering ? 'Verify email first, then set a password' : mode === 'login' ? 'Enter your credentials'
                   : mode === 'set_new_password' ? 'Choose and confirm a strong password' : 'We will email you a reset link'}
               </p>
             </div>
@@ -177,6 +186,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
           {canClose && <button type="button" disabled={busy} onClick={onClose} aria-label="Close sign-in"><X className="w-4 h-4" /></button>}
         </div>
         {!configured && <p role="alert" className="text-xs text-amber-400">Cloud backend is not configured for this build. Sign-in is unavailable.</p>}
+        {existingEmail ? (
+          <div className="space-y-4">
+            <p role="status" className="text-sm leading-relaxed text-content-2">
+              <strong className="break-all text-content-1">{existingEmail}</strong> is already registered.
+              No verification code was sent. Sign in to continue, or use Forgot Password if you need to reset your password.
+            </p>
+            <button type="button" autoFocus onClick={() => changeMode('login')} className={`${actionClass} w-full py-3`}>Go to sign in</button>
+            <button type="button" onClick={() => { setExistingEmail(''); changeEmail(''); }} className="w-full rounded-xl border border-line px-3 py-2.5 text-xs text-content-2">Use a different email</button>
+          </div>
+        ) : (
+        <>
         {error && <p role="alert" className="rounded-xl border border-red-500/40 bg-red-950/30 p-3 text-xs text-red-400">{error}</p>}
         {success && <p role="status" className="flex gap-2 rounded-xl border border-emerald-500/40 bg-emerald-950/30 p-3 text-xs text-emerald-400"><CheckCircle2 className="w-4 h-4 shrink-0" />{success}</p>}
         <form key={mode} onSubmit={submit} className="space-y-3.5" autoComplete={registering ? 'off' : 'on'}>
@@ -212,7 +232,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
           {mode !== 'forgot_password' && (
             <PasswordField key={`${mode}-password`} label={mode === 'set_new_password' ? 'New password' : 'Password'}
               value={password} onChange={setPassword} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-              showRequirements={registering || mode === 'set_new_password'} />
+              showRequirements={registering ? password.length > 0 : mode === 'set_new_password'} />
           )}
           {(registering || mode === 'set_new_password') && (
             <PasswordField key={`${mode}-confirm`} label="Confirm password" value={confirmPassword} onChange={setConfirmPassword}
@@ -231,6 +251,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
               {mode === 'login' ? 'Register Now' : 'Back to Sign In'}
             </button>
           </div>
+        )}
+        </>
         )}
       </div>
     </div>

@@ -117,6 +117,13 @@ export function isConfirmedEmailUser(user: Session['user'] | null | undefined): 
   return Boolean(user?.email && user.email_confirmed_at);
 }
 
+export class EmailAlreadyRegisteredError extends Error {
+  constructor() {
+    super('An account with this email already exists. Please sign in instead.');
+    this.name = 'EmailAlreadyRegisteredError';
+  }
+}
+
 /** Signup verification must not publish SIGNED_IN to the application's persistent client. */
 export function createEmailRegistration() {
   const env = import.meta.env;
@@ -135,9 +142,25 @@ export function createEmailRegistration() {
     },
     async sendCode(email: string) {
       const request = ++revision;
-      requestedEmail = '';
       verifiedEmail = '';
       const normalized = email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) || normalized.length > 254) {
+        throw new Error('Enter a valid email address first.');
+      }
+      // The first OTP creates a pending Auth identity; resends in this flow must
+      // not mistake that identity for a previously registered account.
+      if (requestedEmail !== normalized) {
+        requestedEmail = '';
+        const { data: exists, error: lookupError } = await client.rpc('registration_email_exists', { candidate_email: normalized });
+        if (lookupError) {
+          throw new Error(lookupError.code === 'PGRST202'
+            ? 'Registration is temporarily unavailable. The account lookup database migration must be applied.'
+            : `Could not check this email. Please try again. ${lookupError.message}`);
+        }
+        if (typeof exists !== 'boolean') throw new Error('Could not check this email. Please try again.');
+        if (request !== revision) throw new Error('Email changed. Request a new code.');
+        if (exists) throw new EmailAlreadyRegisteredError();
+      }
       const { error } = await client.auth.signInWithOtp({ email: normalized, options: { shouldCreateUser: true } });
       if (error) throw error;
       if (request === revision) requestedEmail = normalized;
@@ -170,6 +193,7 @@ export function createEmailRegistration() {
       if (request !== revision) throw new Error('Email changed. Request a new code.');
       // Only after verified ownership and password setup may the main app sign in.
       const data = await signInUser(normalized, password);
+      requestedEmail = '';
       verifiedEmail = '';
       return data;
     },

@@ -789,14 +789,14 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
           role="region"
           aria-label="Transaction records table"
           tabIndex={0}
-          className="bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
+          className="finance-data-table bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
         >
           <p className="px-3 pt-2 text-[10px] text-[#888] sm:hidden">
             Scroll horizontally to view all table columns.
           </p>
           <div className="min-w-[860px]">
             {/* Header */}
-            <div className="grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
+            <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
               <div className="col-span-2">DATE</div>
               <div className="col-span-2">CATEGORY</div>
               <div className="col-span-2">AMOUNT</div>
@@ -816,7 +816,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
                 <div
                   key={tx.id}
                   onClick={() => onEditTransaction(tx)}
-                  className="grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5 cursor-pointer"
+                  className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5 cursor-pointer"
                 >
                   {/* DATE */}
                   <div className="col-span-2 text-[#aaa] truncate">

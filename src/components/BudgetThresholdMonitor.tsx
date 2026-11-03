@@ -168,11 +168,11 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
       ref={handleContainerRef}
       id="budget-threshold-monitor"
       data-glass-expanded={effectiveState.isExpanded}
-      className={`rounded-2xl border transition-all duration-300 font-mono ${
+      className={`finance-budget-glass rounded-2xl border transition-all duration-300 font-mono ${
         effectiveState.isFocused
           ? hasAlerts
             ? 'bg-gradient-to-br from-[#1c1214] via-[#141215] to-[#121214] border-red-500 shadow-[0_10px_30px_rgba(220,38,38,0.2)] ring-1 ring-red-500/30'
-            : 'bg-[#141418] border-red-500/60 shadow-lg ring-1 ring-red-500/20'
+            : 'bg-[#141418] border-violet-300/50 shadow-[0_12px_30px_rgba(124,92,198,0.2)] ring-1 ring-violet-300/20'
           : hasAlerts
           ? 'bg-surface-1 border-red-500/40 shadow-sm'
           : 'bg-[#111113] border-[#242428] shadow-md'
@@ -326,6 +326,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
               <div className="flex items-center gap-1.5">
                 <button
                   type="button"
+                  aria-pressed={filterMode === 'alerts'}
                   onClick={() => setFilterMode('alerts')}
                   className={`px-3 py-1 text-[10px] sm:text-xs font-bold uppercase rounded-lg transition-all nav-lift cursor-pointer flex items-center gap-1.5 ${
                     filterMode === 'alerts'
@@ -339,10 +340,11 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
 
                 <button
                   type="button"
+                  aria-pressed={filterMode === 'all'}
                   onClick={() => setFilterMode('all')}
                   className={`px-3 py-1 text-[10px] sm:text-xs font-bold uppercase rounded-lg transition-all nav-lift cursor-pointer flex items-center gap-1.5 ${
                     filterMode === 'all'
-                      ? 'bg-[#222] text-white border border-[#444] shadow-sm'
+                      ? 'bg-violet-950/60 text-violet-100 border border-violet-300/40 shadow-[inset_0_1px_0_rgba(255,255,255,0.12)]'
                       : 'text-[#888] hover:text-white bg-[#141416] border border-[#26262a]'
                   }`}
                 >

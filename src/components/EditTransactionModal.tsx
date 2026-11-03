@@ -12,7 +12,8 @@ import {
 } from '../types/finance';
 import { X, Plus, Sparkles, MapPin, Loader2 } from 'lucide-react';
 import { suggestCategoryForTitle } from '../services/notification/CategoryClassifier';
-import { getCurrentDeviceLocation } from '../services/locationService';
+import { getCurrentDeviceLocation, isDeviceLocationPermissionGranted, requestDeviceLocationPermission } from '../services/locationService';
+import { PermissionDisclosureModal } from './PermissionDisclosureModal';
 import { newId } from '../utils/ids';
 import { todayLocalISO, currentMonthLocal, addDays, nowLocalTimeHHMM } from '../utils/dates';
 import { resolveAccountId } from '../utils/accountResolver';
@@ -150,9 +151,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   );
 
   const parsedNote = useMemo(() => parseNoteAndTags(transaction?.note), [transaction?.note]);
-  const [notes, setNotes] = useState<string>(parsedNote.cleanNote);
-  const [tags, setTags] = useState<string[]>(parsedNote.extractedTags);
-  const [tagInput, setTagInput] = useState<string>('');
+  const notes = parsedNote.cleanNote;
+  const tags = parsedNote.extractedTags;
 
   // --- Geolocation & Place State ---
   const [place, setPlace] = useState<string>(transaction?.location?.name || '');
@@ -160,10 +160,10 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     transaction?.location ? { lat: transaction.location.lat, lng: transaction.location.lng } : null
   );
   const [isLocating, setIsLocating] = useState<boolean>(false);
+  const [locationError, setLocationError] = useState('');
+  const [showLocationPermission, setShowLocationPermission] = useState(false);
 
-  const [refNumber, setReferenceNum] = useState<string>(
-    transaction?.refNumber || ''
-  );
+  const refNumber = transaction?.refNumber || '';
 
   // --- Investment State ---
   const [invName, setInvName] = useState<string>('');
@@ -187,7 +187,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   const [loanRefNum, setLoanRefNum] = useState<string>('NA');
 
   const [autoMatchedCategory, setAutoMatchedCategory] = useState<string | null>(null);
-  const [txTime, setTxTime] = useState<string>(transaction?.time || nowLocalTimeHHMM());
+  const txTime = transaction?.time || nowLocalTimeHHMM();
   const [formError, setFormError] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const dialogRef = useDialog<HTMLDivElement>({ isOpen: true, onClose });
@@ -248,10 +248,16 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           if (loc && loc.formattedLocation) {
             setPlace((prev) => (prev ? prev : loc.formattedLocation));
             setCoordinates({ lat: loc.lat, lng: loc.lng });
+          } else {
+            setLocationError('Could not detect a location. Check device location services and permission, or enter a place manually.');
           }
         })
-        .catch(() => {
-          if (isMounted) setIsLocating(false);
+        .catch((error) => {
+          console.warn('Could not automatically detect transaction location:', error);
+          if (isMounted) {
+            setIsLocating(false);
+            setLocationError('Could not detect a location. Check device location services and permission, or enter a place manually.');
+          }
         });
 
       return () => {
@@ -261,15 +267,47 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   }, [isEditingExisting, place, locationTracking]);
 
   const handleFetchCurrentLocation = async () => {
+    setLocationError('');
     setIsLocating(true);
     try {
       const loc = await getCurrentDeviceLocation();
       if (loc && loc.formattedLocation) {
         setPlace(loc.formattedLocation);
         setCoordinates({ lat: loc.lat, lng: loc.lng });
+      } else {
+        setLocationError('Could not detect a location. Check device location services and permission, or enter a place manually.');
       }
+    } catch (error) {
+      console.warn('Could not detect transaction location:', error);
+      setLocationError('Could not detect a location. Check device location services and permission, or enter a place manually.');
     } finally {
       setIsLocating(false);
+    }
+  };
+
+  const handleRequestLocation = async () => {
+    if (await isDeviceLocationPermissionGranted()) {
+      await handleFetchCurrentLocation();
+      return;
+    }
+    setShowLocationPermission(true);
+  };
+
+  const handleAllowLocation = async () => {
+    setLocationError('');
+    setIsLocating(true);
+    try {
+      if (!(await requestDeviceLocationPermission())) {
+        setLocationError('Location permission was not granted. Allow it in your device or browser settings, then try again.');
+        return;
+      }
+      await handleFetchCurrentLocation();
+    } catch (error) {
+      console.warn('Could not request transaction location permission:', error);
+      setLocationError('Could not request location permission. Please try again.');
+    } finally {
+      setIsLocating(false);
+      setShowLocationPermission(false);
     }
   };
 
@@ -389,17 +427,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   // Tag Handlers
-  const handleAddTag = () => {
-    if (tagInput.trim() && !tags.includes(tagInput.trim())) {
-      setTags([...tags, tagInput.trim().toLowerCase().replace(/^#/, '')]);
-      setTagInput('');
-    }
-  };
-
-  const handleRemoveTag = (tagToRemove: string) => {
-    setTags(tags.filter((t) => t !== tagToRemove));
-  };
-
   // Save Handlers
   const handleSaveTransaction = (e: React.FormEvent) => {
     e.preventDefault();
@@ -544,7 +571,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         aria-modal="true"
         aria-label={isEditingExisting ? 'Edit transaction' : 'Add record'}
         tabIndex={-1}
-        className="bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative my-auto outline-none"
+        className="finance-dialog-glass bg-[#111111] border border-[#222] p-5 sm:p-6 rounded-3xl max-w-md w-full shadow-2xl relative my-auto outline-none"
       >
         {/* ==================== FORM FOR EXPENSE & INCOME ==================== */}
         {(categoryType === 'Expense' || categoryType === 'Income') && (
@@ -565,7 +592,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </div>
 
             <form onSubmit={handleSaveTransaction} className="space-y-3.5 font-mono" noValidate>
-              {/* Row 1: DATE, TIME & AMOUNT */}
+              {/* Date and amount are the only required entry fields. */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="tx-date" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
@@ -582,19 +609,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </div>
 
                 <div>
-                  <label htmlFor="tx-time" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    TIME
-                  </label>
-                  <input
-                    id="tx-time"
-                    type="time"
-                    value={txTime}
-                    onChange={(e) => { setTxTime(e.target.value); setFormError(''); }}
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
-                  />
-                </div>
-
-                <div className="col-span-2">
                   <label htmlFor="tx-amount" className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                     AMOUNT ({currencySymbol})
                   </label>
@@ -634,8 +648,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </select>
               </div>
 
-              {/* Row 3: CATEGORY & SUBCATEGORY */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Row 3: CATEGORY */}
+              <div>
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider">
@@ -673,22 +687,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   )}
                 </div>
 
-                <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    SUBCATEGORY
-                  </label>
-                  <select
-                    value={selectedSubcategory}
-                    onChange={(e) => setSelectedSubcategory(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                  >
-                    {subcategoryOptions.map((sub) => (
-                      <option key={sub} value={sub}>
-                        {sub}
-                      </option>
-                    ))}
-                  </select>
-                </div>
               </div>
 
               {/* Row 4: TYPE & ACCOUNT */}
@@ -765,9 +763,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                 </div>
               </div>
 
-              {/* Row 5: PAYEE / MERCHANT & REFERENCE / UTR */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              {/* Row 5: PAYEE / MERCHANT */}
+              <div>
                   <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
                     PAYEE / MERCHANT
                   </label>
@@ -778,20 +775,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     placeholder="e.g. Starbucks, Amazon, Landlord"
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
                   />
-                </div>
-
-                <div>
-                  <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                    REFERENCE / UTR
-                  </label>
-                  <input
-                    type="text"
-                    value={refNumber}
-                    onChange={(e) => setReferenceNum(e.target.value)}
-                    placeholder="e.g. UTR / Ref #"
-                    className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                  />
-                </div>
               </div>
 
               {/* Row 6: DESCRIPTION */}
@@ -831,7 +814,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                   />
                   <button
                     type="button"
-                    onClick={handleFetchCurrentLocation}
+                    onClick={() => void handleRequestLocation()}
                     disabled={isLocating}
                     title="Detect current location"
                     className="absolute right-2 p-1 text-[#666] hover:text-red-400 disabled:opacity-40 transition-colors cursor-pointer"
@@ -843,69 +826,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     )}
                   </button>
                 </div>
-              </div>
-
-              {/* Row 8: NOTES */}
-              <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                  NOTES
-                </label>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Additional notes..."
-                  className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                />
-              </div>
-
-              {/* Row 7: TAGS */}
-              <div>
-                <label className="block text-[9px] font-mono font-bold text-[#777] uppercase tracking-wider mb-1">
-                  TAGS
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleAddTag();
-                      }
-                    }}
-                    placeholder="New tag..."
-                    className="flex-1 px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddTag}
-                    className="px-3 bg-[#181818] border border-[#222] text-white rounded-xl hover:bg-surface-3 transition-colors flex items-center justify-center cursor-pointer"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {tags.map((tg, idx) => (
-                      <span
-                        key={idx}
-                        className="px-2 py-0.5 bg-[#181818] border border-line text-[10px] font-mono text-[#aaa] rounded-lg flex items-center gap-1"
-                      >
-                        #{tg}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveTag(tg)}
-                          className="hover:text-red-400"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                )}
+                {locationError && <p role="alert" className="mt-1 text-[10px] text-red-400">{locationError}</p>}
               </div>
 
               {formError && (
@@ -1011,6 +932,16 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
                   />
                 </div>
+                {showLocationPermission && (
+                  <PermissionDisclosureModal
+                    permission="location"
+                    busy={isLocating}
+                    onAllow={() => void handleAllowLocation()}
+                    onCancel={() => {
+                      if (!isLocating) setShowLocationPermission(false);
+                    }}
+                  />
+                )}
               </div>
 
               {/* Row 4: AMOUNT INVESTED & CURRENT MARKET VALUE */}

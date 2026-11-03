@@ -631,26 +631,26 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
   };
 
   return (
-    <div 
-      ref={handleContainerRef} 
+    <div
+      ref={handleContainerRef}
       id="recurring-transactions-card"
       data-glass-expanded={effectiveState.isExpanded}
-      className={`bg-carbon border rounded-2xl shadow-xl font-mono overflow-hidden transition-all duration-300 ${
-        effectiveState.isFocused 
-          ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
+      className={`finance-recurring-glass bg-carbon border rounded-2xl shadow-xl font-mono overflow-hidden transition-all duration-300 ${
+        effectiveState.isFocused
+          ? 'border-violet-300/50 shadow-[0_12px_30px_rgba(124,92,198,0.2)] ring-1 ring-violet-300/20'
           : 'border-nothing'
       }`}
     >
       {/* Header Bar - Collapsible Trigger */}
-      <div 
+      <div
         onClick={handleToggleExpand}
         className="p-3.5 sm:p-4 flex flex-col gap-3 cursor-pointer hover:bg-surface-3 transition-colors select-none"
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-inner transition-colors ${
-            effectiveState.isFocused 
-              ? 'bg-red-950/90 border border-red-500 text-red-400' 
-              : 'bg-red-950/60 border border-red-600/50 text-red-500'
+            effectiveState.isFocused
+              ? 'bg-violet-950/80 border border-violet-300/50 text-violet-200'
+              : 'bg-violet-950/50 border border-violet-400/30 text-violet-200'
           }`}>
             <Repeat className="w-4 h-4" />
           </div>
@@ -696,15 +696,15 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             }}
             aria-label="Add recurring bill"
             title="Add recurring bill"
-            className="h-8 px-2 sm:px-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-red-500 rounded-lg text-[10px] font-bold text-white transition-all cursor-pointer flex shrink-0 items-center gap-1.5"
+            className="h-8 px-2 sm:px-2.5 bg-obsidian hover:bg-surface-3 border border-nothing hover:border-violet-300/60 rounded-lg text-[10px] font-bold text-white transition-all cursor-pointer flex shrink-0 items-center gap-1.5"
           >
-            <Plus className="w-3 h-3 text-red-500" />
+            <Plus className="w-3 h-3 text-violet-300" />
             <span className="hidden sm:inline">Add Recurring</span>
           </button>
 
           <div role="group" aria-label="Recurring bill month" className="flex min-w-0 flex-1 items-center justify-center gap-0.5 sm:flex-none sm:gap-1">
             <button type="button" onClick={handlePrevMonth} aria-label="Previous month" title="Previous month"
-              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-red-500">
+              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-violet-300/60">
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
             <button
@@ -717,13 +717,13 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
               aria-label={`${formatMonthLabel(selectedMonth)}. Reset to current month`}
               className="h-8 min-w-0 px-1 sm:px-2 flex items-center justify-center gap-1 rounded-lg border border-nothing bg-obsidian text-white"
             >
-              <Calendar className="hidden sm:block w-3.5 h-3.5 shrink-0 text-red-400" />
+              <Calendar className="hidden sm:block w-3.5 h-3.5 shrink-0 text-violet-300" />
               <span className="whitespace-nowrap text-[9px] sm:text-xs font-bold uppercase">
                 {parseLocalDate(`${selectedMonth}-01`).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}
               </span>
             </button>
             <button type="button" onClick={handleNextMonth} aria-label="Next month" title="Next month"
-              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-red-500">
+              className="h-8 px-1 sm:px-2 shrink-0 rounded-lg border border-nothing bg-obsidian text-[#aaa] hover:text-white hover:border-violet-300/60">
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -739,7 +739,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
             }}
             title={showCalendar ? 'Hide calendar' : 'Show calendar'}
             className={`h-8 px-2 shrink-0 rounded-lg border flex items-center gap-1 text-[10px] font-bold transition-colors ${
-              showCalendar ? 'bg-red-600 border-red-500 text-white' : 'bg-obsidian border-nothing text-[#aaa] hover:text-white'
+              showCalendar ? 'bg-violet-500/25 border-violet-300/50 text-violet-100' : 'bg-obsidian border-nothing text-[#aaa] hover:text-white'
             }`}
           >
             <CalendarDays className="w-3.5 h-3.5" />
@@ -994,7 +994,7 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
                 return (
                   <div
                     key={item.id}
-                    className={`p-3 first:rounded-t-none last:rounded-b-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                    className={`finance-recurring-row p-3 first:rounded-t-none last:rounded-b-xl transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
                       isOverdue || isDueToday
                         ? 'bg-red-950/20'
                         : isDueSoon

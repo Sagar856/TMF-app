@@ -185,7 +185,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
       data-glass-expanded={effectiveState.isExpanded}
       className={`bg-carbon border rounded-2xl sm:rounded-3xl font-mono text-white shadow-md transition-all duration-300 overflow-hidden ${
         effectiveState.isFocused 
-          ? 'border-red-500/70 shadow-[0_10px_30px_rgba(220,38,38,0.15)] ring-1 ring-red-500/20' 
+          ? 'border-violet-300/50 shadow-[0_10px_30px_rgba(124,92,198,0.18)] ring-1 ring-violet-300/20'
           : 'border-nothing'
       }`}
     >
@@ -197,8 +197,8 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
         >
           <div className={`p-1.5 rounded-lg shrink-0 transition-colors ${
             effectiveState.isFocused 
-              ? 'bg-red-950/90 border border-red-500 text-red-400' 
-              : 'bg-red-950/60 border border-red-800/50 text-red-500'
+              ? 'bg-violet-950/70 border border-violet-300/40 text-violet-200'
+              : 'bg-violet-950/40 border border-violet-300/20 text-violet-300'
           }`}>
             <Flame className="w-4 h-4" />
           </div>
@@ -213,7 +213,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
                 content="Visualizes trailing 7-day expense velocity, day-by-day burn rate, and daily average spend."
                 align="left"
               />
-              <span className="px-1.5 py-0.5 bg-red-950/80 text-red-400 text-[9px] font-bold rounded border border-red-800/50">
+              <span className="px-1.5 py-0.5 bg-violet-950/60 text-violet-200 text-[9px] font-bold rounded border border-violet-300/25">
                 DAILY OUTFLOW
               </span>
             </div>
@@ -240,7 +240,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
             type="button"
             onClick={handleToggleExpand}
             className={`p-1.5 px-2.5 bg-[#18181c] hover:bg-surface-3 border rounded-xl hover:text-white transition-colors cursor-pointer shrink-0 flex items-center gap-1 text-[10px] font-bold ${
-              effectiveState.isFocused ? 'border-red-500 text-white' : 'border-[#333] text-[#aaa]'
+              effectiveState.isFocused ? 'border-violet-300/50 text-white' : 'border-[#333] text-[#aaa]'
             }`}
             title={effectiveState.buttonLabel === 'COLLAPSE' ? "Collapse 7-Day Spending Trend" : "Expand 7-Day Spending Trend"}
           >
@@ -249,7 +249,7 @@ export const SevenDaySpendingTrendChart: React.FC<SevenDaySpendingTrendChartProp
               style={{ transform: `rotate(${effectiveState.chevronRotation}deg)`, transition: 'transform 0.1s linear' }}
               className="shrink-0"
             >
-              <ChevronDown className="w-4 h-4 text-red-400" />
+              <ChevronDown className="w-4 h-4 text-violet-300" />
             </div>
           </button>
         </div>

@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">MINARTH alt logo</title>
+  <desc id="desc">A premium celestial monogram with a faceted M and a rising lunar accent.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="0.52" stop-color="#171a2e"/>
+      <stop offset="1" stop-color="#0a0d18"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.25" cy="0.2" r="0.8">
+      <stop offset="0" stop-color="#d9c8ff" stop-opacity="0.95"/>
+      <stop offset="0.28" stop-color="#9d7df7" stop-opacity="0.8"/>
+      <stop offset="0.65" stop-color="#4c2b9f" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#0f172a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="stroke" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f5f1ff"/>
+      <stop offset="0.25" stop-color="#ddc8ff"/>
+      <stop offset="0.5" stop-color="#a98af7"/>
+      <stop offset="0.8" stop-color="#7d5ae6"/>
+      <stop offset="1" stop-color="#d6ccff"/>
+    </linearGradient>
+    <linearGradient id="moon" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#fef3c7"/>
+      <stop offset="1" stop-color="#f9a8d4"/>
+    </linearGradient>
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="10" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+  <rect x="18" y="18" width="476" height="476" rx="102" fill="none" stroke="rgba(177,171,255,0.38)" stroke-width="2"/>
+  <circle cx="256" cy="256" r="210" fill="url(#glow)"/>
+
+  <g opacity="0.46">
+    <path d="M86 116C130 92 174 80 220 80" fill="none" stroke="#d7cafc" stroke-width="2" stroke-linecap="round"/>
+    <path d="M298 82C342 82 385 95 420 118" fill="none" stroke="#d7cafc" stroke-width="2" stroke-linecap="round"/>
+    <path d="M112 392C154 426 203 444 256 444C313 444 362 426 404 392" fill="none" stroke="#8a7ee6" stroke-width="2" stroke-linecap="round"/>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <path d="M96 394V124L192 282L256 198L320 282L416 124V394" fill="none" stroke="url(#stroke)" stroke-width="38" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M98 394V124" fill="none" stroke="url(#stroke)" stroke-width="38" stroke-linecap="round"/>
+    <path d="M416 124V394" fill="none" stroke="url(#stroke)" stroke-width="38" stroke-linecap="round"/>
+  </g>
+
+  <g>
+    <circle cx="378" cy="120" r="31" fill="url(#moon)" opacity="0.9"/>
+    <circle cx="392" cy="112" r="23" fill="#171a2e" opacity="0.94"/>
+    <path d="M339 79l9 19 19 9-19 9-9 19-9-19-19-9 19-9 9-19Z" fill="#f5ecff" opacity="0.9"/>
+    <path d="M130 120l6 13 13 6-13 6-6 13-6-13-13-6 13-6 6-13Z" fill="#d7d4ff" opacity="0.75"/>
+  </g>
+
+  <path d="M122 366H178L256 258L334 366H390" fill="none" stroke="rgba(233,225,255,0.52)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

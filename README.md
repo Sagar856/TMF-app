@@ -25,11 +25,22 @@ shows a sign-in-unavailable screen rather than falling through to cached data.
 
 ## App appearance
 
-MINARTH uses an original faceted violet **M** on charcoal glass. The same mark
+On Windows, Vite keeps its generated dependency cache in a per-checkout
+`minarth-vite-<hash>` directory inside the user's temporary directory, outside
+the watched workspace. This avoids workspace file locks preventing cache
+renames and causing `504 Outdated Optimize Dep` startup failures. Other
+platforms retain Vite's default cache location. Restart `npm run dev` and reload
+the browser after changing dependencies.
+
+MINARTH uses the approved logo-only lavender glass artwork in `public/icons/Designer logo only.png`. The same artwork
 appears in the header, sidebar, sign-in and launch screens, browser favicon,
 installed web app and Android launcher/notification icons.
-Run `node scripts/generate-icons.mjs` to regenerate the SVG, standard and
-maskable PNGs, and native vectors from the shared artwork source.
+Run `npm run icons:generate` to regenerate the self-contained SVG, standard and
+maskable PNGs, and Android adaptive/themed/notification artwork from that image.
+The source image is preserved unchanged. Adaptive icons use safe-zone padding
+to keep the complete mark visible under circular launcher masks. The rectangular
+source is fitted proportionally, without stretching or cropping; Android themed and
+notification icons use a monochrome silhouette of the supplied M symbol.
 Run `npm run android:patch` after Capacitor sync to install native branding.
 The Android application ID, storage keys, backup format and existing download
 URLs remain unchanged so the rename preserves existing installations and data.
@@ -47,6 +58,28 @@ Dark-mode metric cards in Transactions, Accounts, Investments and Loans share
 Home's violet first card and smoked-glass lower cards, stacked or expanded.
 Profile and sign-in (including registration and password recovery) use the
 same glass palette, with scrollable mobile dialogs and reduced-motion support.
+The header profile icon opens Settings > Profile settings (there is no profile
+popup). Profile settings contains the photo editor, display name, account email,
+Save Changes and Sign out. The account email is read-only and uses the signed-in
+Auth email when available; saving profile changes never edits the email.
+Save Changes stays disabled until the display name or photo differs from the
+saved profile (leading and trailing name whitespace is ignored).
+Change password, app passcode protection and
+device biometrics live under Privacy & Security. Account setting contains cloud
+sync and Data & Backup; its nested Danger zone contains Reset all data and
+Delete account. Manage accounts ends with Manual Broker Portfolios. Sign out
+is also available at the end of the Settings menu.
+Settings search lists individual controls with their section paths. It matches
+multiple words in any order, common synonyms and minor typos, ranking exact
+titles first. Selecting a result opens and highlights the control without
+changing a value or running an action. Account-only actions appear only when
+available; biometric and auto-lock results lead to passcode setup when needed.
+Use Down/Up to navigate results, Enter to open one, and Escape or the clear
+button to return to the menu.
+The initial branded launch loader stays visible while restoring sign-in and
+loading private account data, without a separate account-loading screen.
+If account loading fails, the same loader shows the error, Retry and Sign out;
+private data remains gated until loading succeeds.
 Monitor Budget keeps its gradient when collapsed or expanded. Light-mode KPI
 cards have no drop shadows; hidden lower-card content prevents text bleed in
 translucent stacks. Warning colors and themed bank cards retain their contrast.
@@ -101,10 +134,21 @@ is automatically kept private from every other user via RLS.
    `type: 'email'`. This runs on a separate, nonpersistent client. No app sign-in
    occurs until the code is verified and **Create account** sets the password.
    Supabase may create the pending Auth identity when requesting the code;
-   this is not completion of the in-app registration. Abandoned identities can
-   finish registration later by requesting a fresh code.
-   OTP email possession also authorizes setting the password for that address;
-   existing users should normally use Sign in / Forgot Password.
+   this is not completion of the in-app registration.
+   Before the first code request, the app calls `registration_email_exists`
+   with the trimmed, lowercased email. Existing Auth identities show an
+   **Account already exists** dialog with **Go to sign in** and **Use a different
+   email** actions; no signup code is sent. Resends in the same registration
+   flow remain possible after the pending identity is created. Returning to an
+   abandoned registration in a new flow counts as an existing identity; use
+   Sign in / Forgot Password to recover that account.
+   **Apply the updated `supabase_schema.sql` before deploying this app version.**
+   A missing lookup function or backend error blocks code sending and displays
+   an error rather than assuming the email is new. The function returns only a
+   boolean for an exact email, not user records, and does not require an admin
+   key in the browser. This UX intentionally discloses account existence; apply
+   gateway-level abuse controls/rate limits to the lookup endpoint in production
+   (Supabase Auth OTP limits do not rate-limit PostgREST RPC calls).
    Configure production SMTP, sender identity, OTP expiry and server-side rate
    limits; Supabase's development email limits are not suitable for public launch.
    Email templates, confirmation settings and SMTP cannot be enabled from app code.

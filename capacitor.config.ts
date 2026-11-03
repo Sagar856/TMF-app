@@ -8,6 +8,9 @@ const config: CapacitorConfig = {
     androidScheme: 'https',
   },
   plugins: {
+    StatusBar: {
+      overlaysWebView: false,
+    },
     LocalNotifications: {
       smallIcon: 'ic_stat_tmf',
       iconColor: '#a78bfa',

@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "cap:add:android": "cap add android",
     "cap:sync": "npm run build && cap sync android",
     "android:patch": "node scripts/patch-android.mjs",
@@ -17,8 +18,12 @@
   },
   "dependencies": {
     "@capacitor/android": "6.2.0",
+    "@capacitor/app": "6.0.3",
     "@capacitor/core": "6.2.0",
+    "@capacitor/geolocation": "6.1.1",
     "@capacitor/local-notifications": "6.1.0",
+    "@capacitor/status-bar": "6.0.3",
+    "@capgo/capacitor-native-biometric": "6.0.4",
     "@supabase/supabase-js": "2.49.1",
     "@tailwindcss/vite": "4.0.9",
     "@vitejs/plugin-react": "4.3.4",
@@ -34,6 +39,7 @@
     "@types/node": "22.13.4",
     "autoprefixer": "10.4.20",
     "esbuild": "0.25.0",
+    "sharp": "0.34.5",
     "tailwindcss": "4.0.9",
     "tsx": "4.19.3",
     "typescript": "5.7.3"

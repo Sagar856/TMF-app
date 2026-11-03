@@ -82,6 +82,9 @@ for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListener
 // 2. Copy notification icon drawable
 mkdirSync(drawableDir, { recursive: true });
 copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_stat_tmf.xml'), join(drawableDir, 'ic_stat_tmf.xml'));
+for (const file of ['ic_minarth_notification.png', 'ic_minarth_monochrome.png']) {
+  copyFileSync(join(pluginSrcDir, 'res', 'drawable', file), join(drawableDir, file));
+}
 console.log('[patch-android] Copied ic_stat_tmf.xml notification icon');
 
 // Keep the package identity stable while updating existing and fresh installs.
@@ -95,18 +98,22 @@ for (const name of ['app_name', 'title_activity_main']) {
 }
 writeFileSync(stringsPath, strings, 'utf8');
 const foreground = join(pluginSrcDir, 'res', 'drawable', 'ic_minarth_foreground.xml');
-if (!existsSync(foreground)) fail('MINARTH vector missing. Run node scripts/generate-icons.mjs');
+if (!existsSync(foreground)) fail('MINARTH foreground missing. Run npm run icons:generate');
 copyFileSync(foreground, join(drawableDir, 'ic_launcher_foreground.xml'));
 writeFileSync(join(drawableDir, 'ic_launcher_background.xml'),
-  '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#211e30"/></shape>\n');
+  '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#e9e9fa"/></shape>\n');
 const launcherPng = join(repoRoot, 'public', 'icons', 'icon-512.png');
 if (!existsSync(launcherPng)) fail('MINARTH PNG missing. Run node scripts/generate-icons.mjs');
+const adaptivePng = join(repoRoot, 'public', 'icons', 'icon-adaptive-foreground.png');
+if (!existsSync(adaptivePng)) fail('MINARTH adaptive PNG missing. Run npm run icons:generate');
+copyFileSync(adaptivePng, join(drawableDir, 'minarth_launcher_foreground.png'));
 for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
   const folder = join(resDir, `mipmap-${density}`);
   mkdirSync(folder, { recursive: true });
-  for (const name of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
+  for (const name of ['ic_launcher.png', 'ic_launcher_round.png']) {
     copyFileSync(launcherPng, join(folder, name));
   }
+  copyFileSync(adaptivePng, join(folder, 'ic_launcher_foreground.png'));
 }
 const adaptiveDir = join(resDir, 'mipmap-anydpi-v26');
 mkdirSync(adaptiveDir, { recursive: true });
@@ -114,7 +121,7 @@ for (const name of ['ic_launcher.xml', 'ic_launcher_round.xml']) {
   writeFileSync(join(adaptiveDir, name), `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@drawable/ic_launcher_background"/>
   <foreground android:drawable="@drawable/ic_launcher_foreground"/>
-  <monochrome android:drawable="@drawable/ic_launcher_foreground"/>
+  <monochrome android:drawable="@drawable/ic_minarth_monochrome"/>
 </adaptive-icon>\n`);
 }
 for (const folder of readdirSync(resDir, { withFileTypes: true })) {
