@@ -1,6 +1,7 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
 import { InvestmentRecord, InvestmentType, Transaction, UserSettings } from '../types/finance';
 import {
@@ -114,9 +115,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const formatAmount = useMoneyFormatter();
   const reduceMotion = useReducedMotion();
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  useBackActivity(showAddModal, () => setShowAddModal(false));
   const [editingInv, setEditingInv] = useState<InvestmentRecord | null>(null);
   const [redeemingInv, setRedeemingInv] = useState<InvestmentRecord | null>(null);
-  const [activeViewTab, setActiveViewTab] = useState<'HOLDINGS' | 'REDEMPTIONS' | 'LEDGER'>('HOLDINGS');
+  useBackActivity(redeemingInv !== null, () => setRedeemingInv(null));
+  const [activeViewTab, setActiveViewTab] = useActivityState<'HOLDINGS' | 'REDEMPTIONS' | 'LEDGER'>('investments.section', 'HOLDINGS');
 
   // Deletion modal state
   const [txnToDelete, setTxnToDelete] = useState<InvestmentTxn | null>(null);
@@ -124,10 +127,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
 
   // Collapsible filter state
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-  const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
-  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
+  const [isFilterOpen, setIsFilterOpen] = useActivityState<boolean>('investments.filtersOpen', false);
+  const [showThreeDotMenu, setShowThreeDotMenu] = useActivityState<boolean>('investments.menuOpen', false);
+  const [isSearchExpanded, setIsSearchExpanded] = useActivityState<boolean>('investments.searchOpen', false);
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  useBackActivity(!isKpiStacked, () => setIsKpiStacked(true));
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [showCurrentValue, setShowCurrentValue] = useState<boolean>(true);
   const [showInvestedCapital, setShowInvestedCapital] = useState<boolean>(true);
@@ -148,13 +152,16 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     }
     setTouchStartY(null);
   };
-  const [viewMode, setViewMode] = useState<'table' | 'detail'>('table');
-  const [selectedMonth, setSelectedMonth] = useState<string>('All');
-  const [selectedCategory, setSelectedCategory] = useState<string>('All Categories');
-  const [selectedAccount, setSelectedAccount] = useState<string>('All Accounts');
-  const [selectedType, setSelectedType] = useState<string>('All');
-  const [selectedDemat, setSelectedDemat] = useState<string>('All');
+  const [viewMode, setViewMode] = useActivityState<'table' | 'detail'>('investments.view', 'table');
+  const [selectedMonth, setSelectedMonth] = useActivityState<string>('investments.month', 'All');
+  const [selectedCategory, setSelectedCategory] = useActivityState<string>('investments.category', 'All Categories');
+  const [selectedAccount, setSelectedAccount] = useActivityState<string>('investments.account', 'All Accounts');
+  const [selectedType, setSelectedType] = useActivityState<string>('investments.type', 'All');
+  const [selectedDemat, setSelectedDemat] = useActivityState<string>('investments.demat', 'All');
   const [showDematManager, setShowDematManager] = useState<boolean>(false);
+  useBackActivity(showDematManager, () => setShowDematManager(false));
+  useBackActivity(txnToDelete !== null, () => setTxnToDelete(null));
+  useBackActivity(assetToDelete !== null, () => setAssetToDelete(null));
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Global handler to prevent number inputs from changing value on scroll

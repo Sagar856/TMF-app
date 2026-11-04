@@ -80,6 +80,20 @@ The initial branded launch loader stays visible while restoring sign-in and
 loading private account data, without a separate account-loading screen.
 If account loading fails, the same loader shows the error, Retry and Sign out;
 private data remains gated until loading succeeds.
+After the first successful sign-in on a device, an account-specific glass
+walkthrough introduces Home, Accounts, Transactions, Investments, Loans and
+Settings. Next, Back, Skip and Get started controls are available; completing
+or skipping it is remembered locally for that account. It never adds sample
+records or enables permissions automatically.
+Android back and browser history restore UI activities within a page, including
+settings sections, filter selections, account details and loan histories, before
+returning to the previous page. Open dialogs close first. Saved financial records
+are never undone, closed forms are not replayed, and history is cleared on sign-out.
+Location tagging requires both the optional Settings toggle and device consent.
+Opening a new transaction with tagging enabled asks for location access if it
+has not been granted. Android builds declare foreground precise/approximate
+location permissions; no background tracking is requested. If a place name
+cannot be resolved, the detected coordinates are retained as the location label.
 Monitor Budget keeps its gradient when collapsed or expanded. Light-mode KPI
 cards have no drop shadows; hidden lower-card content prevents text bleed in
 translucent stacks. Warning colors and themed bank cards retain their contrast.

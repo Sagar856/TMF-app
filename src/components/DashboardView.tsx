@@ -1,5 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useEffect, useMemo } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { Transaction, Category, InvestmentRecord, LoanRecord, ParsedNotification, FinancialAccount, SavingsGoal } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { currentMonthLocal, todayLocalISO } from '../utils/dates';
@@ -120,6 +121,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
   // Stacked vs Expanded KPI state for Home Page
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  useBackActivity(!isKpiStacked, () => setIsKpiStacked(true));
   const touchStartYRef = React.useRef<number | null>(null);
 
   // Auto-collapse expanded KPIs when the user scrolls down — only while the
@@ -168,7 +170,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     bottomHoldRatio: 0.30,
   });
 
-  const [kpiTimeframe, setKpiTimeframe] = useState<'month' | 'all'>('month');
+  const [kpiTimeframe, setKpiTimeframe] = useActivityState<'month' | 'all'>('dashboard.timeframe', 'month');
 
   // Active month calculation for executive header threshold status
   const activeMonthStr = currentMonthLocal();

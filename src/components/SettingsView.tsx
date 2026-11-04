@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord } from '../types/finance';
 import { BackupRestoreData, parseBackupJson } from '../utils/backup';
 import { searchSettings, type SettingsGroup, type SettingsSearchEntry, type CustomisationSection } from '../utils/settingsSearch';
@@ -122,7 +123,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   lastSettingsSyncAt,
   openProfileRequest = 0,
 }) => {
-  const [selectedGroup, setSelectedGroup] = useState<SettingsGroup | null>(() =>
+  const [selectedGroup, setSelectedGroup] = useActivityState<SettingsGroup | null>('settings.group', () =>
     openProfileRequest > 0 ? 'profile' :
       typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('delete-account') ? 'account' : null
   );
@@ -131,7 +132,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [permissionRequestBusy, setPermissionRequestBusy] = useState(false);
   const [locationPermissionError, setLocationPermissionError] = useState('');
   const [settingsSearch, setSettingsSearch] = useState('');
-  const [customisationOpen, setCustomisationOpen] = useState(false);
+  const [customisationOpen, setCustomisationOpen] = useActivityState('settings.customisationOpen', false);
   const [openAccountsRequest, setOpenAccountsRequest] = useState(0);
   const [resetCustomisationRequest, setResetCustomisationRequest] = useState(0);
   const [openSectionRequest, setOpenSectionRequest] = useState<{ section: CustomisationSection; requestId: number }>();
@@ -283,6 +284,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   /* ---------------- Passcode ---------------- */
   const [showPasscodeSetup, setShowPasscodeSetup] = useState(false);
+  useBackActivity(showPasscodeSetup, () => setShowPasscodeSetup(false));
   const handleTogglePasscode = (next: boolean) => {
     if (next) {
       setShowPasscodeSetup(true);

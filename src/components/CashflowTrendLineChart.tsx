@@ -1,6 +1,7 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import { isOperatingExpense, isOperatingIncome } from '../utils/transactionKind';
 import React, { useState } from 'react';
+import { useActivityState } from '../hooks/useActivityState';
 import { Transaction } from '../types/finance';
 import { parseLocalDate, toLocalISODate } from '../utils/dates';
 import { TrendingUp, ArrowUpRight, ArrowDownLeft, Activity } from 'lucide-react';
@@ -16,7 +17,7 @@ export const CashflowTrendLineChart: React.FC<CashflowTrendLineChartProps> = ({
   currencySymbol,
 }) => {
   const formatAmount = useMoneyFormatter();
-  const [period, setPeriod] = useState<'week' | 'month'>('month');
+  const [period, setPeriod] = useActivityState<'week' | 'month'>('dashboard.cashflowPeriod', 'month');
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
 
   // Filter or aggregate data points

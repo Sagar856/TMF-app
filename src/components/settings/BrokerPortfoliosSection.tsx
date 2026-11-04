@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useBackActivity } from '../../hooks/useActivityState';
 import { UserSettings, InvestmentRecord, ConnectedDematAccount } from '../../types/finance';
 import {
   Building2,
@@ -36,6 +37,7 @@ export const BrokerPortfoliosSection: React.FC<BrokerPortfoliosSectionProps> = (
   const [isSyncingAll, setIsSyncingAll] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [showLinkModal, setShowLinkModal] = useState<boolean>(false);
+  useBackActivity(showLinkModal, () => setShowLinkModal(false));
   const [editingDemat, setEditingDemat] = useState<ConnectedDematAccount | null>(null);
   const [modalBrokerCode, setModalBrokerCode] = useState<string>('Zerodha');
   const [modalBrokerName, setModalBrokerName] = useState<string>('Zerodha Kite');

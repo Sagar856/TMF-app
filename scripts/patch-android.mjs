@@ -160,6 +160,11 @@ if (!manifest.includes('com.trackmoneyflow.app.PaymentActionReceiver')) {
 if (!manifest.includes('android.permission.POST_NOTIFICATIONS')) {
   manifest = manifest.replace(/(<manifest[^>]*>)/, '$1\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />');
 }
+for (const permission of ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION']) {
+  if (!manifest.includes(`android.permission.${permission}`)) {
+    manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="android.permission.${permission}" />`);
+  }
+}
 manifest = manifest.replace(/android:label="Track Money Flow Transaction Interceptor"/g,
   'android:label="MINARTH Transaction Interceptor"');
 writeFileSync(manifestPath, manifest, 'utf8');

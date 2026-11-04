@@ -54,6 +54,8 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.equal(manifest.match(/<receiver/g)?.length, 1);
     assert.match(manifest, /PaymentActionReceiver" android:exported="false"/);
     assert.equal(manifest.match(/android.permission.POST_NOTIFICATIONS/g)?.length, 1);
+    assert.equal(manifest.match(/android.permission.ACCESS_COARSE_LOCATION/g)?.length, 1);
+    assert.equal(manifest.match(/android.permission.ACCESS_FINE_LOCATION/g)?.length, 1);
     assert.match(manifest, /android:label="MINARTH Transaction Interceptor"/);
     const strings = readFileSync(join(app, 'res', 'values', 'strings.xml'), 'utf8');
     assert.match(strings, /name="app_name">MINARTH</);

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useBackActivity } from '../../hooks/useActivityState';
 import { Check, LogOut, Trash2, Upload, UserCircle2, Lock } from 'lucide-react';
 import { UserSettings } from '../../types/finance';
 import { createProfileThumbnail } from '../../utils/profilePhoto';
@@ -95,6 +96,7 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
 
 export function AccountPasswordSettings({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
+  useBackActivity(open, () => setOpen(false));
   const [current, setCurrent] = useState('');
   const [password, setPassword] = useState('');
   const [confirmation, setConfirmation] = useState('');

@@ -1,5 +1,6 @@
 import { safeGetStringArray, safeSetItem } from '../utils/storage';
 import React, { useState, useMemo, useRef } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { 
   Repeat, 
   Calendar, 
@@ -140,9 +141,10 @@ export const RecurringTransactionsCard: React.FC<RecurringTransactionsCardProps>
     }
   };
 
-  const [filter, setFilter] = useState<'ALL' | 'DUE_SOON' | 'EXPENSE' | 'INCOME'>('ALL');
+  const [filter, setFilter] = useActivityState<'ALL' | 'DUE_SOON' | 'EXPENSE' | 'INCOME'>('dashboard.recurringFilter', 'ALL');
   const [showCalendar, setShowCalendar] = useState(true);
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
+  useBackActivity(showAddModal, () => setShowAddModal(false));
   const [selectedCalendarDay, setSelectedCalendarDay] = useState<number | null>(null);
 
   // Paid occurrences are keyed by `${itemId}|${YYYY-MM}` and persisted so a

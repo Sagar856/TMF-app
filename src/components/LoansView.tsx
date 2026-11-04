@@ -1,5 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
 import { LoanRecord, Repayment, UserSettings, FinancialAccount, LoanStructure, LoanInstallment } from '../types/finance';
 import { X, Search, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Layers, TrendingDown, TrendingUp, Wallet, FileText, MoreVertical, Eye, EyeOff, AlertTriangle, Calendar, Percent, Building2, CheckCircle2 } from 'lucide-react';
@@ -52,18 +53,19 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const formatAmount = useMoneyFormatter();
   // Deletion modal states
   const [loanToDelete, setLoanToDelete] = useState<LoanRecord | null>(null);
+  useBackActivity(loanToDelete !== null, () => setLoanToDelete(null));
   const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
 
   // Filter & Search States
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
-  const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
-  const [selectedPerson, setSelectedPerson] = useState<string>('All');
-  const [selectedType, setSelectedType] = useState<string>('All');
-  const [selectedStatus, setSelectedStatus] = useState<string>('All');
+  const [isSearchExpanded, setIsSearchExpanded] = useActivityState<boolean>('loans.searchOpen', false);
+  const [showThreeDotMenu, setShowThreeDotMenu] = useActivityState<boolean>('loans.menuOpen', false);
+  const [selectedPerson, setSelectedPerson] = useActivityState<string>('loans.person', 'All');
+  const [selectedType, setSelectedType] = useActivityState<string>('loans.type', 'All');
+  const [selectedStatus, setSelectedStatus] = useActivityState<string>('loans.status', 'All');
 
   // State for expanded payment histories in table
-  const [expandedLoanIds, setExpandedLoanIds] = useState<string[]>([]);
+  const [expandedLoanIds, setExpandedLoanIds] = useActivityState<string[]>('loans.histories', []);
 
   // Modals state
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
@@ -71,6 +73,10 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [repayModalLoan, setRepayModalLoan] = useState<LoanRecord | null>(null);
   const [settleModalLoan, setSettleModalLoan] = useState<LoanRecord | null>(null);
   const [editModalLoan, setEditModalLoan] = useState<LoanRecord | null>(null);
+  useBackActivity(isAddModalOpen, () => setIsAddModalOpen(false));
+  useBackActivity(repayModalLoan !== null, () => setRepayModalLoan(null));
+  useBackActivity(settleModalLoan !== null, () => setSettleModalLoan(null));
+  useBackActivity(editModalLoan !== null, () => setEditModalLoan(null));
   // Only the id is stored so the schedule modal always renders the parent's
   // authoritative loan record (payments/skips are applied by the parent).
   const [selectedScheduleLoanId, setSelectedScheduleLoanId] = useState<string | null>(null);
@@ -124,8 +130,9 @@ export const LoansView: React.FC<LoansViewProps> = ({
   const [editType, setEditType] = useState<'loan' | 'lend'>('lend');
 
   // Collapsible Filters State
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
+  const [isFilterOpen, setIsFilterOpen] = useActivityState<boolean>('loans.filtersOpen', false);
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  useBackActivity(!isKpiStacked, () => setIsKpiStacked(true));
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [showOwedToMe, setShowOwedToMe] = useState<boolean>(true);
   const [showIowe, setShowIowe] = useState<boolean>(true);

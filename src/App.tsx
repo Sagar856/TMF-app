@@ -23,6 +23,9 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AppLaunchLoader } from './components/AppLaunchLoader';
+import { AppWalkthrough } from './components/AppWalkthrough';
+import { useActivityState } from './hooks/useActivityState';
+import { activityHistory, attachActivityHistory, resetActivityHistory } from './utils/activityHistory';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
 import { BottomNav } from './components/BottomNav';
@@ -176,7 +179,7 @@ function ensureMandatoryCategories(cats: Category[]): Category[] {
 export default function App() {
   const reduceMotion = useReducedMotion();
   // Navigation Tab
-  const [activeTab, setActiveTab] = useState<string>(() => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
+  const [activeTab, setActiveTab] = useActivityState<string>('app.tab', () => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
   const [openAssetRequest, setOpenAssetRequest] = useState(0);
   const [openLoanRequest, setOpenLoanRequest] = useState(0);
   const [openProfileRequest, setOpenProfileRequest] = useState(0);
@@ -184,8 +187,7 @@ export default function App() {
     setOpenProfileRequest(request => request + 1);
     setActiveTab('settings');
   };
-  const popNavigationRef = useRef(false);
-  const navigationDepthRef = useRef(0);
+  useEffect(attachActivityHistory, []);
 
   useEffect(() => {
     if (activeTab !== 'loans') setOpenLoanRequest(0);
@@ -329,6 +331,12 @@ export default function App() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
   const passwordRecoveryRef = useRef(false);
   const isAuthenticated = Boolean(authUser);
+  const historyUserRef = useRef<string | null>(null);
+  useEffect(() => {
+    const userId = authUser?.id || null;
+    if (historyUserRef.current && historyUserRef.current !== userId) resetActivityHistory();
+    historyUserRef.current = userId;
+  }, [authUser?.id]);
 
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
@@ -512,37 +520,6 @@ export default function App() {
     mainScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
   }, [activeTab]);
 
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-  useEffect(() => {
-    window.history.replaceState({ minarthTab: activeTab }, '');
-    const handlePopState = (event: PopStateEvent) => {
-      if (dismissTopDialog()) {
-        window.history.pushState({ minarthTab: activeTabRef.current }, '');
-        return;
-      }
-      const tab = event.state?.minarthTab;
-      if (typeof tab !== 'string') return;
-      popNavigationRef.current = true;
-      navigationDepthRef.current = Math.max(0, navigationDepthRef.current - 1);
-      setActiveTab(tab);
-    };
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
-  }, []);
-
-  const previousTabRef = useRef(activeTab);
-  useEffect(() => {
-    if (previousTabRef.current === activeTab) return;
-    previousTabRef.current = activeTab;
-    if (popNavigationRef.current) {
-      popNavigationRef.current = false;
-      return;
-    }
-    navigationDepthRef.current += 1;
-    window.history.pushState({ minarthTab: activeTab }, '');
-  }, [activeTab]);
-
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     void Promise.all([
@@ -559,7 +536,9 @@ export default function App() {
 
     void CapacitorApp.addListener('backButton', () => {
       if (!active) return;
-      if (confirmConfig) {
+      if (activityHistory.canGoBack && !(settings.passcodeEnabled && !isUnlocked)) {
+        window.history.back();
+      } else if (confirmConfig) {
         setConfirmConfig(null);
       } else if (activeBudgetPushAlert) {
         setActiveBudgetPushAlert(null);
@@ -577,8 +556,6 @@ export default function App() {
         return;
       } else if (settings.passcodeEnabled && !isUnlocked) {
         void CapacitorApp.exitApp();
-      } else if (navigationDepthRef.current > 0) {
-        window.history.back();
       } else {
         void CapacitorApp.exitApp();
       }
@@ -2766,6 +2743,7 @@ export default function App() {
     <MoneyLocaleContext.Provider value={settings.locale}>
     <MotionConfig reducedMotion="user">
     <div className="app-viewport flex bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
+      <AppWalkthrough key={authUser.id} userId={authUser.id} onNavigate={setActiveTab} />
       <a className="skip-link" href="#main-content">Skip to main content</a>
       {/* Nothing Desktop Navigation Sidebar */}
       <div className="hidden lg:block h-full shrink-0">

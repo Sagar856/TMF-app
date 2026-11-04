@@ -16,9 +16,6 @@ export interface GeolocationResult {
 const locationCache: { [key: string]: { result: GeolocationResult; timestamp: number } } = {};
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes cache
 
-// Tracks if user explicitly denied permission during the current session
-let permissionDeniedInSession = false;
-
 export async function isDeviceLocationPermissionGranted(): Promise<boolean> {
   if (Capacitor.isNativePlatform()) {
     try {
@@ -43,9 +40,8 @@ export async function requestDeviceLocationPermission(): Promise<boolean> {
     try {
       const current = await Geolocation.checkPermissions();
       if (current.location === 'granted' || current.coarseLocation === 'granted') return true;
-      const requested = await Geolocation.requestPermissions();
+      const requested = await Geolocation.requestPermissions({ permissions: ['location', 'coarseLocation'] });
       const granted = requested.location === 'granted' || requested.coarseLocation === 'granted';
-      if (granted) permissionDeniedInSession = false;
       return granted;
     } catch (error) {
       console.warn('Could not request device location permission:', error);
@@ -56,11 +52,10 @@ export async function requestDeviceLocationPermission(): Promise<boolean> {
   return new Promise((resolve) => {
     navigator.geolocation.getCurrentPosition(
       () => {
-        permissionDeniedInSession = false;
         resolve(true);
       },
       (error) => {
-        if (error.code === error.PERMISSION_DENIED) permissionDeniedInSession = true;
+        console.warn('Could not request browser location access:', error);
         resolve(false);
       },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 60_000 }
@@ -232,10 +227,6 @@ export async function getCurrentDeviceLocation(): Promise<GeolocationResult | nu
     return null;
   }
 
-  if (permissionDeniedInSession) {
-    return null;
-  }
-
   try {
     const position = Capacitor.isNativePlatform()
       ? await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 })
@@ -248,11 +239,13 @@ export async function getCurrentDeviceLocation(): Promise<GeolocationResult | nu
         });
     const { latitude, longitude } = position.coords;
     const formattedLocation = await reverseGeocodeCoordinates(latitude, longitude);
-    return formattedLocation ? { lat: latitude, lng: longitude, formattedLocation } : null;
+    if (!formattedLocation) console.warn('Device coordinates were detected, but a place name could not be resolved.');
+    return {
+      lat: latitude,
+      lng: longitude,
+      formattedLocation: formattedLocation || `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
+    };
   } catch (error) {
-    if (typeof error === 'object' && error !== null && 'code' in error && error.code === 1) {
-      permissionDeniedInSession = true;
-    }
     console.warn('Could not detect or resolve the current device location:', error);
     return null;
   }

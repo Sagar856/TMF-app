@@ -1,6 +1,7 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import { computeBudgetUsage } from '../utils/budgetUsage';
 import React, { useState, useMemo, useRef } from 'react';
+import { useActivityState } from '../hooks/useActivityState';
 import { Transaction, Category } from '../types/finance';
 import { BudgetAlertPayload } from '../services/budgetAlertService';
 import { currentMonthLocal } from '../utils/dates';
@@ -112,12 +113,12 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
   }, [transactions]);
 
   // Selected month state - default to latest month with transactions or current month
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+  const [selectedMonth, setSelectedMonth] = useActivityState<string>('dashboard.budgetMonth', () => {
     return availableMonths.length > 0 ? availableMonths[0] : currentMonthLocal();
   });
 
   // Filter mode: 'alerts' (shows only >= 80%) or 'all' (shows all categories with budgets)
-  const [filterMode, setFilterMode] = useState<'alerts' | 'all'>('alerts');
+  const [filterMode, setFilterMode] = useActivityState<'alerts' | 'all'>('dashboard.budgetFilter', 'alerts');
 
   // Format YYYY-MM to readable label e.g., "July 2026"
   const formatMonthLabel = (ym: string) => {

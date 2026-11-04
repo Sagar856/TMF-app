@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useBackActivity } from './useActivityState';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -28,6 +29,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>({
   const ref = useRef<T>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  useBackActivity(isOpen, () => onCloseRef.current());
 
   useEffect(() => {
     if (!isOpen) return;

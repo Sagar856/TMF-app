@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   CreditCard,
@@ -65,18 +66,20 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   onUpdateAccount,
   onDeleteAccount,
 }) => {
-  const [selectedType, setSelectedType] = useState<string>('All');
+  const [selectedType, setSelectedType] = useActivityState<string>('accounts.type', 'All');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
-  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-  const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
+  const [isSearchExpanded, setIsSearchExpanded] = useActivityState<boolean>('accounts.searchOpen', false);
+  const [selectedAccountId, setSelectedAccountId] = useActivityState<string | null>('accounts.detail', null);
+  const [isFilterOpen, setIsFilterOpen] = useActivityState<boolean>('accounts.filtersOpen', false);
+  const [showThreeDotMenu, setShowThreeDotMenu] = useActivityState<boolean>('accounts.menuOpen', false);
 
   // Deletion modal state
   const [accountToDelete, setAccountToDelete] = useState<FinancialAccount | null>(null);
+  useBackActivity(accountToDelete !== null, () => setAccountToDelete(null));
 
   // Stack vs Side-by-side state for KPIs
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  useBackActivity(!isKpiStacked, () => setIsKpiStacked(true));
   const [touchStartY, setTouchStartY] = useState<number | null>(null);
   const [showNetLiquid, setShowNetLiquid] = useState<boolean>(true);
   const [showCardSpent, setShowCardSpent] = useState<boolean>(true);
@@ -84,6 +87,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   // Credit Cards Stack state
   const [isCardsStacked, setIsCardsStacked] = useState<boolean>(true);
+  useBackActivity(!isCardsStacked, () => setIsCardsStacked(true));
   const [cardTouchStartY, setCardTouchStartY] = useState<number | null>(null);
 
   // Auto-collapse when user scrolls down
@@ -138,6 +142,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   // Modal State for adding/editing account
   const [showModal, setShowModal] = useState<boolean>(false);
+  useBackActivity(showModal, () => setShowModal(false));
   const [editingAcc, setEditingAcc] = useState<FinancialAccount | null>(null);
 
   // Form Fields

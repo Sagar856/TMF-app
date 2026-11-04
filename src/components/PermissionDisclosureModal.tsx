@@ -34,7 +34,7 @@ export const PermissionDisclosureModal: React.FC<PermissionDisclosureModalProps>
 }) => {
   const disclosure = DISCLOSURES[permission];
   const Icon = disclosure.icon;
-  const dialogRef = useDialog<HTMLElement>({ isOpen: true, onClose: onCancel });
+  const dialogRef = useDialog<HTMLElement>({ isOpen: true, onClose: () => { if (!busy) onCancel(); } });
 
   return (
     <div className="fixed inset-0 z-modal flex items-center justify-center bg-backdrop/80 p-4 backdrop-blur-md">

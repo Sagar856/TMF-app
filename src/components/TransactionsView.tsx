@@ -1,5 +1,6 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
 import { Transaction, Category, UserSettings, FinancialAccount, PaymentSource } from '../types/finance';
 import { parseLocalDate, todayLocalISO } from '../utils/dates';
@@ -43,18 +44,18 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   const formatAmount = useMoneyFormatter();
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [isSearchExpanded, setIsSearchExpanded] = useState<boolean>(false);
+  const [isSearchExpanded, setIsSearchExpanded] = useActivityState<boolean>('transactions.searchOpen', false);
   // No date range restriction by default — newly added transactions must
   // always show up immediately. (Previously these were hardcoded to a fixed
   // 2026-06-30..2026-07-30 window, silently hiding every record added after
   // that date.) Users can still narrow the range via the filter panel.
-  const [fromDate, setFromDate] = useState<string>('');
-  const [toDate, setToDate] = useState<string>('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('All Categories');
-  const [accountFilter, setAccountFilter] = useState<string>('All');
-  const [sourceFilter, setSourceFilter] = useState<string>('All');
-  const [typeFilter, setTypeFilter] = useState<string>('All');
-  const [tagFilter, setTagFilter] = useState<string>('All');
+  const [fromDate, setFromDate] = useActivityState<string>('transactions.from', '');
+  const [toDate, setToDate] = useActivityState<string>('transactions.to', '');
+  const [categoryFilter, setCategoryFilter] = useActivityState<string>('transactions.category', 'All Categories');
+  const [accountFilter, setAccountFilter] = useActivityState<string>('transactions.account', 'All');
+  const [sourceFilter, setSourceFilter] = useActivityState<string>('transactions.source', 'All');
+  const [typeFilter, setTypeFilter] = useActivityState<string>('transactions.type', 'All');
+  const [tagFilter, setTagFilter] = useActivityState<string>('transactions.tag', 'All');
 
   const dateRangeInvalid = isDateRangeInvalid(fromDate, toDate);
 
@@ -70,14 +71,15 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   };
 
   // Collapsible Filter Panel state
-  const [isFilterOpen, setIsFilterOpen] = useState<boolean>(false);
-  const [showThreeDotMenu, setShowThreeDotMenu] = useState<boolean>(false);
+  const [isFilterOpen, setIsFilterOpen] = useActivityState<boolean>('transactions.filtersOpen', false);
+  const [showThreeDotMenu, setShowThreeDotMenu] = useActivityState<boolean>('transactions.menuOpen', false);
   const csvImportInputRef = useRef<HTMLInputElement>(null);
   const [csvImportMessage, setCsvImportMessage] = useState<string | null>(null);
   const [receiptTransactionId, setReceiptTransactionId] = useState<string | null>(null);
 
   // Stack vs Expanded state for Top KPIs
   const [isKpiStacked, setIsKpiStacked] = useState<boolean>(true);
+  useBackActivity(!isKpiStacked, () => setIsKpiStacked(true));
   const [showNetBalance, setShowNetBalance] = useState<boolean>(true);
   const [showCredit, setShowCredit] = useState<boolean>(true);
   const [showDebit, setShowDebit] = useState<boolean>(true);
@@ -85,6 +87,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
 
   // Delete confirmation modal state
   const [transactionToDelete, setTransactionToDelete] = useState<Transaction | null>(null);
+  useBackActivity(transactionToDelete !== null, () => setTransactionToDelete(null));
   const [doNotAskAgainChecked, setDoNotAskAgainChecked] = useState<boolean>(false);
 
   const handleDeleteClick = (tx: Transaction) => {
@@ -140,7 +143,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   };
 
   // View Mode: 'table' | 'detail'
-  const [viewMode, setViewMode] = useState<'table' | 'detail'>('table');
+  const [viewMode, setViewMode] = useActivityState<'table' | 'detail'>('transactions.view', 'table');
 
   // Count active filters
   const activeFilterCount = useMemo(() => {

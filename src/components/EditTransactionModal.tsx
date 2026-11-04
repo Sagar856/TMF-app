@@ -241,15 +241,24 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     if (!isEditingExisting && !place && locationTracking) {
       let isMounted = true;
       setIsLocating(true);
-      getCurrentDeviceLocation()
+      isDeviceLocationPermissionGranted()
+        .then((granted) => {
+          if (!isMounted) return null;
+          if (!granted) {
+            setShowLocationPermission(true);
+            return null;
+          }
+          return getCurrentDeviceLocation().then(loc => {
+            if (isMounted && !loc) setLocationError('Could not detect a location. Check device location services, or enter a place manually.');
+            return loc;
+          });
+        })
         .then((loc) => {
           if (!isMounted) return;
           setIsLocating(false);
           if (loc && loc.formattedLocation) {
             setPlace((prev) => (prev ? prev : loc.formattedLocation));
             setCoordinates({ lat: loc.lat, lng: loc.lng });
-          } else {
-            setLocationError('Could not detect a location. Check device location services and permission, or enter a place manually.');
           }
         })
         .catch((error) => {
@@ -932,16 +941,6 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                     className="w-full px-3 py-2.5 bg-[#0a0a0a] border border-[#222] rounded-xl text-xs font-mono text-white focus:outline-none focus:border-red-600 appearance-none"
                   />
                 </div>
-                {showLocationPermission && (
-                  <PermissionDisclosureModal
-                    permission="location"
-                    busy={isLocating}
-                    onAllow={() => void handleAllowLocation()}
-                    onCancel={() => {
-                      if (!isLocating) setShowLocationPermission(false);
-                    }}
-                  />
-                )}
               </div>
 
               {/* Row 4: AMOUNT INVESTED & CURRENT MARKET VALUE */}
@@ -1343,6 +1342,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           </div>
         )}
       </div>
+      {showLocationPermission && (
+        <PermissionDisclosureModal
+          permission="location"
+          busy={isLocating}
+          onAllow={() => void handleAllowLocation()}
+          onCancel={() => { if (!isLocating) setShowLocationPermission(false); }}
+        />
+      )}
     </div>
   );
 };

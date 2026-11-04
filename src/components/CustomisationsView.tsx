@@ -2,6 +2,7 @@ import { safeSetItem } from '../utils/storage';
 import { SettingButton } from './settings/SettingsPrimitives';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { newId } from '../utils/ids';
@@ -109,8 +110,8 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 }) => {
   const formatAmount = useMoneyFormatter();
   // Navigation
-  const [activeTab, setActiveTab] = useState<'budgets' | 'categories' | 'accounts' | 'rules'>(openSectionRequest?.section ?? (openAccountsRequest > 0 ? 'accounts' : 'budgets'));
-  const [showSectionMenu, setShowSectionMenu] = useState(openAccountsRequest === 0 && !openSectionRequest);
+  const [activeTab, setActiveTab] = useActivityState<'budgets' | 'categories' | 'accounts' | 'rules'>('customisations.section', openSectionRequest?.section ?? (openAccountsRequest > 0 ? 'accounts' : 'budgets'));
+  const [showSectionMenu, setShowSectionMenu] = useActivityState('customisations.menu', openAccountsRequest === 0 && !openSectionRequest);
   const [sectionSearch, setSectionSearch] = useState('');
   const menuSearch = settingsSearch ?? sectionSearch;
   const sectionHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -171,10 +172,10 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   // Search & Filters
   const [searchQuery, setSearchQuery] = useState<string>('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  const [categoryTypeFilter, setCategoryTypeFilter] = useState<'all' | 'expense' | 'income' | 'investment'>('all');
-  const [budgetStatusFilter, setBudgetStatusFilter] = useState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('all');
-  const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('all');
-  const [expandedFilters, setExpandedFilters] = useState({ budgets: false, categories: false, accounts: false });
+  const [categoryTypeFilter, setCategoryTypeFilter] = useActivityState<'all' | 'expense' | 'income' | 'investment'>('customisations.categoryFilter', 'all');
+  const [budgetStatusFilter, setBudgetStatusFilter] = useActivityState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('customisations.budgetFilter', 'all');
+  const [accountTypeFilter, setAccountTypeFilter] = useActivityState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('customisations.accountFilter', 'all');
+  const [expandedFilters, setExpandedFilters] = useActivityState('customisations.filtersOpen', { budgets: false, categories: false, accounts: false });
   const filterToolbarRef = useRef<HTMLDivElement>(null);
 
   const closeFilters = () => {
@@ -220,7 +221,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     return Array.from(monthsSet).sort().reverse();
   }, [transactions]);
 
-  const [selectedMonth, setSelectedMonth] = useState<string>(() => {
+  const [selectedMonth, setSelectedMonth] = useActivityState<string>('customisations.month', () => {
     return availableMonths.length > 0 ? availableMonths[0] : currentMonthLocal();
   });
 
@@ -358,6 +359,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Category Modal State (Add / Edit)
   const [showCategoryModal, setShowCategoryModal] = useState<boolean>(false);
+  useBackActivity(showCategoryModal, () => setShowCategoryModal(false));
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [catName, setCatName] = useState<string>('');
   const [catType, setCatType] = useState<'income' | 'expense' | 'investment'>('expense');
@@ -433,6 +435,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Account Modal State (Add / Edit)
   const [showAccountModal, setShowAccountModal] = useState<boolean>(false);
+  useBackActivity(showAccountModal, () => setShowAccountModal(false));
   const [accName, setAccName] = useState<string>('');
   const [accBankName, setAccBankName] = useState<string>('HDFC');
   const [accType, setAccType] = useState<'Bank' | 'Credit Card' | 'Debit Card' | 'Wallet/UPI'>('Bank');
