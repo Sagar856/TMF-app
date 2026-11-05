@@ -62,7 +62,12 @@ rootGradle = rootGradle.replace(/com\.android\.tools\.build:gradle:[\d.]+/g, 'co
 writeFileSync(rootGradlePath, rootGradle);
 let wrapper = readFileSync(wrapperPath, 'utf8');
 if (!/gradle-[\d.]+-(?:all|bin)\.zip/.test(wrapper)) fail('Gradle wrapper version not found');
-wrapper = wrapper.replace(/gradle-[\d.]+-(all|bin)\.zip/g, 'gradle-8.13-$1.zip');
+wrapper = wrapper.replace(/gradle-[\d.]+-(?:all|bin)\.zip/g, 'gradle-8.13-bin.zip');
+if (/^networkTimeout[ \t]*[=:]/m.test(wrapper)) {
+  wrapper = wrapper.replace(/^networkTimeout[ \t]*[=:][^\r\n]*/gm, 'networkTimeout=120000');
+} else {
+  wrapper = `${wrapper.trimEnd()}\nnetworkTimeout=120000\n`;
+}
 writeFileSync(wrapperPath, wrapper);
 const { version } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 let appGradle = readFileSync(appGradlePath, 'utf8');

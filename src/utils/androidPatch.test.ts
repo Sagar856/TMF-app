@@ -43,14 +43,20 @@ test('Android patch installs background queue and non-exported actions idempoten
     mkdirSync(join(app, 'res', 'drawable-v24'), { recursive: true });
     writeFileSync(join(app, 'res', 'drawable-v24', 'ic_launcher_foreground.xml'), '<vector/>');
     writeFileSync(join(java, 'MainActivity.java'), 'package com.trackmoneyflow.app;\npublic class MainActivity extends BridgeActivity {}');
-    for (let run = 0; run < 2; run++) {
+    for (let run = 0; run < 3; run++) {
       if (run === 1) {
+        const wrapperPath = join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties');
+        writeFileSync(wrapperPath, readFileSync(wrapperPath, 'utf8').replace('networkTimeout=120000', 'networkTimeout=10000'));
         writeFileSync(join(app, 'AndroidManifest.xml'),
           readFileSync(join(app, 'AndroidManifest.xml'), 'utf8')
             .replace('MINARTH Transaction Interceptor', 'Track Money Flow Transaction Interceptor'));
       }
       const result = spawnSync(process.execPath, [script], { encoding: 'utf8', env: baseEnv });
       assert.equal(result.status, 0, result.stderr);
+      const wrapper = readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8');
+      assert.match(wrapper, /gradle-8\.13-bin\.zip/);
+      assert.match(wrapper, /^networkTimeout=120000\r?$/m);
+      assert.equal(wrapper.match(/^networkTimeout=/gm)?.length, 1);
       assert.match(readFileSync(join(app, 'AndroidManifest.xml'), 'utf8'),
         /android:label="MINARTH Transaction Interceptor"/);
     }
@@ -61,7 +67,7 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.match(manifest, /android:usesCleartextTraffic="false"/);
     assert.match(readFileSync(join(root, 'android', 'variables.gradle'), 'utf8'), /targetSdkVersion = 36/);
     assert.match(readFileSync(join(root, 'android', 'build.gradle'), 'utf8'), /gradle:8.13.2/);
-    assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8.13-all.zip/);
+    assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8\.13-bin\.zip/);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/apply from: 'minarth-release.gradle'/g)?.length, 1);
     assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 7/);
     const explicitVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...baseEnv, ANDROID_VERSION_CODE: '42' } });

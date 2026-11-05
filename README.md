@@ -323,6 +323,8 @@ The repository is **not yet certified ready for publication**. Implemented:
   someone's own cloud record, that user should remove/re-upload it in Profile;
   the app cannot determine who originally owned arbitrary image bytes.
 - Generated Android builds target/compile API 36 with AGP 8.13.2 and Gradle 8.13;
+  the wrapper downloads the smaller binary-only Gradle distribution with a
+  120-second network timeout instead of the default 10 seconds.
   Android backup and cleartext traffic are disabled. The original package ID
   `com.trackmoneyflow.app` and Supabase auth storage remain unchanged.
 - Desktop Home has a wide two-column glass workspace; mobile remains stacked.
