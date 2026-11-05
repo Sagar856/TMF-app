@@ -30,7 +30,9 @@ test('Android patch installs background queue and non-exported actions idempoten
     writeFileSync(join(root, 'android', 'app', 'build.gradle'), 'android { defaultConfig { versionCode 7; versionName "1.0" } }');
     const script = join(scripts, 'patch-android.mjs');
     writeFileSync(script, readFileSync(new URL('../../scripts/patch-android.mjs', import.meta.url)));
-    writeFileSync(join(app, 'AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" /><application></application></manifest>');
+    writeFileSync(join(app, 'AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" /><application android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round"></application></manifest>');
+    mkdirSync(join(app, 'res', 'drawable-v24'), { recursive: true });
+    writeFileSync(join(app, 'res', 'drawable-v24', 'ic_launcher_foreground.xml'), '<vector/>');
     writeFileSync(join(java, 'MainActivity.java'), 'package com.trackmoneyflow.app;\npublic class MainActivity extends BridgeActivity {}');
     for (let run = 0; run < 2; run++) {
       if (run === 1) {
@@ -65,6 +67,19 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.equal(manifest.match(/android.permission.POST_NOTIFICATIONS/g)?.length, 1);
     assert.equal(manifest.match(/android.permission.ACCESS_COARSE_LOCATION/g)?.length, 1);
     assert.equal(manifest.match(/android.permission.ACCESS_FINE_LOCATION/g)?.length, 1);
+    assert.equal(manifest.match(/android.permission.USE_BIOMETRIC/g)?.length, 1);
+    assert.equal(manifest.match(/android.permission.USE_FINGERPRINT/g)?.length, 1);
+    assert.equal(manifest.match(/android:icon="@mipmap\/minarth_launcher"/g)?.length, 1);
+    assert.equal(manifest.match(/android:roundIcon="@mipmap\/minarth_launcher_round"/g)?.length, 1);
+    for (const name of ['minarth_launcher.xml', 'minarth_launcher_round.xml']) {
+      const adaptive = readFileSync(join(app, 'res', 'mipmap-anydpi-v26', name), 'utf8');
+      assert.match(adaptive, /@drawable\/minarth_adaptive_background/);
+      assert.match(adaptive, /@drawable\/minarth_adaptive_foreground/);
+      assert.match(adaptive, /@drawable\/ic_minarth_monochrome/);
+      assert.doesNotMatch(adaptive, /@drawable\/ic_launcher_foreground/);
+    }
+    assert.match(readFileSync(join(app, 'res', 'drawable', 'minarth_adaptive_foreground.xml'), 'utf8'),
+      /@drawable\/minarth_launcher_foreground/);
     assert.match(manifest, /android:label="MINARTH Transaction Interceptor"/);
     const strings = readFileSync(join(app, 'res', 'values', 'strings.xml'), 'utf8');
     assert.match(strings, /name="app_name">MINARTH</);
@@ -85,7 +100,7 @@ test('Android patch installs background queue and non-exported actions idempoten
       readFileSync(join(app, 'res', 'drawable', 'minarth_launcher_foreground.png')),
       readFileSync(join(root, 'public', 'icons', 'icon-adaptive-foreground.png')),
     );
-    for (const file of ['ic_minarth_monochrome.png', 'ic_minarth_notification.png']) {
+    for (const file of ['ic_minarth_monochrome.png', 'ic_minarth_notification.png', 'ic_minarth_purple.png', 'payment_card_background.xml']) {
       assert.deepEqual(
         readFileSync(join(app, 'res', 'drawable', file)),
         readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'drawable', file)),
@@ -98,6 +113,10 @@ test('Android patch installs background queue and non-exported actions idempoten
         readFileSync(join(app, 'res', `mipmap-${density}`, 'ic_launcher_foreground.png')),
         readFileSync(join(root, 'public', 'icons', 'icon-adaptive-foreground.png')),
       );
+      for (const name of ['minarth_launcher.png', 'minarth_launcher_round.png']) {
+        assert.deepEqual(readFileSync(join(app, 'res', `mipmap-${density}`, name)),
+          readFileSync(join(root, 'public', 'icons', 'icon-512.png')));
+      }
     }
     for (const path of [
       join(app, 'res', 'mipmap-mdpi', 'ic_launcher.png'),
@@ -107,8 +126,10 @@ test('Android patch installs background queue and non-exported actions idempoten
       assert.deepEqual(readFileSync(path), readFileSync(join(root, 'public', 'icons', 'icon-512.png')));
     }
     assert.equal(readFileSync(join(java, 'MainActivity.java'), 'utf8').match(/registerPlugin\(/g)?.length, 1);
-    for (const file of ['InterceptedPaymentStore.java', 'PaymentActionReceiver.java', 'TransactionEligibility.java', 'NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {
-      assert.ok(readFileSync(join(java, file), 'utf8').length > 0);
+    assert.deepEqual(readFileSync(join(app, 'res', 'layout', 'payment_notification.xml')),
+      readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'layout', 'payment_notification.xml')));
+    for (const file of ['InterceptedPaymentStore.java', 'PaymentNotificationDetails.java', 'PaymentActionReceiver.java', 'TransactionEligibility.java', 'NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {
+      assert.deepEqual(readFileSync(join(java, file)), readFileSync(join(root, 'native', 'notification-intercept-plugin', file)));
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

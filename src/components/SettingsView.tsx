@@ -259,6 +259,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (!permissionDisclosure) return;
     setPermissionRequestBusy(true);
     try {
+      if (permissionDisclosure === 'biometrics') {
+        await handleEnableBiometric();
+        return;
+      }
       if (permissionDisclosure === 'notifications') {
         setRequestingNotificationPermission(true);
         const granted = await requestPushNotificationPermission();
@@ -278,7 +282,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       }
     } catch (error) {
       console.warn(`Could not request ${permissionDisclosure} permission:`, error);
-      if (permissionDisclosure === 'notifications') {
+      if (permissionDisclosure === 'biometrics') {
+        setBiometricError('Could not enable biometric unlock. Please try again or use your PIN.');
+      } else if (permissionDisclosure === 'notifications') {
         setNotificationPermissionError('Could not request notification permission. Please try again.');
       } else {
         setLocationPermissionError('Could not request location permission. Please try again.');
@@ -330,6 +336,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       update({ biometricUnlockEnabled: false });
       return;
     }
+    setPermissionDisclosure('biometrics');
+  };
+  const handleEnableBiometric = async () => {
     setBiometricBusy(true);
     try {
       const ok = await enrollBiometric(authUserEmail || settings.userEmail || settings.userName || 'MINARTH');
@@ -337,7 +346,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setBiometricError('Biometric enrolment was cancelled or is not supported here. You can keep using the PIN.');
         return;
       }
-      update({ biometricUnlockEnabled: true });
+      onUpdateSettings({ ...latestSettingsRef.current, biometricUnlockEnabled: true });
     } finally {
       setBiometricBusy(false);
     }

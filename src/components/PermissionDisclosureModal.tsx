@@ -1,8 +1,8 @@
 import React from 'react';
-import { Bell, MapPin, X } from 'lucide-react';
+import { Bell, MapPin, Fingerprint, X } from 'lucide-react';
 import { useDialog } from '../hooks/useDialog';
 
-export type PermissionDisclosure = 'location' | 'notifications';
+export type PermissionDisclosure = 'location' | 'notifications' | 'biometrics';
 
 interface PermissionDisclosureModalProps {
   permission: PermissionDisclosure;
@@ -12,9 +12,15 @@ interface PermissionDisclosureModalProps {
 }
 
 const DISCLOSURES: Record<PermissionDisclosure, { title: string; description: string; icon: typeof MapPin; action: string }> = {
+  biometrics: {
+    title: 'Enable biometric unlock?',
+    description: 'Allow MINARTH to ask your device to verify your fingerprint or face when unlocking the app. MINARTH never receives or stores biometric data. Your app PIN remains available if you cancel or verification fails.',
+    icon: Fingerprint,
+    action: 'Continue to biometric verification',
+  },
   location: {
     title: 'Allow location access?',
-    description: 'With location tagging enabled, MINARTH accesses foreground location to label transactions. Coordinates are sent to BigDataCloud or OpenStreetMap Nominatim to resolve a place name, even before you save. Saved locations sync with your private cloud records. No continuous or background location tracking is requested.',
+    description: 'With location tagging enabled, MINARTH accesses foreground location to label transactions. Android first tries its location service for a place name. If needed, coordinates are sent to BigDataCloud or OpenStreetMap Nominatim, even before you save. Saved locations sync with your private cloud records. No continuous or background location tracking is requested.',
     icon: MapPin,
     action: 'Continue to location permission',
   },

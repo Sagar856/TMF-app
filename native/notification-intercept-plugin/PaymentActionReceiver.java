@@ -4,6 +4,8 @@ import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.app.RemoteInput;
+import android.os.Bundle;
 import android.util.Log;
 
 public class PaymentActionReceiver extends BroadcastReceiver {
@@ -12,10 +14,17 @@ public class PaymentActionReceiver extends BroadcastReceiver {
         String id = intent.getStringExtra("tmfPaymentId");
         if (id == null) return;
         try {
+            if (("tmf.description." + id).equals(intent.getAction())) {
+                Bundle reply = RemoteInput.getResultsFromIntent(intent);
+                CharSequence description = reply == null ? null : reply.getCharSequence("tmfDescription");
+                if (description != null) InterceptedPaymentStore.description(context, id, description.toString());
+                return;
+            }
+            if (!("tmf.ignore." + id).equals(intent.getAction())) return;
             InterceptedPaymentStore.action(context, id, "ignore");
             context.getSystemService(NotificationManager.class).cancel(id, 1);
-        } catch (org.json.JSONException | IllegalStateException error) {
-            Log.e("TMFInterceptor", "Could not persist Ignore action", error);
+        } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+            Log.e("TMFInterceptor", "Could not persist payment notification action", error);
         }
     }
 }

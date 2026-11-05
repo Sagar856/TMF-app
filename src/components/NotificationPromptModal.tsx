@@ -95,9 +95,13 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
             <span>•</span>
             <span className="flex items-center gap-1 text-[#aaa]">
               <MapPin className="w-3 h-3 text-red-500" />
-              {activeNotif.location?.name || `${activeNotif.location?.lat.toFixed(4)}°, ${activeNotif.location?.lng.toFixed(4)}°`}
+              {activeNotif.location?.name || (activeNotif.location
+                ? 'Location name unavailable' : 'Location not captured')}
             </span>
           </div>
+          {activeNotif.description && (
+            <p className="mt-2 text-xs text-violet-200">{activeNotif.description}</p>
+          )}
 
           {/* Extracted Category & Subcategory Tag */}
           <div className="mt-3 flex items-center gap-2 flex-wrap">

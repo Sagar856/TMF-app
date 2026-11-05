@@ -45,7 +45,6 @@ import {
   Repayment,
   InvestmentRedemption,
   EmiConfirmationRequest,
-  LocationTag,
   PaymentSource,
   SavingsGoal,
   TransactionKind,
@@ -1165,12 +1164,12 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled)
+    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking))
       .catch(error => {
         console.warn('Could not configure background payment tracking:', error);
         showToast('Could not configure background payment tracking. Please retry.', 'error');
       });
-  }, [settings.autoExtractSms, settings.notificationsEnabled, isAuthenticated]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, isAuthenticated]);
 
   useEffect(() => {
     if (isCloudBackendConfigured() && !isAuthenticated) return;
@@ -1188,23 +1187,23 @@ export default function App() {
       }
       const { parseNotification } = await import('./services/notification/ParserManager');
       if (!isActive()) return;
-      if (!current.pendingNotifications.some(n => n.id === id)) {
-        let locationTag: LocationTag | null = null;
-        // Old queued alerts must not be tagged with the user's current location.
-        if (current.settings.locationTracking && document.visibilityState === 'visible' && Math.abs(Date.now() - payment.postedAt) < 30_000) {
-          try {
-            const { getCurrentDeviceLocation } = await import('./services/locationService');
-            const location = await Promise.race([
-              getCurrentDeviceLocation(),
-              new Promise<null>(resolve => setTimeout(() => resolve(null), 3000)),
-            ]);
-            if (location) locationTag = { lat: location.lat, lng: location.lng, name: location.formattedLocation };
-          } catch (error) {
-            console.warn('Could not attach location to payment alert:', error);
-          }
-        }
-        if (!isActive()) return;
-        const result = parseNotification(`${payment.title} ${payment.text}`, locationTag, current.transactions, current.pendingNotifications, false);
+      const pendingBeforeLookup = interceptorState.current.pendingNotifications.find(n => n.id === id);
+      const { resolvePaymentLocation } = await import('./services/paymentLocation');
+      const detectedLocation = await resolvePaymentLocation(payment, Boolean(interceptorState.current.settings.locationTracking), pendingBeforeLookup?.location);
+      if (!isActive()) return;
+      const latest = interceptorState.current;
+      if (latest.transactions.some(tx => tx.id === `tx_${id}`)) {
+        await resolveInterceptedPayment(id);
+        return;
+      }
+      const existing = latest.pendingNotifications.find(n => n.id === id);
+      if (pendingBeforeLookup && !existing) {
+        await resolveInterceptedPayment(id);
+        return;
+      }
+      const locationTag = latest.settings.locationTracking ? detectedLocation : existing?.location;
+      if (!existing) {
+        const result = parseNotification(`${payment.title} ${payment.text}`, locationTag || null, latest.transactions, latest.pendingNotifications, false);
         if (!result || result.isDuplicate) {
           await resolveInterceptedPayment(id);
           return;
@@ -1212,10 +1211,18 @@ export default function App() {
         const posted = new Date(payment.postedAt);
         const parsed = {
           ...result.parsed, id,
+          description: payment.description,
           date: toLocalISODate(posted),
           time: `${String(posted.getHours()).padStart(2, '0')}:${String(posted.getMinutes()).padStart(2, '0')}`,
         };
-        const next = [parsed, ...current.pendingNotifications];
+        const next = [parsed, ...latest.pendingNotifications];
+        if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
+        interceptorState.current.pendingNotifications = next;
+        setPendingNotifications(next);
+      } else if (existing && (payment.description !== undefined || locationTag)) {
+        const next = latest.pendingNotifications.map(n => n.id === id ? {
+          ...n, description: payment.description ?? n.description, location: locationTag ?? n.location,
+        } : n);
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
         interceptorState.current.pendingNotifications = next;
         setPendingNotifications(next);
@@ -1269,6 +1276,7 @@ export default function App() {
   // Biometric unlock (WebAuthn platform authenticator), offered when enabled & enrolled on this device.
   const [biometricReady, setBiometricReady] = useState(false);
   const [biometricBusy, setBiometricBusy] = useState(false);
+  const biometricAttemptedRef = useRef(false);
   useEffect(() => {
     if (!settings.passcodeEnabled || !settings.biometricUnlockEnabled || isUnlocked) {
       setBiometricReady(false);
@@ -1298,6 +1306,21 @@ export default function App() {
       setBiometricBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (isUnlocked) {
+      biometricAttemptedRef.current = false;
+      return;
+    }
+    if (Capacitor.getPlatform() !== 'android' || !biometricReady || isAppLoading || authLoading
+      || (cloudReady && !cloudHydrated) || passcodeLockedUntil > Date.now()) return;
+    const timer = setTimeout(() => {
+      if (biometricAttemptedRef.current) return;
+      biometricAttemptedRef.current = true;
+      void handleBiometricUnlock();
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [isUnlocked, biometricReady, isAppLoading, authLoading, cloudReady, cloudHydrated, passcodeLockedUntil]);
 
   useEffect(() => {
     safeSetItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
@@ -1475,7 +1498,7 @@ export default function App() {
 
     const newTx: Transaction = {
       id: notif.id.startsWith('native_') ? `tx_${notif.id}` : newId('tx_notif'),
-      title: notif.payeeOrPayer,
+      title: notif.description?.trim() || notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
       kind: inferTransactionKind({ type: notif.type, category: resolvedCat, subcategory: resolvedSubcat, title: notif.payeeOrPayer, note: notif.rawText }),
@@ -1533,7 +1556,7 @@ export default function App() {
 
     // Open transaction editor with pre-filled details from notification
     setEditingTransaction({
-      title: notif.payeeOrPayer,
+      title: notif.description?.trim() || notif.payeeOrPayer,
       amount: notif.amount,
       type: notif.type,
       category: resolvedCat,

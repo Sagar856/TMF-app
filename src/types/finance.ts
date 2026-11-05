@@ -263,6 +263,7 @@ export interface ParsedNotification {
   rawText: string;
   amount: number;
   payeeOrPayer: string;
+  description?: string;
   type: TransactionType;
   date: string;
   time: string;

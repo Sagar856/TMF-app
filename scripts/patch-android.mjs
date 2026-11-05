@@ -76,7 +76,7 @@ copyFileSync(join(repoRoot, 'scripts', 'android-release.gradle'), join(androidAp
 
 // 1. Copy Java plugin sources
 mkdirSync(javaPackageDir, { recursive: true });
-for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java', 'TransactionEligibility.java', 'InterceptedPaymentStore.java', 'PaymentActionReceiver.java']) {
+for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java', 'TransactionEligibility.java', 'PaymentNotificationDetails.java', 'InterceptedPaymentStore.java', 'PaymentActionReceiver.java']) {
   copyFileSync(join(pluginSrcDir, file), join(javaPackageDir, file));
   console.log(`[patch-android] Copied ${file}`);
 }
@@ -87,6 +87,11 @@ copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_stat_tmf.xml'), join(draw
 for (const file of ['ic_minarth_notification.png', 'ic_minarth_monochrome.png']) {
   copyFileSync(join(pluginSrcDir, 'res', 'drawable', file), join(drawableDir, file));
 }
+copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_minarth_purple.png'), join(drawableDir, 'ic_minarth_purple.png'));
+copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'payment_card_background.xml'), join(drawableDir, 'payment_card_background.xml'));
+const layoutDir = join(resDir, 'layout');
+mkdirSync(layoutDir, { recursive: true });
+copyFileSync(join(pluginSrcDir, 'res', 'layout', 'payment_notification.xml'), join(layoutDir, 'payment_notification.xml'));
 console.log('[patch-android] Copied ic_stat_tmf.xml notification icon');
 
 // Keep the package identity stable while updating existing and fresh installs.
@@ -109,6 +114,10 @@ if (!existsSync(launcherPng)) fail('MINARTH PNG missing. Run node scripts/genera
 const adaptivePng = join(repoRoot, 'public', 'icons', 'icon-adaptive-foreground.png');
 if (!existsSync(adaptivePng)) fail('MINARTH adaptive PNG missing. Run npm run icons:generate');
 copyFileSync(adaptivePng, join(drawableDir, 'minarth_launcher_foreground.png'));
+writeFileSync(join(drawableDir, 'minarth_adaptive_foreground.xml'),
+  '<bitmap xmlns:android="http://schemas.android.com/apk/res/android" android:src="@drawable/minarth_launcher_foreground" android:gravity="fill" android:filter="true"/>\n');
+writeFileSync(join(drawableDir, 'minarth_adaptive_background.xml'),
+  '<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle"><solid android:color="#e9e9fa"/></shape>\n');
 for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
   const folder = join(resDir, `mipmap-${density}`);
   mkdirSync(folder, { recursive: true });
@@ -116,9 +125,18 @@ for (const density of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
     copyFileSync(launcherPng, join(folder, name));
   }
   copyFileSync(adaptivePng, join(folder, 'ic_launcher_foreground.png'));
+  copyFileSync(launcherPng, join(folder, 'minarth_launcher.png'));
+  copyFileSync(launcherPng, join(folder, 'minarth_launcher_round.png'));
 }
 const adaptiveDir = join(resDir, 'mipmap-anydpi-v26');
 mkdirSync(adaptiveDir, { recursive: true });
+for (const name of ['minarth_launcher.xml', 'minarth_launcher_round.xml']) {
+  writeFileSync(join(adaptiveDir, name), `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+  <background android:drawable="@drawable/minarth_adaptive_background"/>
+  <foreground android:drawable="@drawable/minarth_adaptive_foreground"/>
+  <monochrome android:drawable="@drawable/ic_minarth_monochrome"/>
+</adaptive-icon>\n`);
+}
 for (const name of ['ic_launcher.xml', 'ic_launcher_round.xml']) {
   writeFileSync(join(adaptiveDir, name), `<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
   <background android:drawable="@drawable/ic_launcher_background"/>
@@ -141,6 +159,8 @@ let manifest = readFileSync(manifestPath, 'utf8');
 manifest = manifest.replace(/\s*<uses-permission\b[^>]*android:name="android\.permission\.(?:BIND_NOTIFICATION_LISTENER_SERVICE|RECEIVE_BOOT_COMPLETED)"[^>]*\/>/g, '');
 manifest = manifest.replace(/\s+android:(?:allowBackup|usesCleartextTraffic)="[^"]*"/g, '');
 manifest = manifest.replace('<application', '<application android:allowBackup="false" android:usesCleartextTraffic="false"');
+manifest = manifest.replace(/(<application\b[^>]*?)(>)/, (_match, attributes, end) =>
+  `${attributes.replace(/\s+android:(?:icon|roundIcon)="[^"]*"/g, '')} android:icon="@mipmap/minarth_launcher" android:roundIcon="@mipmap/minarth_launcher_round"${end}`);
 
 if (!manifest.includes('com.trackmoneyflow.app.TmfNotificationListenerService')) {
   const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="MINARTH Transaction Interceptor"\n            android:exported="true"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
@@ -159,7 +179,7 @@ if (!manifest.includes('com.trackmoneyflow.app.PaymentActionReceiver')) {
 if (!manifest.includes('android.permission.POST_NOTIFICATIONS')) {
   manifest = manifest.replace(/(<manifest[^>]*>)/, '$1\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />');
 }
-for (const permission of ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION']) {
+for (const permission of ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'USE_BIOMETRIC', 'USE_FINGERPRINT']) {
   if (!manifest.includes(`android.permission.${permission}`)) {
     manifest = manifest.replace(/(<manifest[^>]*>)/, `$1\n    <uses-permission android:name="android.permission.${permission}" />`);
   }

@@ -75,9 +75,45 @@ public class NotificationInterceptPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void reverseGeocode(PluginCall call) {
+        Double lat = call.getDouble("lat");
+        Double lng = call.getDouble("lng");
+        if (lat == null || lng == null || !Double.isFinite(lat) || !Double.isFinite(lng)
+            || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+            call.reject("Valid coordinates required");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                java.util.List<android.location.Address> addresses = new android.location.Geocoder(getContext(), java.util.Locale.getDefault())
+                    .getFromLocation(lat, lng, 1);
+                if (addresses == null || addresses.isEmpty()) {
+                    call.reject("No readable address found");
+                    return;
+                }
+                android.location.Address address = addresses.get(0);
+                String local = address.getSubLocality();
+                String city = address.getLocality();
+                String name = local != null && city != null && !local.equalsIgnoreCase(city) ? local + ", " + city
+                    : city != null ? city : address.getAdminArea();
+                if (name == null || name.trim().isEmpty()) {
+                    call.reject("No readable address found");
+                    return;
+                }
+                JSObject result = new JSObject();
+                result.put("name", name);
+                call.resolve(result);
+            } catch (java.io.IOException | IllegalArgumentException error) {
+                call.reject("Could not resolve readable location", error);
+            }
+        }, "minarth-geocoder").start();
+    }
+
+    @PluginMethod
     public void configure(PluginCall call) {
         try {
-            InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")), Boolean.TRUE.equals(call.getBoolean("notifications")));
+            InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")),
+                Boolean.TRUE.equals(call.getBoolean("notifications")), Boolean.TRUE.equals(call.getBoolean("locationTracking")));
             call.resolve();
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             call.reject("Could not configure interceptor", error);
@@ -139,7 +175,7 @@ public class NotificationInterceptPlugin extends Plugin {
         if (activeInstance == null) return;
 
         JSObject data = new JSObject();
-        for (String key : new String[] { "id", "packageName", "title", "text", "postedAt", "action" }) {
+        for (String key : new String[] { "id", "packageName", "title", "text", "postedAt", "action", "description", "location" }) {
             data.put(key, record.opt(key));
         }
         activeInstance.notifyListeners("notificationReceived", data);

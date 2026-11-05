@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
+import { reverseGeocodeNativeCoordinates } from './notificationListener';
 
 /**
  * Location Service for TMF
@@ -126,7 +127,7 @@ export function formatConciseLocation(data: {
 
 /**
  * Reverse geocodes latitude and longitude to a human-readable address.
- * Tries BigDataCloud client API first, then falls back to OpenStreetMap Nominatim.
+ * Tries Android's geocoder, then BigDataCloud and OpenStreetMap Nominatim.
  */
 export async function reverseGeocodeCoordinates(
   lat: number,
@@ -137,11 +138,31 @@ export async function reverseGeocodeCoordinates(
   if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
     return cached.result.formattedLocation;
   }
+  if (Capacitor.getPlatform() === 'android') {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        reverseGeocodeNativeCoordinates(lat, lng),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error('Native geocoder timed out')), 5000);
+        }),
+      ]);
+      if (result.name?.trim()) {
+        locationCache[cacheKey] = { result: { lat, lng, formattedLocation: result.name.trim() }, timestamp: Date.now() };
+        return result.name.trim();
+      }
+    } catch (error) {
+      console.warn('Native place-name lookup failed; trying online lookup:', error);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   // Attempt 1: BigDataCloud Client Reverse Geocode (free, client-side friendly, CORS-enabled)
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    timeoutId = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(
       `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`,
@@ -171,13 +192,15 @@ export async function reverseGeocodeCoordinates(
       }
     }
   } catch (err) {
-    // Silently proceed to fallback
+    console.warn('Primary place-name lookup failed; trying fallback:', err);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   // Attempt 2: OpenStreetMap Nominatim Reverse Geocoding
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    timeoutId = setTimeout(() => controller.abort(), 4000);
 
     const res = await fetch(
       `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`,
@@ -212,7 +235,9 @@ export async function reverseGeocodeCoordinates(
       }
     }
   } catch (err) {
-    // Network or timeout failure
+    console.warn('Fallback place-name lookup failed:', err);
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   return null;

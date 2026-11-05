@@ -26,13 +26,32 @@ shared regression fixtures cover both.
 
 Accepted alerts are committed to private SharedPreferences independently of
 the Activity/WebView. `InterceptedPaymentStore` posts Android notifications
-with Add, Edit and Ignore actions. Add opens the app and adds after authentication/unlock; Edit opens
+with a lavender structured expanded card and Add, Description and Ignore actions.
+Description uses Android RemoteInput and persists a trimmed, 200-character
+description without adding the payment or changing the raw bank notification.
+Add opens the app and adds after authentication/unlock; Edit (inside the card) opens
 the prefilled editor after unlock and retains the capture until Save; Ignore
 is persisted by a non-exported receiver without opening the app. The bridge
 replays captures on startup/resume and forwards live events. JavaScript
 persists its pending queue before handling actions or resolving native entries.
 Original notification timestamps are preserved; transaction details stay
 private on the lock screen.
+
+The notification-only Java summary is not the authoritative transaction parser.
+Missing details show "Review in app"; JavaScript still parses the original
+message. A purple M is used in the card and as the large icon. Android requires
+a monochrome small-icon mask and controls its tint and the surrounding shell.
+Exact layout, available space and collapsed appearance depend on Android/OEM.
+Only the explicit RemoteInput PendingIntent is mutable; other actions remain
+immutable and the broadcast receiver is non-exported.
+
+With location tagging enabled and foreground precise/approximate permission
+already granted, capture checks for a last-known position within two minutes
+of the payment timestamp. It does not request background permission or run
+continuous tracking. Native geocoding enriches saved coordinates asynchronously;
+the bridge forwards that update along with descriptions. Foreground replay
+may locate recent payments, but never tags old payments with current position.
+Android background restrictions can leave payments without a location.
 
 Native configuration follows the interceptor and push-notification switches.
 Notification Access and Android 13+ display permission must both be granted.
@@ -46,7 +65,8 @@ Rebuild/install the APK after changes: `npm run cap:sync`, then
 `node scripts/patch-android.mjs`, then build with Gradle. Device verification:
 send real bank/UPI alerts with the app open, backgrounded, screen off and after
 swiping its Activity away; confirm a single pending capture and three system
-actions. Test Ignore without opening, Edit then cancel/save, Add after unlock,
+actions. Test inline Description while the app is closed, Description then Add,
+Ignore without opening, Edit then cancel/save, Add after unlock,
 permission denial, and rejected promotional/OTP/request/failed messages.
 
 ## Files
@@ -58,7 +78,9 @@ permission denial, and rejected promotional/OTP/request/failed messages.
   `NotificationListenerService` implementation.
 - `TransactionEligibility.java` — native source and completed-payment filter.
 - `InterceptedPaymentStore.java` — durable captures, settings and system alerts.
-- `PaymentActionReceiver.java` — durable, non-exported Ignore receiver.
+- `PaymentNotificationDetails.java` — display-only payment summary.
+- `PaymentActionReceiver.java` — durable, non-exported Ignore/inline-description receiver.
+- `res/layout/payment_notification.xml` — expanded purple notification card.
 - `AndroidManifestSnippet.xml` — the exact `<uses-permission>` and `<service>`
   entries that `scripts/patch-android.mjs` inserts into the generated
   `android/app/src/main/AndroidManifest.xml`.

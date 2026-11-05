@@ -41,6 +41,11 @@ The source image is preserved unchanged. Adaptive icons use safe-zone padding
 to keep the complete mark visible under circular launcher masks. The rectangular
 source is fitted proportionally, without stretching or cropping; Android themed and
 notification icons use a monochrome silhouette of the supplied M symbol.
+Expanded payment notifications also use an isolated purple M-growth icon.
+Android controls the tint of the small status-bar icon; it cannot be forced
+purple on every device. Launcher resources use MINARTH-specific names and
+explicit manifest references so Capacitor's default robot artwork cannot
+override the approved logo. Rebuild and install the APK to update native icons.
 Run `npm run android:patch` after Capacitor sync to install native branding.
 The Android application ID, storage keys, backup format and existing download
 URLs remain unchanged so the rename preserves existing installations and data.
@@ -96,6 +101,21 @@ Opening a new transaction with tagging enabled asks for location access if it
 has not been granted. Android builds declare foreground precise/approximate
 location permissions; no background tracking is requested. If a place name
 cannot be resolved, the detected coordinates are retained as the location label.
+SMS payments use a recent permitted capture-time location when available, or
+current location only for payments received within two minutes while the app
+is visible and permission is already granted. Old payments never receive the
+user's current location. Android's native geocoder is tried before online
+place-name lookup. If all lookups fail, SMS coordinates are retained with
+"Location name unavailable" and retried on pending-payment replay. Background
+location permission is not requested; payments may remain untagged when
+Android cannot supply a recent location.
+To enable biometric app lock, set an app PIN, then enable biometric unlock in
+Privacy & Security. An app disclosure is followed by Android's biometric
+verification prompt. Biometric permissions are install-time permissions, not
+a separate runtime grant dialog; fingerprint/face must already be enrolled
+in device settings. Android automatically prompts when the app is locked,
+with PIN fallback after cancellation or unavailable hardware. Enrollment
+stays local to the device and is cleared when biometric/app lock is disabled.
 Monitor Budget keeps its gradient when collapsed or expanded. Light-mode KPI
 cards have no drop shadows; hidden lower-card content prevents text bleed in
 translucent stacks. Warning colors and themed bank cards retain their contrast.
@@ -465,7 +485,14 @@ sender IDs in supported SMS apps. Only completed payments with an amount
 are queued; promotions, OTPs, requests, scheduled and failed payments are rejected.
 The Android service persists captures before forwarding them to the WebView,
 so ordinary backgrounding, screen-off and Activity closure do not discard them.
-Native payment notifications include **Add**, **Edit**, and **Ignore**.
+Native payment notifications show a structured lavender expanded card with
+amount, direction, account, date/time, payment mode, merchant and bank.
+The three system actions are **Add**, **Description**, and **Ignore**.
+Description opens Android's inline reply field and saves up to 200 characters
+without adding the transaction. The description becomes its title when added;
+the original merchant, amount and SMS remain intact. **Edit transaction in app**
+is available inside the expanded card. Android/OEM notification layouts and
+collapsed presentation may differ from the reference image.
 Add opens the app and adds after authentication/unlocking; Edit opens a prefilled editor after unlocking;
 Ignore is saved natively without opening the app. Cancelling Edit keeps the
 payment pending. Replay uses the original notification date/time.

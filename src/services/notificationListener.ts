@@ -1,5 +1,6 @@
 import { registerPlugin, Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { isEligiblePaymentNotification } from './notification/transactionEligibility';
+import type { LocationTag } from '../types/finance';
 
 export interface InterceptedPayment {
   id: string;
@@ -8,12 +9,15 @@ export interface InterceptedPayment {
   text: string;
   postedAt: number;
   action: 'review' | 'open' | 'add' | 'edit' | 'ignore';
+  description?: string;
+  location?: Omit<LocationTag, 'name'> & { name?: string; capturedAt?: number };
 }
 
 interface NotificationInterceptPlugin {
   isPermissionGranted(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<void>;
-  configure(options: { enabled: boolean; notifications: boolean }): Promise<void>;
+  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean }): Promise<void>;
+  reverseGeocode(options: { lat: number; lng: number }): Promise<{ name: string }>;
   getPending(): Promise<{ notifications: InterceptedPayment[] }>;
   resolvePayment(options: { id: string }): Promise<void>;
   acknowledgeAction(options: { id: string }): Promise<void>;
@@ -22,6 +26,10 @@ interface NotificationInterceptPlugin {
 }
 
 const NotificationIntercept = registerPlugin<NotificationInterceptPlugin>('NotificationIntercept');
+
+export function reverseGeocodeNativeCoordinates(lat: number, lng: number): Promise<{ name: string }> {
+  return NotificationIntercept.reverseGeocode({ lat, lng });
+}
 
 export function isNativeAndroid(): boolean {
   return Capacitor.getPlatform() === 'android';
@@ -41,8 +49,8 @@ export async function requestNotificationAccess(): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.requestPermission();
 }
 
-export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean): Promise<void> {
-  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications });
+export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking });
 }
 
 export async function resolveInterceptedPayment(id: string): Promise<void> {

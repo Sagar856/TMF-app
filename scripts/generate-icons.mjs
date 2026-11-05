@@ -54,6 +54,15 @@ await sharp({ create: { width: 512, height: 512, channels: 4, background: '#0000
 await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
   .resize(96, 96, { fit: 'contain', background: '#00000000' })
   .png(pngOptions).toFile(join(nativeIcons, 'ic_minarth_notification.png'));
+const purple = Buffer.from(data);
+for (let offset = 0; offset < purple.length; offset += 4) {
+  const progress = Math.floor(offset / 4 / info.width) / info.height;
+  purple[offset] = Math.round(168 - 55 * progress);
+  purple[offset + 1] = Math.round(110 - 55 * progress);
+  purple[offset + 2] = Math.round(245 - 50 * progress);
+}
+await sharp(purple, { raw: { width: info.width, height: info.height, channels: 4 } })
+  .resize(192, 192, contain).png(pngOptions).toFile(join(nativeIcons, 'ic_minarth_purple.png'));
 
 writeFileSync(join(nativeIcons, 'ic_minarth_foreground.xml'), `<bitmap xmlns:android="http://schemas.android.com/apk/res/android"
     android:src="@drawable/minarth_launcher_foreground" android:gravity="fill" android:filter="true"/>

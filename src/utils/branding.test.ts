@@ -101,3 +101,18 @@ test('adaptive and themed icons have transparent padding and a mask-safe symbol'
   assert.equal(notification.height, 96);
   assert.equal(notification.pixel(0, 0)[3], 0);
 });
+
+test('notification card uses a transparent purple M, not the glass tile', async () => {
+  const icon = await decodePng('native/notification-intercept-plugin/res/drawable/ic_minarth_purple.png');
+  assert.equal(icon.width, 192);
+  assert.equal(icon.height, 192);
+  assert.equal(icon.pixel(0, 0)[3], 0);
+  let visible = 0;
+  for (let offset = 0; offset < icon.data.length; offset += 4) {
+    const [r, g, b, a] = icon.data.subarray(offset, offset + 4);
+    if (a < 128) continue;
+    visible++;
+    assert.ok(b > r && r > g, 'Visible M pixels must be purple');
+  }
+  assert.ok(visible > 3000 && visible < 192 * 192 * 0.6, 'Icon must contain the isolated M-growth mark');
+});

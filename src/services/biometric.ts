@@ -21,7 +21,6 @@ function fromBase64Url(value: string): Uint8Array {
 }
 
 export async function isBiometricAvailable(): Promise<boolean> {
-  if (typeof window === 'undefined' || !window.isSecureContext) return false;
   if (Capacitor.getPlatform() === 'android') {
     try {
       return (await NativeBiometric.isAvailable({ useFallback: false })).isAvailable;
@@ -30,6 +29,7 @@ export async function isBiometricAvailable(): Promise<boolean> {
       return false;
     }
   }
+  if (typeof window === 'undefined' || !window.isSecureContext) return false;
   if (!('PublicKeyCredential' in window) || !navigator.credentials) return false;
   try {
     return await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
@@ -40,7 +40,9 @@ export async function isBiometricAvailable(): Promise<boolean> {
 
 export function isBiometricEnrolled(): boolean {
   try {
-    return Boolean(localStorage.getItem(CREDENTIAL_KEY));
+    const stored = localStorage.getItem(CREDENTIAL_KEY);
+    return Boolean(stored) && (Capacitor.getPlatform() === 'android'
+      ? stored === 'native-authenticator' : stored !== 'native-authenticator');
   } catch {
     return false;
   }
@@ -105,7 +107,7 @@ export async function verifyBiometric(): Promise<boolean> {
       return null;
     }
   })();
-  if (!stored || !(await isBiometricAvailable())) return false;
+  if (!stored || !isBiometricEnrolled() || !(await isBiometricAvailable())) return false;
   if (Capacitor.getPlatform() === 'android') {
     try {
       await NativeBiometric.verifyIdentity({
