@@ -30,7 +30,7 @@ export const CategoryDonutChart: React.FC<CategoryDonutChartProps> = ({
   const totalDebit = debitTransactions.reduce((sum, t) => sum + t.amount, 0);
 
   const SEGMENT_COLORS = [
-    '#9d80e9',
+    'var(--ui-category-accent)',
     '#7ea7ba',
     '#c9aa68',
     '#a27599',

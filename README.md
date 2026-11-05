@@ -51,10 +51,45 @@ The Android application ID, storage keys, backup format and existing download
 URLs remain unchanged so the rename preserves existing installations and data.
 
 All pages share theme-aware glass surfaces and translucent nested controls.
+Appearance > App UI color offers Deep Purple (the original), Forest Green,
+Celestial Blue, Burgundy and Sunset Gold. Tap App UI color to open a dedicated
+page with an illustrative Home preview and horizontally scrollable color tiles.
+The whole App UI color row opens the picker, with the current palette shown
+beside its label. The picker fits the available mobile viewport; its Home
+illustration scales down while color tiles and Apply remain readable and tappable.
+Very short landscape viewports or enlarged text can scroll rather than hide
+the preview or controls.
+Select a tile to preview it, then apply it across the app. Back returns to
+Appearance without applying a draft selection. The preview never reads or
+changes financial records. Palette changes preserve the existing saturation,
+lightness, transparency, gradients, blur and animations in both light and
+dark mode. In-app logos follow the selected hue while retaining the approved
+shape, transparency and shading; the Home preview also previews its logo color.
+Installed app icons and notification status icons remain unchanged. Financial
+status/category colors and broker identities are not recolored. This preference is saved, included in backups and
+synced with other portable appearance settings.
+Currency & Region uses two themed dropdowns: preferred currency (INR, USD,
+EUR or GBP) and region/number formatting. They are independent: changing
+currency does not change the selected region or convert stored amounts.
+Existing imported currency/locale values remain selectable.
+Account preferences save automatically and sync shortly after each change,
+without pressing Sync. Rapid edits are coalesced, failures retain the latest
+pending preferences and trigger three automatic retries. Pending preferences
+retry when connectivity returns or the app becomes visible again. Device
+permissions, PIN/biometric enrollment, auto-lock and broker credentials remain
+local, as does this device's sample-data state.
 The reference-inspired design uses a charcoal geometric backdrop, smoked
 reflective panels, violet focal cards and chart gradients. Mobile and desktop
 retain their existing layouts, stacked metrics, navigation and financial
 actions. Light mode uses the same palette on transparent pearl surfaces.
+Desktop metric tiles on Transactions, Accounts, Investments and Loans use the
+same horizontal, equal-width glass cards as Home. Mobile metric decks keep their
+existing expand/collapse behavior.
+Expanded mobile finance metric tiles also use palette-aware translucent glass
+in both light and dark themes, with the first tile highlighted like Home.
+Desktop budget and recurring panels use
+translucent nested surfaces rather than opaque white fills. The mobile palette
+strip and Apply button are compact while retaining touch-friendly targets.
 The rounded mobile glass dock keeps all six destinations and safe-area spacing.
 Surface entrance fades, chart drawing and hover highlights respect reduced-motion
 preferences. Actions use violet gradients; losses and alerts retain status colors.

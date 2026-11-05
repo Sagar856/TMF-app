@@ -81,6 +81,24 @@ test('categories and budgets remain a separate menu below preferences', (context
   assert.match(markup, /<input id="profile-contact-email"[^>]*readOnly=""[^>]*value="test@example.com"/i);
   assert.match(markup, /id="settings-password"[\s\S]*?Change password/);
   assert.match(markup, /App passcode protection/);
+  assert.match(markup, /aria-label="App UI color"/);
+  const colorRow = markup.match(/<button id="settings-color-palette"[\s\S]*?<\/button>/)?.[0];
+  assert.ok(colorRow, 'The complete App UI color row must be a button');
+  assert.equal((colorRow.match(/<button/g) || []).length, 1, 'No nested interactive control');
+  assert.match(colorRow, /items-center justify-between[\s\S]*?App UI color[\s\S]*?Deep Purple/);
+  assert.match(markup, /Account preferences sync automatically after changes/);
+  assert.doesNotMatch(markup, /role="radiogroup" aria-label="UI color palette"/);
+  assert.match(markup, /<select id="settings-currency-select"[^>]*>[\s\S]*?<option value="USD" selected=""/);
+  assert.match(markup, /<select id="settings-region-select"/);
+  assert.match(markup, /India · English/);
+  assert.match(markup, /Germany · German/);
+  assert.doesNotMatch(markup, /role="radiogroup" aria-label="Preferred currency"/);
+  const imported = renderToStaticMarkup(React.cloneElement(view, { settings: {
+    ...view.props.settings, colorPalette: 'blue', currencyCode: 'CAD', currencySymbol: '$', locale: 'it-IT',
+  } }));
+  assert.match(imported, /Celestial Blue/);
+  assert.match(imported, /<option value="CAD" selected="">/);
+  assert.match(imported, /<option value="it-IT" selected="">/);
   const dangerIndex = markup.indexOf('id="settings-danger"');
   assert.ok(dangerIndex > markup.indexOf('id="settings-data"'));
   assert.ok(dangerIndex < markup.indexOf('id="settings-help"'));

@@ -304,6 +304,7 @@ export interface UserSettings {
   currencyCode: string;
   locale?: string;
   theme?: 'dark' | 'light';
+  colorPalette?: import('../utils/uiPalette').UiPalette;
   passcodeEnabled: boolean;
   passcodeHash?: string;
   passcodeSalt?: string;

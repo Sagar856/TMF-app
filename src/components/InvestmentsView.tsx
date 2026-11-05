@@ -85,7 +85,7 @@ interface InvestmentTxn {
   amount: number;
 }
 
-const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#ef4444', '#14b8a6'];
+const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', 'var(--ui-investment-accent)', '#ef4444', '#14b8a6'];
 
 function isQuoteLive(inv: InvestmentRecord): boolean {
   const isLiveSource = inv.priceSource === 'NSE/BSE (Live)' || inv.priceSource === 'AMFI';
@@ -1186,7 +1186,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           <button
             type="button"
             onClick={() => setIsKpiStacked(!isKpiStacked)}
-            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm"
+            className="p-1 bg-[#1a1a1a] hover:bg-surface-3 border border-[#333] hover:border-red-500 rounded-lg text-white transition-colors cursor-pointer flex items-center justify-center shadow-sm lg:hidden"
             title={isKpiStacked ? "Expand Metrics" : "Collapse Metrics"}
           >
             {isKpiStacked ? (

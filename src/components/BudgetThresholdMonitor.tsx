@@ -289,7 +289,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
       <div style={effectiveState.bodyStyle} className="will-change-[height,opacity,transform]">
         <div ref={handleContentRef} className="p-4 sm:p-5 space-y-4">
           {/* Summary Metric Ribbon */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+          <div className="finance-budget-summary grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
             <div className="bg-black/50 border border-[#222] p-2.5 sm:p-3 rounded-xl">
               <div className="text-[9px] text-[#777] uppercase font-bold">Tracked Budget</div>
               <div className="text-sm sm:text-base font-bold text-white mt-0.5">
@@ -394,7 +394,7 @@ export const BudgetThresholdMonitor: React.FC<BudgetThresholdMonitorProps> = ({
                 return (
                   <div
                     key={item.category.id}
-                    className={`p-3.5 sm:p-4 rounded-xl border transition-all duration-200 ${
+                    className={`finance-budget-row p-3.5 sm:p-4 rounded-xl border transition-all duration-200 ${
                       isOverBudget
                         ? 'bg-surface-1 border-red-600/70 hover:border-red-500 shadow-md'
                         : isOverThreshold

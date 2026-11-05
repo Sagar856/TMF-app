@@ -8,6 +8,7 @@ import {
   UserSettings,
 } from '../types/finance';
 import { isSavingsGoal } from './savingsGoals';
+import { isUiPalette } from './uiPalette';
 
 export interface BackupRestoreData {
   formatVersion?: number;
@@ -98,6 +99,7 @@ function isUserSettings(value: unknown): value is UserSettings {
     && typeof value.userEmail === 'string'
     && typeof value.currencySymbol === 'string'
     && typeof value.currencyCode === 'string'
+    && (value.colorPalette === undefined || isUiPalette(value.colorPalette))
     && typeof value.passcodeEnabled === 'boolean'
     && typeof value.locationTracking === 'boolean'
     && typeof value.autoExtractSms === 'boolean'

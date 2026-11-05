@@ -7,6 +7,6 @@ export const BrandMark: React.FC<{ className?: string }> = ({ className = 'w-8 h
     aria-hidden="true"
     width={512}
     height={512}
-    className={`shrink-0 ${className}`}
+    className={`brand-mark shrink-0 ${className}`}
   />
 );

@@ -71,3 +71,33 @@ test('responsive dashboard retains every panel and the original mobile order', (
     assert.ok(markup.toLowerCase().includes(title.toLowerCase()), `${title} must remain available`);
   }
 });
+
+test('desktop finance metrics share horizontal glass styling without changing mobile decks', () => {
+  const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+  const desktop = css.slice(css.lastIndexOf('@media (min-width: 1024px)'));
+  assert.match(desktop, /\.finance-kpi-stack\s*\{[^}]*display: grid;[^}]*grid-auto-flow: column;[^}]*grid-auto-columns: minmax\(0, 1fr\)/);
+  assert.match(desktop, /:is\(\.finance-kpi-stack, \.dashboard-glass \.dashboard-kpi-stack\) > div \{[^}]*margin-block: 0 !important;[^}]*scale: 1 !important;[^}]*background: var\(--dashboard-panel-background\) !important;/);
+  assert.match(desktop, /:is\(\.finance-kpi-stack, \.dashboard-kpi-stack\) > div > \* \{[^}]*visibility: visible;/);
+  assert.match(desktop, /:is\(\.finance-kpi-stack, \.dashboard-glass \.dashboard-kpi-stack\) > div:first-child \{[^}]*background: var\(--glass-feature-background\)/);
+  assert.match(desktop, /\.finance-budget-summary > div,[^}]*\.finance-budget-row,[^}]*background: var\(--dashboard-inset-background\)/);
+  for (const page of ['Transactions', 'Accounts', 'Investments', 'Loans']) {
+    const source = readFileSync(new URL(`./${page}View.tsx`, import.meta.url), 'utf8');
+    assert.match(source, /finance-kpi-stack/);
+    assert.match(source, /kpi-stack space-y-\[-50px\]/, `${page} must retain its mobile deck`);
+    assert.match(source, /className="[^"]*lg:hidden"[\s]*title=\{isKpiStacked/, `${page} only stacks metrics on mobile`);
+  }
+});
+
+test('expanded finance metrics use palette-aware glass in both themes without altering collapsed decks', () => {
+  const css = readFileSync(new URL('../index.css', import.meta.url), 'utf8');
+  const expanded = /\.app-viewport main \.finance-kpi-stack:not\(\.kpi-stack\) > div,\s*\.dark \.app-viewport main \.finance-kpi-stack > div \{([^}]+)\}/.exec(css);
+  assert.ok(expanded, 'Expanded glass must not depend on dark mode');
+  for (const property of [
+    'background: var(--dashboard-panel-background) !important',
+    'border: 1px solid var(--dashboard-glass-edge) !important',
+    'box-shadow: var(--dashboard-panel-shadow) !important',
+    'backdrop-filter: blur(18px) saturate(125%) !important',
+  ]) assert.ok(expanded[1].includes(property));
+  assert.doesNotMatch(expanded[1], /visibility:|margin:|transform:|display:/, 'Deck layout and behavior must stay unchanged');
+  assert.match(css, /\.finance-kpi-stack:not\(\.kpi-stack\) > div:first-child,[^{]+\{[^}]*background: var\(--glass-feature-background\) !important/);
+});

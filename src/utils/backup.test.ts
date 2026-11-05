@@ -78,3 +78,13 @@ test('rejects malformed or incomplete backups without returning partial data', (
   assert.throws(() => parseBackupJson(JSON.stringify({ settings, ...backup, transactions: [{ id: 'bad' }] })), /transactions/);
   assert.throws(() => parseBackupJson(JSON.stringify({ ...backup, formatVersion: 2 })), /Unsupported backup format/);
 });
+
+test('palette preferences survive backups and invalid palettes are rejected', () => {
+  for (const colorPalette of ['purple', 'green', 'blue', 'burgundy', 'gold']) {
+    const withPalette = { ...backup, settings: { ...settings, colorPalette, locale: 'de-DE' } };
+    assert.deepEqual(parseBackupJson(JSON.stringify(withPalette)), withPalette);
+  }
+  assert.throws(() => parseBackupJson(JSON.stringify({
+    ...backup, settings: { ...settings, colorPalette: 'invalid' },
+  })), /settings are missing or incomplete/);
+});

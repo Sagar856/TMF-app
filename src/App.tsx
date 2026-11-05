@@ -28,6 +28,7 @@ import { useActivityState } from './hooks/useActivityState';
 import { activityHistory, attachActivityHistory, resetActivityHistory } from './utils/activityHistory';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
+import { applyUiPalette } from './utils/uiPalette';
 import { BottomNav } from './components/BottomNav';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
 import type { ConfirmDialogConfig } from './components/ConfirmationModal';
@@ -420,7 +421,7 @@ export default function App() {
   const pendingRetryRef = useRef(false);
   const [lastSettingsSyncAt, setLastSettingsSyncAt] = useState<number | null>(null);
   const [preferencesRevision, setPreferencesRevision] = useState(0);
-  const preferencesSyncInFlight = useRef(false);
+  const preferencesSyncInFlight = useRef<Promise<SyncResult> | null>(null);
 
   const acknowledgeCloudDeletion = (key: string, ids: string[], result: SyncResult): boolean => {
     if (!result.success) {
@@ -598,6 +599,10 @@ export default function App() {
     }
   }, [settings.theme]);
 
+  useEffect(() => {
+    applyUiPalette(document.documentElement, settings.colorPalette);
+  }, [settings.colorPalette]);
+
   const handleToggleTheme = () => {
     setSettings((prev) => ({
       ...prev,
@@ -646,30 +651,49 @@ export default function App() {
     }
     const snapshot = JSON.stringify(preferences);
     const generation = cloudGenerationRef.current;
-    if (lastPushedRef.current.preferences === snapshot) return;
     const pendingKey = `tmf_settings_pending_${authUser.id}`;
-    safeSetItem(pendingKey, snapshot);
-    const timer = setTimeout(async () => {
-      if (!navigator.onLine || preferencesSyncInFlight.current) return;
-      preferencesSyncInFlight.current = true;
+    if (lastPushedRef.current.preferences === snapshot && !preferencesSyncInFlight.current && !safeGetItem(pendingKey)) return;
+    if (!safeSetItem(pendingKey, snapshot)) {
+      reportSyncResult('settings', { success: false, error: 'Could not save pending settings on this device. Please retry.' });
+      return;
+    }
+    let active = true;
+    let retryCount = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const pushPreferences = async () => {
+      if (!active || generation !== cloudGenerationRef.current) return;
+      if (!navigator.onLine) {
+        reportSyncResult('settings', { success: false, error: 'Offline — settings saved on this device and will sync when you reconnect.' });
+        return;
+      }
+      if (preferencesSyncInFlight.current) {
+        timer = setTimeout(() => { void pushPreferences(); }, 600);
+        return;
+      }
+      const upload = syncSettingsToSupabase(preferences);
+      preferencesSyncInFlight.current = upload;
       try {
-        const result = await syncSettingsToSupabase(preferences);
+        const result = await upload;
         if (generation !== cloudGenerationRef.current) return;
         reportSyncResult('settings', result);
         if (result.success) {
           lastPushedRef.current.preferences = snapshot;
           if (safeGetItem(pendingKey) === snapshot) safeSetItem(pendingKey, '');
           recordSettingsSync(authUser.id);
+        } else if (active && retryCount < 3) {
+          retryCount++;
+          timer = setTimeout(() => { void pushPreferences(); }, 5000 * retryCount);
         }
       } finally {
-        preferencesSyncInFlight.current = false;
+        preferencesSyncInFlight.current = null;
         // A newer edit may have arrived while this upload was in flight.
-        if (safeGetItem(pendingKey) && safeGetItem(pendingKey) !== snapshot) {
+        if (generation === cloudGenerationRef.current && safeGetItem(pendingKey) && safeGetItem(pendingKey) !== snapshot) {
           setPreferencesRevision(value => value + 1);
         }
       }
-    }, 600);
-    return () => clearTimeout(timer);
+    };
+    timer = setTimeout(() => { void pushPreferences(); }, 600);
+    return () => { active = false; clearTimeout(timer); };
   }, [settings, cloudReady, cloudHydrated, authUser?.id, preferencesRevision]);
 
   const reportSyncResult = (collection: string, result: SyncResult) => {
@@ -780,8 +804,21 @@ export default function App() {
       console.error('Could not prepare settings for sync:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Could not prepare settings for sync.' };
     }
+    const syncManualPreferences = async (): Promise<SyncResult> => {
+      while (preferencesSyncInFlight.current) await preferencesSyncInFlight.current;
+      if (generation !== cloudGenerationRef.current) {
+        return { success: false, error: 'Account changed during sync. Sign in and retry.' };
+      }
+      const upload = syncSettingsToSupabase(preferences);
+      preferencesSyncInFlight.current = upload;
+      try {
+        return await upload;
+      } finally {
+        preferencesSyncInFlight.current = null;
+      }
+    };
     const results = await Promise.all([
-      syncSettingsToSupabase(preferences),
+      syncManualPreferences(),
       syncCategoriesToSupabase(categories),
       syncAccountsToSupabase(accounts),
       syncTransactionsToSupabase(transactions),
@@ -795,6 +832,9 @@ export default function App() {
       const pendingKey = `tmf_settings_pending_${authUser.id}`;
       if (safeGetItem(pendingKey) === JSON.stringify(preferences)) safeSetItem(pendingKey, '');
       recordSettingsSync(authUser.id);
+    }
+    if (authUser && safeGetItem(`tmf_settings_pending_${authUser.id}`)) {
+      setPreferencesRevision(value => value + 1);
     }
     if (failed) {
       setSyncStatus({ collection: 'manual sync', success: false, error: failed.error, timestamp: Date.now() });
@@ -821,7 +861,16 @@ export default function App() {
       });
     };
     window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    const handleResume = () => {
+      if (document.visibilityState === 'visible' && navigator.onLine) {
+        setPreferencesRevision(value => value + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', handleResume);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      document.removeEventListener('visibilitychange', handleResume);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudReady, cloudHydrated, settings, categories, accounts, transactions, investments, loans]);
 

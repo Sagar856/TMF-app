@@ -1,4 +1,5 @@
 import { UserSettings } from '../types/finance';
+import { isUiPalette } from './uiPalette';
 
 const STRING_KEYS = ['userName', 'userEmail', 'userPhoto', 'currencySymbol', 'currencyCode', 'locale'] as const;
 const BOOLEAN_KEYS = [
@@ -34,6 +35,10 @@ export function portableSettings(value: unknown): Partial<UserSettings> {
   if (value.theme !== undefined) {
     if (value.theme !== 'light' && value.theme !== 'dark') throw new TypeError('Invalid theme.');
     result.theme = value.theme;
+  }
+  if (value.colorPalette !== undefined) {
+    if (!isUiPalette(value.colorPalette)) throw new TypeError('Invalid UI color palette.');
+    result.colorPalette = value.colorPalette;
   }
   return result;
 }

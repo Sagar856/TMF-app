@@ -43,6 +43,9 @@ import { PasscodeSetupModal } from './PasscodeSetupModal';
 import { PermissionDisclosureModal, type PermissionDisclosure } from './PermissionDisclosureModal';
 import { BrokerPortfoliosSection } from './settings/BrokerPortfoliosSection';
 import { AccountPasswordSettings, ProfileSettings } from './settings/ProfileSettings';
+import { ColorPalettePicker } from './settings/ColorPalettePicker';
+import { getCurrencyLocale } from '../utils/money';
+import { getUiPalette } from '../utils/uiPalette';
 import {
   SettingSection,
   SettingRow,
@@ -97,6 +100,17 @@ const CURRENCIES = [
   { symbol: '£', code: 'GBP', locale: 'en-GB', name: '£ GBP' },
 ];
 
+const REGIONS = [
+  { locale: 'en-IN', name: 'India · English' },
+  { locale: 'en-US', name: 'United States · English' },
+  { locale: 'en-GB', name: 'United Kingdom · English' },
+  { locale: 'de-DE', name: 'Germany · German' },
+  { locale: 'fr-FR', name: 'France · French' },
+  { locale: 'en-CA', name: 'Canada · English' },
+  { locale: 'en-AU', name: 'Australia · English' },
+  { locale: 'ja-JP', name: 'Japan · Japanese' },
+];
+
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   categories,
@@ -129,6 +143,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('delete-account') ? 'account' : null
   );
   const [notificationDisclosureAccepted, setNotificationDisclosureAccepted] = useState(false);
+  const [colorPickerOpen, setColorPickerOpen] = useActivityState('settings.colorPickerOpen', false);
+  const colorPageHeadingRef = useRef<HTMLHeadingElement>(null);
+  const colorEntryRef = useRef<HTMLButtonElement>(null);
+  const colorPageWasOpen = useRef(false);
+  const showingColorPicker = colorPickerOpen && selectedGroup === 'appearance';
+  useEffect(() => {
+    if (showingColorPicker) {
+      colorPageHeadingRef.current?.focus();
+      colorPageHeadingRef.current?.scrollIntoView({ block: 'start' });
+    } else if (colorPageWasOpen.current && selectedGroup === 'appearance') {
+      colorEntryRef.current?.focus();
+    }
+    colorPageWasOpen.current = showingColorPicker;
+  }, [showingColorPicker, selectedGroup]);
   const [permissionDisclosure, setPermissionDisclosure] = useState<PermissionDisclosure | null>(null);
   const [permissionRequestBusy, setPermissionRequestBusy] = useState(false);
   const [locationPermissionError, setLocationPermissionError] = useState('');
@@ -153,6 +181,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }), [settingsSearch, isAuthenticated, onDeleteUserAccount, onSignOut, settings.passcodeEnabled]);
 
   const changeSearch = (value: string) => {
+    setColorPickerOpen(false);
     setSettingsSearch(value);
     setSelectedGroup(null);
     setSearchTarget(undefined);
@@ -164,6 +193,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const openSearchResult = (entry: SettingsSearchEntry) => {
+    setColorPickerOpen(false);
     setSettingsSearch('');
     if (entry.section) {
       const section = entry.section;
@@ -206,6 +236,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   useEffect(() => {
     if (!openProfileRequest) return;
+    setColorPickerOpen(false);
     setSettingsSearch('');
     setOpenAccountsRequest(0);
     setSearchTarget(undefined);
@@ -415,6 +446,23 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const theme = settings.theme || 'dark';
   const sampleLoaded = settings.sampleDataLoaded !== false;
 
+  if (showingColorPicker) {
+    return (
+      <section className="settings-glass palette-selection-page mx-auto max-w-3xl" aria-labelledby="color-page-title">
+        <div className="palette-page-header flex items-center gap-3">
+          <button type="button" onClick={() => setColorPickerOpen(false)}
+            aria-label="Back to Appearance" className="rounded-xl border border-line p-2 text-content-1">
+            <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+          <h2 id="color-page-title" ref={colorPageHeadingRef} tabIndex={-1}
+            className="text-lg font-bold text-content-1">Choose your UI experience</h2>
+        </div>
+        <ColorPalettePicker value={settings.colorPalette || 'purple'} currencySymbol={settings.currencySymbol}
+          onChange={colorPalette => update({ colorPalette })} />
+      </section>
+    );
+  }
+
   return (
     <div className="settings-glass space-y-5 pb-16 max-w-5xl mx-auto font-mono">
       {/* Page header */}
@@ -471,6 +519,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               : forceSyncResult.error || 'Sync failed.'}
           </p>
         )}
+        <p className="text-[10px] text-content-3">
+          {isAuthenticated
+            ? 'Account preferences sync automatically after changes. Device permissions and app-lock settings stay on this device.'
+            : 'Settings save automatically on this device. Sign in to sync account preferences.'}
+        </p>
 
       </div>
 
@@ -609,6 +662,20 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </SettingRow>
 
+              <button id="settings-color-palette" ref={colorEntryRef} type="button"
+                data-setting-row="" onClick={() => setColorPickerOpen(true)} aria-label="App UI color"
+                className="palette-settings-row flex w-full items-center justify-between gap-3 py-3 text-left text-content-1">
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-bold">App UI color</span>
+                  <span className="mt-0.5 block text-[10px] text-content-3">Preview and apply your color gradient.</span>
+                </span>
+                <span className="flex shrink-0 items-center gap-2 rounded-xl border border-line bg-surface-2 px-2.5 py-2 text-xs">
+                  <span className="palette-swatch h-5 w-6 rounded-md" aria-hidden="true" />
+                  <span>{getUiPalette(settings.colorPalette).name}</span>
+                  <ChevronRight className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+              </button>
+
               <SettingRow
                 label="Auto-expand dashboard sections on scroll"
                 description="Budget, upcoming bills and trend cards open as they scroll into view. Turn off to control them manually."
@@ -627,31 +694,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <SettingSection id="settings-region" title="Currency & Region" icon={Coins} iconClassName="text-amber-500">
               <SettingRow
                 label="Preferred currency"
-                description="Applied to all balances, transactions, budgets and reports."
+                description="Changes the display currency, not amounts or exchange rates."
+                htmlFor="settings-currency-select"
                 badge={<StatusPill tone="neutral">{settings.currencyCode} · {settings.currencySymbol}</StatusPill>}
                 stacked
               >
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2" role="radiogroup" aria-label="Preferred currency">
-                  {CURRENCIES.map((c) => {
-                    const active = settings.currencyCode === c.code;
-                    return (
-                      <button
-                        type="button"
-                        key={c.code}
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => update({ currencySymbol: c.symbol, currencyCode: c.code, locale: c.locale })}
-                        className={`py-2 text-xs font-mono font-bold rounded-xl transition-colors cursor-pointer ${
-                          active
-                            ? 'bg-red-600 text-white shadow-sm'
-                            : 'bg-surface-2 border border-line text-content-2 hover:text-content-1 hover:bg-surface-3'
-                        }`}
-                      >
-                        {c.name}
-                      </button>
-                    );
-                  })}
-                </div>
+                <select id="settings-currency-select" className="settings-region-select w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-xs text-content-1"
+                  value={settings.currencyCode} onChange={event => {
+                    const currency = CURRENCIES.find(currency => currency.code === event.target.value);
+                    if (!currency) throw new TypeError('Invalid currency selection.');
+                    update({ currencySymbol: currency.symbol, currencyCode: currency.code,
+                      locale: settings.locale || getCurrencyLocale(settings.currencyCode) });
+                  }}>
+                  {!CURRENCIES.some(currency => currency.code === settings.currencyCode) && (
+                    <option value={settings.currencyCode}>{settings.currencySymbol} {settings.currencyCode} (current)</option>
+                  )}
+                  {CURRENCIES.map(currency => <option key={currency.code} value={currency.code}>{currency.name}</option>)}
+                </select>
+              </SettingRow>
+              <SettingRow id="settings-region-format" label="Region & number format"
+                description="Choose digit grouping and decimal separators independently of currency."
+                htmlFor="settings-region-select" stacked>
+                <select id="settings-region-select" className="settings-region-select w-full rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-xs text-content-1"
+                  value={settings.locale || getCurrencyLocale(settings.currencyCode)}
+                  onChange={event => update({ locale: event.target.value })}>
+                  {settings.locale && !REGIONS.some(region => region.locale === settings.locale) && (
+                    <option value={settings.locale}>{settings.locale} (current)</option>
+                  )}
+                  {REGIONS.map(region => <option key={region.locale} value={region.locale}>
+                    {region.name} · {new Intl.NumberFormat(region.locale, { minimumFractionDigits: 2 }).format(1234567.89)}
+                  </option>)}
+                </select>
               </SettingRow>
             </SettingSection>
             </div>

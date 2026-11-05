@@ -9,6 +9,7 @@ test('portable settings retain preferences but never device credentials or permi
     passcodeHash: 'secret', passcodeSalt: 'secret', passcodeEnabled: true,
     biometricUnlockEnabled: true, locationTracking: true, autoExtractSms: true,
     notificationsEnabled: true, connectedDematAccounts: [{ apiKey: 'secret' }],
+    autoLockMinutes: 5, sampleDataLoaded: true,
   });
   assert.deepEqual(result, {
     userName: 'Test', currencySymbol: '$', currencyCode: 'USD', theme: 'light',
@@ -30,4 +31,13 @@ test('cloud settings reject invalid preferences and malformed rules', () => {
   assert.throws(() => portableSettings({ theme: 'invalid' }), /Invalid theme/);
   assert.throws(() => portableSettings({ defaultNetWorthMasked: 'false' }), /Invalid setting/);
   assert.throws(() => parseCloudSettings({ settings: {}, smartRules: [{}] }), /Invalid category rule/);
+});
+
+test('all UI palettes and independent region preferences survive cloud round-trips', () => {
+  for (const colorPalette of ['purple', 'green', 'blue', 'burgundy', 'gold']) {
+    const payload = { settings: { colorPalette, theme: 'light', currencyCode: 'INR', locale: 'de-DE' }, smartRules: [] };
+    assert.deepEqual(parseCloudSettings(JSON.parse(JSON.stringify(payload))), payload);
+  }
+  assert.throws(() => portableSettings({ colorPalette: 'invalid' }), /Invalid UI color palette/);
+  assert.throws(() => portableSettings({ colorPalette: null }), /Invalid UI color palette/);
 });
