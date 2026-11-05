@@ -3,3 +3,6 @@ dist
 android
 .DS_Store
 *.local
+*.jks
+*.keystore
+*.p12

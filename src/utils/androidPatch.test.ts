@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 test('Android patch installs background queue and non-exported actions idempotently', () => {
+  const baseEnv = { ...process.env, ANDROID_DISTRIBUTION: 'play', ANDROID_VERSION_CODE: undefined };
   const root = mkdtempSync(join(tmpdir(), 'tmf-android-patch-'));
   try {
     const scripts = join(root, 'scripts');
@@ -40,7 +41,7 @@ test('Android patch installs background queue and non-exported actions idempoten
           readFileSync(join(app, 'AndroidManifest.xml'), 'utf8')
             .replace('MINARTH Transaction Interceptor', 'Track Money Flow Transaction Interceptor'));
       }
-      const result = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: undefined } });
+      const result = spawnSync(process.execPath, [script], { encoding: 'utf8', env: baseEnv });
       assert.equal(result.status, 0, result.stderr);
       assert.match(readFileSync(join(app, 'AndroidManifest.xml'), 'utf8'),
         /android:label="MINARTH Transaction Interceptor"/);
@@ -55,10 +56,10 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8.13-all.zip/);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/apply from: 'minarth-release.gradle'/g)?.length, 1);
     assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 7/);
-    const explicitVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: '42' } });
+    const explicitVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...baseEnv, ANDROID_VERSION_CODE: '42' } });
     assert.equal(explicitVersion.status, 0, explicitVersion.stderr);
     assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 42/);
-    const invalidVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: '4e2' } });
+    const invalidVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...baseEnv, ANDROID_VERSION_CODE: '4e2' } });
     assert.equal(invalidVersion.status, 1);
     assert.match(invalidVersion.stderr, /Invalid ANDROID_VERSION_CODE/);
     assert.equal(manifest.match(/<service/g)?.length, 1);
@@ -125,7 +126,24 @@ test('Android patch installs background queue and non-exported actions idempoten
     ]) {
       assert.deepEqual(readFileSync(path), readFileSync(join(root, 'public', 'icons', 'icon-512.png')));
     }
-    assert.equal(readFileSync(join(java, 'MainActivity.java'), 'utf8').match(/registerPlugin\(/g)?.length, 1);
+    assert.equal(readFileSync(join(java, 'MainActivity.java'), 'utf8').match(/registerPlugin\(/g)?.length, 2);
+    assert.equal(readFileSync(join(java, 'MainActivity.java'), 'utf8').match(/registerPlugin\(AppUpdatePlugin.class\)/g)?.length, 1);
+    assert.doesNotMatch(manifest, /REQUEST_INSTALL_PACKAGES/);
+    assert.match(manifest, /name="minarth.sideloadUpdates" android:value="false"/);
+    assert.match(manifest, /android:authorities="\$\{applicationId\}\.updates" android:exported="false"/);
+    assert.match(manifest, /android:name="com.trackmoneyflow.app.AppUpdateFileProvider"/);
+    assert.deepEqual(readFileSync(join(java, 'AppUpdatePlugin.java')), readFileSync(join(root, 'native', 'app-update-plugin', 'AppUpdatePlugin.java')));
+    for (let run = 0; run < 2; run++) {
+      const sideload = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...baseEnv, ANDROID_DISTRIBUTION: 'sideload' } });
+      assert.equal(sideload.status, 0, sideload.stderr);
+      const sideloadManifest = readFileSync(join(app, 'AndroidManifest.xml'), 'utf8');
+      assert.equal(sideloadManifest.match(/android.permission.REQUEST_INSTALL_PACKAGES/g)?.length, 1);
+      assert.equal(sideloadManifest.match(/name="minarth.sideloadUpdates" android:value="true"/g)?.length, 1);
+      assert.equal(sideloadManifest.match(/android:authorities="\$\{applicationId\}\.updates"/g)?.length, 1);
+    }
+    const play = spawnSync(process.execPath, [script], { encoding: 'utf8', env: baseEnv });
+    assert.equal(play.status, 0, play.stderr);
+    assert.doesNotMatch(readFileSync(join(app, 'AndroidManifest.xml'), 'utf8'), /REQUEST_INSTALL_PACKAGES/);
     assert.deepEqual(readFileSync(join(app, 'res', 'layout', 'payment_notification.xml')),
       readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'layout', 'payment_notification.xml')));
     for (const file of ['InterceptedPaymentStore.java', 'PaymentNotificationDetails.java', 'PaymentActionReceiver.java', 'TransactionEligibility.java', 'NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {

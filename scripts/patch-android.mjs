@@ -28,6 +28,9 @@ const drawableDir = join(androidAppDir, 'src', 'main', 'res', 'drawable');
 const resDir = dirname(drawableDir);
 
 const pluginSrcDir = join(repoRoot, 'native', 'notification-intercept-plugin');
+const updateSrcDir = join(repoRoot, 'native', 'app-update-plugin');
+const distribution = process.env.ANDROID_DISTRIBUTION || 'play';
+if (!['play', 'sideload'].includes(distribution)) throw new Error('ANDROID_DISTRIBUTION must be play or sideload');
 
 function fail(msg) {
   console.error(`[patch-android] ERROR: ${msg}`);
@@ -82,6 +85,11 @@ for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListener
 }
 
 // 2. Copy notification icon drawable
+copyFileSync(join(updateSrcDir, 'AppUpdatePlugin.java'), join(javaPackageDir, 'AppUpdatePlugin.java'));
+copyFileSync(join(updateSrcDir, 'AppUpdateFileProvider.java'), join(javaPackageDir, 'AppUpdateFileProvider.java'));
+const xmlDir = join(resDir, 'xml');
+mkdirSync(xmlDir, { recursive: true });
+copyFileSync(join(updateSrcDir, 'update_paths.xml'), join(xmlDir, 'update_paths.xml'));
 mkdirSync(drawableDir, { recursive: true });
 copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_stat_tmf.xml'), join(drawableDir, 'ic_stat_tmf.xml'));
 for (const file of ['ic_minarth_notification.png', 'ic_minarth_monochrome.png']) {
@@ -186,6 +194,15 @@ for (const permission of ['ACCESS_COARSE_LOCATION', 'ACCESS_FINE_LOCATION', 'USE
 }
 manifest = manifest.replace(/android:label="Track Money Flow Transaction Interceptor"/g,
   'android:label="MINARTH Transaction Interceptor"');
+manifest = manifest.replace(/\s*<uses-permission\b[^>]*android:name="android\.permission\.REQUEST_INSTALL_PACKAGES"[^>]*\/>/g, '');
+manifest = manifest.replace(/\s*<meta-data\b[^>]*android:name="minarth\.sideloadUpdates"[^>]*\/>/g, '');
+if (distribution === 'sideload') {
+  manifest = manifest.replace(/(<manifest[^>]*>)/, '$1\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />');
+}
+manifest = manifest.replace('</application>', `    <meta-data android:name="minarth.sideloadUpdates" android:value="${distribution === 'sideload'}" />\n    </application>`);
+if (!manifest.includes('${applicationId}.updates')) {
+  manifest = manifest.replace('</application>', '    <provider android:name="com.trackmoneyflow.app.AppUpdateFileProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"><meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" /></provider>\n    </application>');
+}
 writeFileSync(manifestPath, manifest, 'utf8');
 
 // 4. Register the plugin class in MainActivity.java (idempotent)
@@ -205,6 +222,14 @@ if (!mainActivity.includes('NotificationInterceptPlugin')) {
   console.log('[patch-android] Registered NotificationInterceptPlugin in MainActivity.java');
 } else {
   console.log('[patch-android] MainActivity.java already patched, skipping');
+}
+
+mainActivity = readFileSync(mainActivityPath, 'utf8');
+if (!mainActivity.includes('registerPlugin(AppUpdatePlugin.class)')) {
+  if (!mainActivity.includes('public class MainActivity extends BridgeActivity {')) fail('Could not register AppUpdatePlugin');
+  mainActivity = mainActivity.replace('public class MainActivity extends BridgeActivity {',
+    'public class MainActivity extends BridgeActivity {\n    { registerPlugin(AppUpdatePlugin.class); }');
+  writeFileSync(mainActivityPath, mainActivity, 'utf8');
 }
 
 console.log('[patch-android] Done.');

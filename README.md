@@ -301,8 +301,9 @@ The repository is **not yet certified ready for publication**. Implemented:
 - Native password recovery accepts an email recovery code in-app rather than
   generating WebView-localhost redirect links. Configure the Reset password
   email template as described below. Web reset-link behavior remains available.
-- Native About uses Google Play update guidance, without a test-APK download
-  action. Web APK links are explicitly labeled test builds, not Play releases.
+- Native About includes Check for updates. Signed sideload installations use
+  the APK updater; Play installations remain store-managed. Web downloads use
+  the signed sideload APK, not a Play release.
 - Release preflight blocks missing backend/public URL/version configuration,
   privileged backend keys and draft policies. The signed workflow runs Android
   release lint. Re-patching Android without a version environment variable
@@ -411,7 +412,9 @@ SMTP settings cannot be deployed by changing this repository.
 
 ### Building a signed Play release
 
-The existing APK workflows remain **debug/sideload builds**, not Play releases.
+The push-to-main APK workflow produces **release-signed sideload builds**,
+not Play releases. Play builds default to `ANDROID_DISTRIBUTION=play`, omit
+`REQUEST_INSTALL_PACKAGES`, and disable the native APK updater.
 Run `.github/workflows/build-play-bundle.yml` manually with an integer
 `version_code` greater than every previously uploaded versionCode. The web
 versionName comes from `package.json`. Configure the protected GitHub environment
@@ -461,7 +464,7 @@ storage can still require signing in again. A debug-signed APK generally cannot
 be updated directly to a differently signed Play build; test migration deliberately
 and export backups before uninstalling any existing sideloaded app.
 Web deployments update the PWA separately; native bundled web assets require a
-new Play release.
+new signed APK or Play release.
 
 ## Deploying the web app
 
@@ -471,44 +474,110 @@ the build command (`npm run build`) and publish directory (`dist`). No extra
 setup needed.
 
 ### GitHub Pages
-`.github/workflows/deploy-web.yml` builds and publishes to GitHub Pages
-automatically on every push to `main`. Enable Pages once in the repo's
+`.github/workflows/build-apk.yml` builds the native APK and matching website on
+every push to `main`. After it succeeds, `.github/workflows/deploy-web.yml`
+publishes that exact build to GitHub Pages. A failed signed build does not
+replace the currently deployed site/APK. Enable Pages once in the repo's
 Settings → Pages → Source: "GitHub Actions".
 
 **Repository visibility matters for the APK download.** If this repo is
 private, GitHub Releases assets return a 404 to anyone who isn't
 authenticated with repo access — so the "Download App" button intentionally
-does **not** link to a Release. Instead, `deploy-web.yml` also builds the APK
-and copies it into `dist/downloads/TMF-app.apk`, so it's served as a plain
+does **not** link to a Release. The signed build copies the APK into
+`dist/downloads/TMF-app.apk`, so it's served as a plain
 static file from the GitHub Pages site itself (`https://<user>.github.io/TMF-app/downloads/TMF-app.apk`),
-which is publicly reachable regardless of the repo's visibility. Make sure
-GitHub Pages is enabled (see above) — that's the only requirement.
+alongside `downloads/update.json`. Confirm unauthenticated access to both URLs;
+private Pages access controls must not block mobile users. Enable Pages and
+configure the signing secrets below before the workflow can publish.
 
 ## Building the Android APK
 
-Two workflows build the APK:
-- `.github/workflows/deploy-web.yml` builds it as part of every Pages deploy
-  and serves it from the live site (see above) — this is what the in-app
-  "Download App" button uses.
-- `.github/workflows/build-apk.yml` additionally publishes it to a
-  `latest-apk` GitHub Release, useful for versioned history / manual
-  downloads by contributors with repo access.
+The `Build Android APK` workflow tests/builds the bundled native web app,
+generates and patches Capacitor Android, runs release lint, builds a signed
+APK and verifies its signature/package/version with Android build tools.
+It then builds the Pages website separately with its correct base path,
+publishes versioned GitHub releases (`apk-<versionCode>`) and uploads a matching
+site artifact. Pages publishes the APK and metadata together, so the two
+cannot come from unrelated builds. Older queued deployments cannot roll back
+the advertised update version. GitHub release creation can succeed before
+Pages deployment; mobile availability starts only after Pages succeeds.
 
-Both do the same steps:
-1. Build the web app.
-2. Run `npx cap add android` (Capacitor generates the native project fresh).
-3. Merge the custom notification-listener plugin
-   (`native/notification-intercept-plugin/`, see its README) via
-   `scripts/patch-android.mjs`.
-4. Build a debug APK with Gradle.
+### One-time signing setup (required)
 
-The shipped APK is **debug-signed**, which is fine for direct sideloading and
-testing. Before publishing to the Play Store, add a real release keystore:
+Configure repository Actions secrets under Settings > Secrets and variables >
+Actions:
 
-1. Generate one: `keytool -genkey -v -keystore release.keystore -alias tmf -keyalg RSA -keysize 2048 -validity 10000`
-2. Store `release.keystore` (base64) and its passwords as GitHub Actions secrets.
-3. Switch the workflow's `assembleDebug` step to `assembleRelease` with a
-   signing config in `android/app/build.gradle` that reads those secrets.
+- `APK_SIGNING_KEYSTORE_BASE64`: base64 of the persistent sideload signing key.
+- `APK_SIGNING_STORE_PASSWORD`: keystore password.
+- `APK_SIGNING_KEY_ALIAS`: signing alias, for example `minarth`.
+- `APK_SIGNING_KEY_PASSWORD`: private-key password.
+- Existing `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` remain required.
+
+If you have an existing compatible signing key, reuse it. Otherwise, on a
+machine with JDK 17, generate a key **outside the repository**, using interactive
+password prompts (never put passwords in command history):
+
+```powershell
+keytool -genkeypair -v -keystore "$env:USERPROFILE\minarth-sideload.jks" -alias minarth -keyalg RSA -keysize 3072 -validity 10000
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("$env:USERPROFILE\minarth-sideload.jks")) | Set-Clipboard
+```
+
+Paste the clipboard content into `APK_SIGNING_KEYSTORE_BASE64`, then clear the
+clipboard. Store an encrypted offline backup of the key and passwords.
+Never commit or rotate this key casually: every installed sideload app must
+receive updates signed by the same certificate. Missing secrets fail the
+workflow explicitly; there is no debug-key fallback. Play upload keys remain
+separate: a Play App Signing certificate is not necessarily your upload key.
+
+The workflow assigns `versionCode = ANDROID_APK_VERSION_BASE + run_number * 100
++ run_attempt` (attempts must be below 100). The default base is `100000`.
+Set repository variable `ANDROID_APK_VERSION_BASE` higher if existing installs
+already have a larger code, or before replacing/resetting the workflow's run
+number history. Never decrease it. Codes must remain at most `2100000000`.
+Display versionName comes from `package.json`; bump it for user-facing releases.
+Re-running a build increases its code; older installed or advertised builds
+are never offered as upgrades.
+
+### Receiving an update on the phone
+
+Signed sideload builds check the public metadata after startup and show
+**Update available** when its versionCode is higher. You can also use
+Settings > About > Android app > Check for updates. Automatic network failures
+are logged and do not block startup; manual checks show an error and Retry.
+
+1. Tap **Install update**. Native Android downloads the APK over HTTPS.
+2. The app checks size, SHA-256, package ID, versionCode and the installed
+   signing certificate. No arbitrary download URLs or redirects are accepted.
+3. If prompted, allow **Install unknown apps** for MINARTH in Android Settings.
+   Return to MINARTH and tap **Install update** again; the verified cached
+   download is reused.
+4. Approve the update in Android's installer. Cancelling does not install it.
+   “Installer opened” is not a claim that installation succeeded.
+5. Open MINARTH again. A compatible in-place update preserves its storage and
+   sign-in. Never uninstall as an update step.
+
+The endpoint is fixed to
+`https://sagar856.github.io/TMF-app/downloads/update.json` and its APK sibling.
+If the hosting address changes, update the TypeScript constants, native URL,
+metadata generator, workflow URLs and docs together. Updates contain no user
+data and checks do not send authentication tokens. SHA-256 detects damaged or
+mismatched downloads; the package certificate/Android installer protect the
+installed signing identity. This is not silent installation or a bypass of
+Android's permission/approval UI.
+
+**Existing debug installs need a one-time migration.** They do not contain this
+updater, and fresh-runner debug certificates may not match the new persistent
+key. Manually install the first signed build over an old app only if signatures
+match. If the original signing key is lost, Android cannot do an in-place
+migration: export a backup, verify cloud sync and plan a deliberate reinstall.
+Do not ask users to uninstall automatically. Future signed builds can then
+update normally.
+
+Before distributing to users, install two consecutive signed builds on a
+physical Android device and verify update prompts, certificate matching,
+unknown-source permission, cancellation, retry, sign-in and local-data
+preservation. This repository change does not configure GitHub secrets, deploy
+a build, or certify a physical-device installation.
 
 ## The UPI/SMS Interceptor (flagship feature)
 

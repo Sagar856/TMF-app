@@ -55,8 +55,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   { id: 'help', title: 'Help and Support', path: 'Help and Support', description: 'Payment capture, background alerts and backup guidance.', keywords: 'troubleshooting battery autostart notification permissions problem', targetId: 'settings-help', group: 'help' },
   { id: 'issues', title: 'Report an issue or request a feature', path: 'Help and Support', description: 'Find the GitHub support link.', keywords: 'bug feedback contact github support', targetId: 'settings-report-issue', group: 'help' },
   { id: 'version', title: 'Version', path: 'About', description: 'Check the installed MINARTH version.', keywords: 'build release app minarth mtracker', targetId: 'settings-version', group: 'about' },
-  { id: 'android', title: 'Android app', path: 'About', description: 'Find the Android APK download.', keywords: 'install download mobile apk phone', targetId: 'settings-android', group: 'about' },
-  { id: 'source', title: 'Open source', path: 'About', description: 'View the project on GitHub.', keywords: 'repository github code project', targetId: 'settings-source', group: 'about' },
+  { id: 'android', title: 'Android app', path: 'About', description: 'Check for updates or find the Android APK download.', keywords: 'install download mobile apk phone update upgrade latest version', targetId: 'settings-android', group: 'about' },
 ];
 
 const words = (value: string): string[] =>

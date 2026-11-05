@@ -4,6 +4,7 @@ import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord } from '../types/finance';
 import { BackupRestoreData, parseBackupJson } from '../utils/backup';
 import { searchSettings, type SettingsGroup, type SettingsSearchEntry, type CustomisationSection } from '../utils/settingsSearch';
+import { APK_DOWNLOAD_URL, requestAppUpdateCheck } from '../services/appUpdates';
 import { isNativeAndroid, isNotificationAccessGranted, requestNotificationAccess } from '../services/notificationListener';
 import { requestPushNotificationPermission } from '../services/localNotifications';
 import { requestDeviceLocationPermission } from '../services/locationService';
@@ -1045,26 +1046,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingRow
                 id="settings-android"
                 label="Android app"
-                description={isAndroid ? 'Installed Android app. Updates are delivered through Google Play for Play installations.' : 'Install the Android test APK to enable on-device UPI/SMS capture. This sideload build is not a Play Store release.'}
+                description={isAndroid ? 'Check for signed APK updates. Google Play installations use store-managed updates.' : 'Install the signed Android APK to enable on-device UPI/SMS capture.'}
               >
+                {isAndroid && <SettingButton icon={RefreshCw} onClick={requestAppUpdateCheck}>Check for updates</SettingButton>}
                 {!isAndroid && <a
-                  href="https://sagar856.github.io/TMF-app/downloads/TMF-app.apk"
+                  href={APK_DOWNLOAD_URL}
                   className="px-3.5 py-1.5 text-xs font-mono font-bold rounded-xl bg-surface-2 hover:bg-surface-3 border border-line text-content-1 flex items-center gap-2 transition-colors"
                   download
                 >
                   <Download className="w-3.5 h-3.5 text-emerald-500" />
-                  Download test APK
+                  Download APK
                 </a>}
-              </SettingRow>
-              <SettingRow id="settings-source" label="Open source" description="Issues and feature requests are welcome.">
-                <a
-                  href="https://github.com/Sagar856/TMF-app"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-xs font-bold text-content-2 hover:text-content-1 flex items-center gap-1.5"
-                >
-                  GitHub <ExternalLink className="w-3 h-3" />
-                </a>
               </SettingRow>
             </SettingSection>
             </div>

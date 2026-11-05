@@ -23,6 +23,7 @@ import { useReducedMotion } from './hooks/useReducedMotion';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AppLaunchLoader } from './components/AppLaunchLoader';
+import { AppUpdatePrompt } from './components/AppUpdatePrompt';
 import { AppWalkthrough } from './components/AppWalkthrough';
 import { useActivityState } from './hooks/useActivityState';
 import { activityHistory, attachActivityHistory, resetActivityHistory } from './utils/activityHistory';
@@ -2832,6 +2833,7 @@ export default function App() {
       {/* Main Content View Container */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-obsidian">
         {/* Header */}
+        <AppUpdatePrompt />
         <Header
           title={
             activeTab === 'dashboard'

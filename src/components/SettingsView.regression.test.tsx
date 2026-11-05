@@ -65,6 +65,8 @@ test('categories and budgets remain a separate menu below preferences', (context
     />
   );
   const markup = renderToStaticMarkup(view);
+  assert.doesNotMatch(markup, /id="settings-source"|Open source/);
+  assert.ok(!SETTINGS_SEARCH_ENTRIES.some(entry => entry.targetId === 'settings-source'));
   assert.doesNotMatch(markup, /data-settings-group="categories"/);
   assert.match(markup, /<section aria-label="Categories &amp; Budgets"/);
   assert.match(markup, /aria-label="Categories and budgets sections"/);
@@ -116,11 +118,12 @@ test('categories and budgets remain a separate menu below preferences', (context
     assert.ok(secured.includes(`id="${entry.targetId}"`), `Missing secured search target for ${entry.id}`);
   }
   assert.match(markup, /Real-time tracking/);
-  assert.match(markup, /Download test APK/);
+  assert.match(markup, /Download APK/);
   platform = 'android';
   const nativeMarkup = renderToStaticMarkup(view);
   assert.doesNotMatch(nativeMarkup, /href="[^"]*\.apk"|Download test APK/);
-  assert.match(nativeMarkup, /Updates are delivered through Google Play/);
+  assert.match(nativeMarkup, /Google Play installations use store-managed updates/);
+  assert.match(nativeMarkup, /Check for updates/);
   assert.match(nativeMarkup, /BigDataCloud or OpenStreetMap Nominatim/);
   platform = 'web';
   assert.ok(markup.indexOf('aria-label="Categories &amp; Budgets"') > markup.indexOf('aria-label="Settings sections"'));

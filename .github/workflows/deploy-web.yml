@@ -1,88 +1,59 @@
 name: Deploy Web App to GitHub Pages
 
 on:
-  push:
+  workflow_run:
+    workflows: ["Build Android APK"]
+    types: [completed]
     branches: [main]
-  workflow_dispatch: {}
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - run: npm install
-
-      - name: Build (GitHub Pages base path)
-        run: npm run build
-        env:
-          GITHUB_PAGES: 'true'
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
-
-      # Build the Android APK and serve it as a same-origin static file from
-      # the deployed site itself (dist/downloads/TMF-app.apk). This is what
-      # the "Download App" button links to. It intentionally does NOT rely on
-      # GitHub Releases: if this repository is private, unauthenticated
-      # visitors get a 404 fetching release assets even though the workflow
-      # succeeded. A GitHub Pages site, however, is publicly reachable
-      # regardless of the repo's visibility, so serving the APK from here
-      # guarantees the download always works.
-      - name: Add Android platform (Capacitor)
-        run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-
-      - name: Sync Capacitor
-        run: npx cap sync android
-
-      - name: Merge native notification-listener plugin into Android project
-        run: node scripts/patch-android.mjs
-
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-
-      - name: Build debug APK
-        working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Copy APK into the site's downloads folder
-        run: |
-          mkdir -p dist/downloads
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          cp "$APK_PATH" dist/downloads/TMF-app.apk
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-
   deploy:
-    needs: build
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Download site from the exact signed APK build
+        uses: actions/download-artifact@v4
+        with:
+          name: MINARTH-signed-site
+          path: dist
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Verify update artifact exists
+        run: test -s dist/downloads/TMF-app.apk && test -s dist/downloads/update.json
+      - name: Prevent an older queued workflow from rolling back updates
+        id: current
+        run: |
+          STATUS=$(curl --silent --show-error --connect-timeout 15 --max-time 30 -o current-update.json -w '%{http_code}' "https://sagar856.github.io/TMF-app/downloads/update.json?t=$GITHUB_RUN_ID")
+          NEW_CODE=$(jq -er '.versionCode' dist/downloads/update.json)
+          if [ "$STATUS" = "200" ]; then
+            OLD_CODE=$(jq -er '.versionCode' current-update.json)
+            if [ "$NEW_CODE" -le "$OLD_CODE" ]; then
+              echo "Skipping stale or already deployed build $NEW_CODE"
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          elif [ "$STATUS" != "404" ]; then
+            echo "Could not determine deployed version (HTTP $STATUS)"; exit 1
+          fi
+          echo "deploy=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.current.outputs.deploy == 'true'
+        with:
+          path: dist
+      - name: Deploy matching website, APK and metadata
         id: deployment
+        if: steps.current.outputs.deploy == 'true'
         uses: actions/deploy-pages@v4

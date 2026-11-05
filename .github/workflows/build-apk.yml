@@ -8,83 +8,102 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: signed-apk-release
+  cancel-in-progress: false
+
 jobs:
   build-apk:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_DISTRIBUTION: sideload
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
+      VITE_PUBLIC_APP_URL: https://sagar856.github.io/TMF-app/
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+          cache: npm
+      - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build web app
-        run: npm run build
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - name: Assign increasing Android version code
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || vars.VITE_SUPABASE_ANON_KEY }}
-
-      - name: Add Android platform (Capacitor)
+          VERSION_BASE: ${{ vars.ANDROID_APK_VERSION_BASE || '100000' }}
         run: |
-          if [ ! -d "android" ]; then
-            npx cap add android
-          fi
-
-      - name: Sync Capacitor
-        run: npx cap sync android
-
-      - name: Merge native notification-listener plugin into Android project
-        run: node scripts/patch-android.mjs
-
-      - name: Make gradlew executable
-        run: chmod +x android/gradlew
-
-      - name: Build debug APK
+          [[ "$VERSION_BASE" =~ ^[0-9]+$ ]] || { echo "Invalid ANDROID_APK_VERSION_BASE"; exit 1; }
+          test "$GITHUB_RUN_ATTEMPT" -lt 100
+          CODE=$((VERSION_BASE + GITHUB_RUN_NUMBER * 100 + GITHUB_RUN_ATTEMPT))
+          test "$CODE" -gt 0 && test "$CODE" -le 2100000000
+          echo "ANDROID_VERSION_CODE=$CODE" >> "$GITHUB_ENV"
+      - name: Restore persistent APK signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.APK_SIGNING_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.APK_SIGNING_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.APK_SIGNING_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.APK_SIGNING_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD" || {
+            echo "Configure all four APK_SIGNING secrets before publishing. No debug-key fallback is allowed."; exit 1;
+          }
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/minarth-apk.jks"
+      - run: npm ci
+      - run: npm run lint && npm test && npm run build
+      - run: npx cap add android && npx cap sync android && npm run android:patch
+      - name: Build signed release APK
         working-directory: android
-        run: ./gradlew assembleDebug --no-daemon
-
-      - name: Locate APK
-        id: apk
+        env:
+          TMF_RELEASE_STORE_FILE: ${{ runner.temp }}/minarth-apk.jks
+          TMF_RELEASE_STORE_PASSWORD: ${{ secrets.APK_SIGNING_STORE_PASSWORD }}
+          TMF_RELEASE_KEY_ALIAS: ${{ secrets.APK_SIGNING_KEY_ALIAS }}
+          TMF_RELEASE_KEY_PASSWORD: ${{ secrets.APK_SIGNING_KEY_PASSWORD }}
+        run: chmod +x gradlew && ./gradlew lintRelease assembleRelease --no-daemon
+      - name: Verify signed APK identity and version
         run: |
-          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          # Copy to a stable, predictable filename so the web app's "Download App"
-          # button can link directly to it (GitHub's /releases/latest/download/<name>
-          # URL always resolves to whatever asset has this exact name in the
-          # latest release, and triggers a direct file download instead of
-          # navigating to the release page).
-          STABLE_PATH="android/app/build/outputs/apk/debug/TMF-app.apk"
-          cp "$APK_PATH" "$STABLE_PATH"
-          echo "path=$STABLE_PATH" >> "$GITHUB_OUTPUT"
-
-      - name: Upload APK artifact
+          APK=android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$APK"
+          BADGING=$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK")
+          echo "$BADGING" | grep -F "package: name='com.trackmoneyflow.app' versionCode='$ANDROID_VERSION_CODE'"
+      - name: Build matching Pages site and publish update metadata
+        run: |
+          GITHUB_PAGES=true npm run build
+          mkdir -p dist/downloads
+          cp android/app/build/outputs/apk/release/app-release.apk dist/downloads/TMF-app.apk
+          node scripts/apk-update-metadata.mjs dist/downloads/TMF-app.apk dist/downloads/update.json
+      - name: Upload signed APK
         uses: actions/upload-artifact@v4
         with:
-          name: MINARTH-debug
-          path: ${{ steps.apk.outputs.path }}
-
-      - name: Create/refresh "latest" GitHub Release with APK
+          name: MINARTH-signed-apk
+          path: |
+            dist/downloads/TMF-app.apk
+            dist/downloads/update.json
+          if-no-files-found: error
+      - name: Upload matching site for Pages deployment
+        uses: actions/upload-artifact@v4
+        with:
+          name: MINARTH-signed-site
+          path: dist
+          if-no-files-found: error
+      - name: Publish versioned GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest-apk
-          name: MINARTH — Latest Android Build
+          tag_name: apk-${{ env.ANDROID_VERSION_CODE }}
+          target_commitish: ${{ github.sha }}
+          name: MINARTH Android build ${{ env.ANDROID_VERSION_CODE }}
           body: |
-            Automatically built from the latest `main` branch commit.
-            This is a **debug-signed** APK intended for direct sideloading /
-            testing. For production Play Store distribution, configure a
-            release signing keystore (see README) before publishing.
-
-            Direct download link (always the latest build):
-            `https://github.com/${{ github.repository }}/releases/latest/download/TMF-app.apk`
-          prerelease: true
-          files: ${{ steps.apk.outputs.path }}
+            Signed sideload update. Install over an existing installation signed with the same key; do not uninstall.
+            Android versionCode: ${{ env.ANDROID_VERSION_CODE }}
+            The Pages deployment publishes the APK and update.json used by the in-app updater.
+          files: |
+            dist/downloads/TMF-app.apk
+            dist/downloads/update.json
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/minarth-apk.jks"
