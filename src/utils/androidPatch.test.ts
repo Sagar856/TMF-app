@@ -5,6 +5,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
+test('Android workflows explicitly avoid the discontinued SDK tools package', () => {
+  for (const workflow of ['build-apk.yml', 'build-play-bundle.yml']) {
+    const source = readFileSync(new URL(`../../.github/workflows/${workflow}`, import.meta.url), 'utf8');
+    assert.match(source, /uses: android-actions\/setup-android@v3\r?\n\s+with:\r?\n\s+packages: 'platform-tools'/);
+    assert.match(source, /sdkmanager "platforms;android-36" "build-tools;36\.0\.0"/);
+  }
+});
+
 test('Android patch installs background queue and non-exported actions idempotently', () => {
   const baseEnv = { ...process.env, ANDROID_DISTRIBUTION: 'play', ANDROID_VERSION_CODE: undefined };
   const root = mkdtempSync(join(tmpdir(), 'tmf-android-patch-'));
