@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   play-bundle:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: play-release
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +30,14 @@ jobs:
         with:
           packages: 'platform-tools'
       - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0"; then exit 0; fi
+            echo "::warning::Android SDK download failed (attempt $attempt/3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit 1
+      - uses: gradle/actions/setup-gradle@v4
       - run: npm ci
       - name: Check Play release prerequisites
         run: npm run play:check
@@ -46,6 +54,16 @@ jobs:
       - run: npx cap add android && npx cap sync android && npm run android:patch
         env:
           ANDROID_VERSION_CODE: ${{ inputs.version_code }}
+      - name: Download Gradle with bounded retries
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          for attempt in 1 2 3; do
+            if ./gradlew --version --no-daemon; then exit 0; fi
+            echo "::warning::Gradle bootstrap failed (attempt $attempt/3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit 1
       - name: Decode upload key
         env:
           KEYSTORE_BASE64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_BASE64 }}
@@ -60,13 +78,15 @@ jobs:
           TMF_RELEASE_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
           TMF_RELEASE_KEY_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEY_PASSWORD }}
           ANDROID_VERSION_CODE: ${{ inputs.version_code }}
-        run: chmod +x gradlew && ./gradlew lintRelease bundleRelease --no-daemon
+        run: ./gradlew lintRelease bundleRelease --no-daemon --stacktrace --console=plain
       - name: Upload Android lint reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: MINARTH-android-lint
-          path: android/app/build/reports/lint-results-release.*
+          path: |
+            android/**/build/reports/lint-results-*
+            node_modules/@capacitor/android/capacitor/build/reports/lint-results-*
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:

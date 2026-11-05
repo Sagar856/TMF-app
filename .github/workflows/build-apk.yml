@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     env:
       ANDROID_DISTRIBUTION: sideload
       VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || vars.VITE_SUPABASE_URL }}
@@ -34,7 +35,14 @@ jobs:
         with:
           packages: 'platform-tools'
       - name: Install Android SDK
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+        run: |
+          for attempt in 1 2 3; do
+            if sdkmanager "platforms;android-36" "build-tools;36.0.0"; then exit 0; fi
+            echo "::warning::Android SDK download failed (attempt $attempt/3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit 1
+      - uses: gradle/actions/setup-gradle@v4
       - name: Assign increasing Android version code
         env:
           VERSION_BASE: ${{ vars.ANDROID_APK_VERSION_BASE || '100000' }}
@@ -59,6 +67,16 @@ jobs:
       - run: npm ci
       - run: npm run lint && npm test && npm run build
       - run: npx cap add android && npx cap sync android && npm run android:patch
+      - name: Download Gradle with bounded retries
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          for attempt in 1 2 3; do
+            if ./gradlew --version --no-daemon; then exit 0; fi
+            echo "::warning::Gradle bootstrap failed (attempt $attempt/3)"
+            if [ "$attempt" -lt 3 ]; then sleep $((attempt * 10)); fi
+          done
+          exit 1
       - name: Build signed release APK
         working-directory: android
         env:
@@ -66,7 +84,16 @@ jobs:
           TMF_RELEASE_STORE_PASSWORD: ${{ secrets.APK_SIGNING_STORE_PASSWORD }}
           TMF_RELEASE_KEY_ALIAS: ${{ secrets.APK_SIGNING_KEY_ALIAS }}
           TMF_RELEASE_KEY_PASSWORD: ${{ secrets.APK_SIGNING_KEY_PASSWORD }}
-        run: chmod +x gradlew && ./gradlew lintRelease assembleRelease --no-daemon
+        run: ./gradlew lintRelease assembleRelease --no-daemon --stacktrace --console=plain
+      - name: Upload Android lint reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: MINARTH-android-lint
+          path: |
+            android/**/build/reports/lint-results-*
+            node_modules/@capacitor/android/capacitor/build/reports/lint-results-*
+          if-no-files-found: ignore
       - name: Verify signed APK identity and version
         run: |
           APK=android/app/build/outputs/apk/release/app-release.apk

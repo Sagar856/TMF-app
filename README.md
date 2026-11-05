@@ -325,6 +325,16 @@ The repository is **not yet certified ready for publication**. Implemented:
 - Generated Android builds target/compile API 36 with AGP 8.13.2 and Gradle 8.13;
   the wrapper downloads the smaller binary-only Gradle distribution with a
   120-second network timeout instead of the default 10 seconds.
+  Capacitor Android/core/CLI are pinned together at 6.2.3, which sanitizes
+  ContentProvider filenames and passes the newer lint rule without suppressing it.
+  Android workflows use Ubuntu 24.04, cache Gradle downloads/dependencies, retry
+  SDK/Gradle bootstrap at most three times, retain lint reports even on failure,
+  and stop after 30 minutes. Compilation and lint failures are not retried or ignored.
+  `Check Android build` validates debug lint and compilation for both
+  Play and sideload distributions on pull requests, without signing secrets.
+  Make both Android checks required in the GitHub `main` branch ruleset and use
+  pull requests to prevent merging native build failures. Direct pushes to `main`
+  bypass this pre-merge protection.
   Android backup and cleartext traffic are disabled. The original package ID
   `com.trackmoneyflow.app` and Supabase auth storage remain unchanged.
 - Desktop Home has a wide two-column glass workspace; mobile remains stacked.

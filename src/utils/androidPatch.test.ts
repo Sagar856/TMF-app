@@ -5,11 +5,28 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
-test('Android workflows explicitly avoid the discontinued SDK tools package', () => {
-  for (const workflow of ['build-apk.yml', 'build-play-bundle.yml']) {
+test('Android workflows preserve lint gates and resilient download setup', () => {
+  for (const workflow of ['build-apk.yml', 'build-play-bundle.yml', 'check-android.yml']) {
     const source = readFileSync(new URL(`../../.github/workflows/${workflow}`, import.meta.url), 'utf8');
     assert.match(source, /uses: android-actions\/setup-android@v3\r?\n\s+with:\r?\n\s+packages: 'platform-tools'/);
     assert.match(source, /sdkmanager "platforms;android-36" "build-tools;36\.0\.0"/);
+    assert.match(source, /runs-on: ubuntu-24\.04/);
+    assert.match(source, /timeout-minutes: 30/);
+    assert.match(source, /uses: gradle\/actions\/setup-gradle@v4/);
+    assert.equal(source.match(/for attempt in 1 2 3; do/g)?.length, 2);
+    assert.match(source, /\.\/gradlew --version --no-daemon/);
+    assert.match(source, /\.\/gradlew (?:lintRelease (?:assembleRelease|bundleRelease)|lintDebug assembleDebug) --no-daemon --stacktrace --console=plain/);
+    assert.match(source, /node_modules\/@capacitor\/android\/capacitor\/build\/reports\/lint-results-\*/);
+    assert.doesNotMatch(source, /continue-on-error: true|abortOnError\s*=?\s*false|-x lint/);
+  }
+});
+
+test('Capacitor packages stay aligned on the filename-sanitizing patch release', () => {
+  const manifest = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
+  const lock = JSON.parse(readFileSync(new URL('../../package-lock.json', import.meta.url), 'utf8'));
+  for (const name of ['@capacitor/android', '@capacitor/core', '@capacitor/cli']) {
+    assert.equal((name === '@capacitor/cli' ? manifest.devDependencies : manifest.dependencies)[name], '6.2.3');
+    assert.equal(lock.packages[`node_modules/${name}`].version, '6.2.3');
   }
 });
 
