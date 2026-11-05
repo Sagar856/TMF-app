@@ -30,8 +30,12 @@ test('categories and budgets remain a separate menu below preferences', (context
     define: { 'import.meta.env': '{"BASE_URL":"/"}', '__APP_VERSION__': '"test"' },
   });
   const module: { exports: Partial<{ SettingsView: typeof SettingsViewComponent }> } = { exports: {} };
+  let platform = 'web';
+  const require = createRequire(import.meta.url);
   runInNewContext(bundle.outputFiles[0].text, {
-    module, exports: module.exports, require: createRequire(import.meta.url),
+    module, exports: module.exports, require: (name: string) => name === '@capacitor/core' ? {
+      ...require(name), Capacitor: { getPlatform: () => platform, isNativePlatform: () => platform !== 'web' },
+    } : require(name),
     console, localStorage: globalThis.localStorage,
     setTimeout, clearTimeout, setInterval, clearInterval,
   });
@@ -94,6 +98,13 @@ test('categories and budgets remain a separate menu below preferences', (context
     assert.ok(secured.includes(`id="${entry.targetId}"`), `Missing secured search target for ${entry.id}`);
   }
   assert.match(markup, /Real-time tracking/);
+  assert.match(markup, /Download test APK/);
+  platform = 'android';
+  const nativeMarkup = renderToStaticMarkup(view);
+  assert.doesNotMatch(nativeMarkup, /href="[^"]*\.apk"|Download test APK/);
+  assert.match(nativeMarkup, /Updates are delivered through Google Play/);
+  assert.match(nativeMarkup, /BigDataCloud or OpenStreetMap Nominatim/);
+  platform = 'web';
   assert.ok(markup.indexOf('aria-label="Categories &amp; Budgets"') > markup.indexOf('aria-label="Settings sections"'));
   for (const section of ['budgets', 'categories', 'accounts', 'rules']) {
     assert.match(markup, new RegExp(`data-section="${section}"`));

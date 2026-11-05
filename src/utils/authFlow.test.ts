@@ -16,13 +16,16 @@ const bundle = buildSync({
 function load(
   auth: Record<string, unknown>,
   rpc: (name: string, args?: Record<string, unknown>) => unknown = async () => ({ data: false, error: null }),
-  registrationAuth = auth
+  registrationAuth = auth,
+  native = false
 ) {
   const module = { exports: {} };
   const require = createRequire(import.meta.url);
   runInNewContext(bundle, {
     module, exports: module.exports,
-    require: (name: string) => name === '@supabase/supabase-js' ? {
+    require: (name: string) => name === '@capacitor/core' ? {
+      ...require(name), Capacitor: { isNativePlatform: () => native },
+    } : name === '@supabase/supabase-js' ? {
       createClient: (_url: string, _key: string, options?: { auth: { persistSession: boolean; autoRefreshToken: boolean; detectSessionInUrl: boolean } }) => {
         if (options) {
           assert.equal(options.auth.persistSession, false);
@@ -193,10 +196,50 @@ test('password reset validates strength and signs out after updating', async () 
     updateUser: async () => { calls.push('update'); return { error: null }; },
     signOut: async () => { calls.push('sign-out'); return { error: null }; },
   });
+
   await assert.rejects(api.updatePassword('weak'), /requirements/);
   assert.deepEqual(calls, []);
   await api.updatePassword('Strong-password1!');
   assert.deepEqual(calls, ['update', 'sign-out']);
+});
+
+test('native password recovery requests a code without a WebView-localhost redirect', async () => {
+  let requestOptions: unknown = 'unset';
+  const api = load({
+    resetPasswordForEmail: async (_email: string, options: unknown) => { requestOptions = options; return { error: null }; },
+    verifyOtp: async (request: { email: string; token: string; type: string }) => {
+      assert.equal(request.email, user.email);
+      assert.equal(request.type, 'recovery');
+      assert.equal(request.token, '123456');
+      return { data: { session: {}, user }, error: null };
+    },
+  }, undefined, undefined, true);
+  await api.sendPasswordResetEmail(user.email);
+  assert.equal(requestOptions, undefined);
+  await assert.rejects(api.verifyPasswordRecoveryCode(user.email, 'invalid'), /numeric recovery code/);
+  await api.verifyPasswordRecoveryCode(` ${user.email.toUpperCase()} `, '123456');
+});
+
+test('web recovery retains its whitelisted redirect and expired recovery codes surface failures', async () => {
+  const api = load({
+    resetPasswordForEmail: async (_email: string, options: { redirectTo: string }) => {
+      assert.equal(options.redirectTo, 'https://app.test/');
+      return { error: null };
+    },
+    verifyOtp: async () => ({ data: {}, error: new Error('Recovery code expired') }),
+  });
+  await api.sendPasswordResetEmail(user.email);
+  await assert.rejects(api.verifyPasswordRecoveryCode(user.email, '123456'), /Recovery code expired/);
+});
+
+test('unconfirmed recovery sessions are rejected and cleared', async () => {
+  let cleared = false;
+  const api = load({
+    verifyOtp: async () => ({ data: { session: {}, user: { ...user, email_confirmed_at: null } }, error: null }),
+    signOut: async () => { cleared = true; return { error: null }; },
+  });
+  await assert.rejects(api.verifyPasswordRecoveryCode(user.email, '123456'), /verified session/);
+  assert.equal(cleared, true);
 });
 
 test('account deletion calls only the self-service RPC and surfaces failures', async () => {

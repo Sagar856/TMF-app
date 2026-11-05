@@ -1,5 +1,12 @@
 def releaseRequested = gradle.startParameter.taskNames.any { it.toLowerCase().contains('release') }
 if (releaseRequested) {
+    def versionCode = System.getenv('ANDROID_VERSION_CODE')
+    if (!versionCode || !(versionCode ==~ /[1-9][0-9]*/) || versionCode.toBigInteger() > 2100000000) {
+        throw new GradleException('An explicit valid ANDROID_VERSION_CODE is required for a release build.')
+    }
+    if (android.defaultConfig.versionCode != versionCode.toInteger()) {
+        throw new GradleException('ANDROID_VERSION_CODE does not match the patched app. Re-run android:patch with the release version code.')
+    }
     def signingEnv = ['TMF_RELEASE_STORE_FILE', 'TMF_RELEASE_STORE_PASSWORD', 'TMF_RELEASE_KEY_ALIAS', 'TMF_RELEASE_KEY_PASSWORD']
     signingEnv.each { name ->
         if (!System.getenv(name)) throw new GradleException("Missing release signing environment variable: ${name}")

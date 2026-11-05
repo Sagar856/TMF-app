@@ -82,9 +82,11 @@ If account loading fails, the same loader shows the error, Retry and Sign out;
 private data remains gated until loading succeeds.
 After the first successful sign-in on a device, an account-specific glass
 walkthrough introduces Home, Accounts, Transactions, Investments, Loans and
-Settings. Next, Back, Skip and Get started controls are available; completing
+Settings. Next, Previous, Skip and Get started controls are available; completing
 or skipping it is remembered locally for that account. It never adds sample
-records or enables permissions automatically.
+records or enables permissions automatically. Previous stays visible but is
+disabled on the first step. The navigation footer remains visible while the
+walkthrough content scrolls on smaller screens.
 Android back and browser history restore UI activities within a page, including
 settings sections, filter selections, account details and loan histories, before
 returning to the previous page. Open dialogs close first. Saved financial records
@@ -216,7 +218,7 @@ Passcodes/hashes/salts, biometric and auto-lock settings, device permission
 switches, broker connections, and sample-data state remain device-local.
 Savings goals, receipt files, and recurring-bill overrides remain local as before.
 
-## Google Play readiness audit (2 November 2026)
+## Google Play readiness audit (4 November 2026)
 
 The repository is **not yet certified ready for publication**. Implemented:
 
@@ -225,18 +227,33 @@ The repository is **not yet certified ready for publication**. Implemented:
   Real-time balances/quotes are explicitly **Premium: Coming soon**; quote
   auto-refresh is disabled. No checkout or subscription charge exists yet.
 - Automatic portable-settings/rules sync and a successful-sync timestamp.
-- Self-service **Settings > Account > Delete account**. Apply the latest schema
+- Self-service **Settings > Account setting > Data & Backup > Danger zone > Delete account**. Apply the latest schema
   to install `delete_own_account()`. It has no user-ID parameter, derives identity
   from `auth.uid()`, is executable only by authenticated users, and cascades
   deletion through user-owned database rows.
 - Public `privacy.html` and `delete-account.html` pages, including a web-only
   sign-in/deletion route. Host these pages on the deployed site and use their
-  HTTPS URLs in Play Console. **Complete the privacy page's operator identity,
-  contact and retention information before submission.**
+  HTTPS URLs in Play Console. Operator **Sagar Nanasaheb Bodkhe, India** and contact
+  **minarth.co@gmail.com** are configured; **retention and request-process details
+  still need completion before submission**.
 - Explicit notification-data disclosure before granting access; GPS tagging and
   auto-extraction are off by default for new installs. Saved source message text
   and transaction locations can sync: do not claim that all information stays
   on-device. No SMS inbox/call-log permissions are requested.
+- Location consent and the privacy policy disclose coordinate transmission to
+  BigDataCloud/OpenStreetMap Nominatim, including before a transaction is saved.
+  Profile photos upload with private cloud preferences.
+- Native password recovery accepts an email recovery code in-app rather than
+  generating WebView-localhost redirect links. Configure the Reset password
+  email template as described below. Web reset-link behavior remains available.
+- Native About uses Google Play update guidance, without a test-APK download
+  action. Web APK links are explicitly labeled test builds, not Play releases.
+- Release preflight blocks missing backend/public URL/version configuration,
+  privileged backend keys and draft policies. The signed workflow runs Android
+  release lint. Re-patching Android without a version environment variable
+  preserves the existing versionCode; release builds require an explicit match.
+  Unused boot/binding permission requests are removed; the notification listener
+  retains its service-level binding protection.
 - Sign-out clears preferences, rules, tombstones, goals, receipt attachments,
   notification queues and financial caches. User ownership and stale-load
   guards prevent a previous account's cloud load being applied after sign-out.
@@ -257,13 +274,21 @@ The repository is **not yet certified ready for publication**. Implemented:
   if all motion is disabled, check Android/browser/OS accessibility settings.
   The startup screen now uses the same glass styling.
 
+Validation for this audit: TypeScript checks and all **167 tests** passed;
+the production build passed with a non-blocking large-chunk warning. Browser
+checks used an isolated origin and a mocked backend to verify native recovery,
+password confirmation/visibility, notification-consent gating and access refresh,
+native About links, and location-provider disclosure before permission. These
+checks do not certify live Supabase, SMTP delivery or physical Android behavior.
+
 ### Remaining launch gates (operator/device validation required)
 
 1. Apply the SQL migration to the actual Supabase project; test user A/B RLS,
    OTP delivery/expiry/resend, password recovery, offline/reconnect sync and
    account deletion using disposable accounts. No production backend migration
    or real-email round trip is performed by editing this repository.
-2. Complete operator details in the privacy policy, the Data safety form
+2. Complete retention/request details in the privacy policy and choose/deploy
+   the production public HTTPS app URL. Complete the Data safety form
    (financial information, profile/email, notification-derived message text and
    optional location), Financial features declaration, content rating, app
    access/reviewer credentials, support contact and store screenshots.
@@ -287,8 +312,9 @@ Android 16 / API 36. Recheck Play Console at submission time.
 
 ### Completing the privacy policy
 
-Edit `public/privacy.html`; the bracketed operator/contact/retention fields must
-be replaced before publishing. Do not invent retention promises:
+Edit `public/privacy.html`; the remaining bracketed retention/request fields
+and draft notices must be replaced before publishing. The operator and contact
+provided above are already filled in. Do not invent retention promises:
 
 1. **Operator:** enter the legal person or registered company responsible for
    MINARTH, country and any applicable business address. Keep the identity
@@ -310,6 +336,24 @@ be replaced before publishing. Do not invent retention promises:
 Supabase OTP reference:
 [Email OTP versus Magic Link templates](https://supabase.com/docs/guides/auth/auth-email-passwordless).
 
+### Native password recovery email
+
+In Supabase **Authentication > Email Templates > Reset password**, include
+`{{ .Token }}` so Android users can enter the recovery code in MINARTH. Retain
+`{{ .ConfirmationURL }}` as a reset link for web users; for example:
+
+```html
+<p>Your MINARTH password recovery code is: {{ .Token }}</p>
+<p>In the Android app, enter this code on Reset Password.</p>
+<p>On the web, <a href="{{ .ConfirmationURL }}">reset your password</a>.</p>
+```
+
+Configure the project Site URL to the real public app URL and whitelist the
+web deployment's exact redirect URL. Native recovery does not request a
+`https://localhost` redirect or require a custom deep link. Test actual delivery,
+expired codes, resends and password confirmation before release. Template and
+SMTP settings cannot be deployed by changing this repository.
+
 ### Building a signed Play release
 
 The existing APK workflows remain **debug/sideload builds**, not Play releases.
@@ -325,11 +369,24 @@ versionName comes from `package.json`. Configure the protected GitHub environmen
 - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (public anon/publishable key,
   **never** a service-role key)
 
-The workflow builds a signed release AAB, uploads it as an artifact and deletes
+Also set the environment **variable** `VITE_PUBLIC_APP_URL` to the deployed
+public HTTPS app root, including its subdirectory if hosted below one.
+It is release metadata used by preflight; it does not deploy the site or
+configure Supabase redirects automatically. Set `ANDROID_VERSION_CODE` locally
+and run `npm run play:check` with the backend/public URL environment variables
+before building. This checks repository prerequisites, not live URL availability,
+legal sufficiency, deployed RLS, or whether Play already has a higher version.
+The current incomplete policy intentionally fails this check.
+
+The workflow checks prerequisites, runs tests and Android `lintRelease`, builds
+a signed release AAB, uploads the bundle/lint reports as artifacts and deletes
 the runner's temporary upload key. Upload the AAB to Play's internal testing
 track first; this workflow does **not** publish to production automatically.
 Local native builds need JDK 17 and Android SDK 36. Release tasks fail explicitly
-if signing credentials are missing.
+if signing credentials are missing or `ANDROID_VERSION_CODE` is missing,
+invalid or different from the patched Android app. Use the same explicit value
+for `android:patch` and Gradle. No native build/device certification has been
+performed on this workstation.
 
 ### Updating users without losing sign-in
 

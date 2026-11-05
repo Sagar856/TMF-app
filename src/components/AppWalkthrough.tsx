@@ -40,7 +40,8 @@ export const AppWalkthrough: React.FC<{ userId: string; onNavigate: (tab: string
   return (
     <div className="fixed inset-0 z-modal flex items-center justify-center bg-backdrop/80 p-4 backdrop-blur-md">
       <section ref={ref} role="dialog" aria-modal="true" aria-labelledby="walkthrough-title" aria-describedby="walkthrough-description"
-        className="finance-dialog-glass w-full max-w-md max-h-[85dvh] overflow-y-auto rounded-3xl border p-6 text-content-1 shadow-2xl">
+        className="finance-dialog-glass flex w-full max-w-md max-h-[85dvh] flex-col overflow-hidden rounded-3xl border p-4 sm:p-6 text-content-1 shadow-2xl">
+        <div className="min-h-0 overflow-y-auto">
         <div className="flex items-center justify-between gap-3">
           <BrandMark className="w-14 h-14" />
           <button type="button" onClick={finish} className="rounded-xl border border-line bg-surface-2 px-4 py-2 text-xs text-content-2">Skip</button>
@@ -53,10 +54,14 @@ export const AppWalkthrough: React.FC<{ userId: string; onNavigate: (tab: string
           {WALKTHROUGH_STEPS.map((item, index) => <span key={item.tab} className={`h-1.5 flex-1 rounded-full ${index <= step ? 'bg-violet-400' : 'bg-surface-2'}`} />)}
         </div>
         {error && <p role="alert" className="mt-4 text-sm text-content-1">{error}</p>}
-        <div className="mt-6 flex justify-between gap-3">
-          <button type="button" disabled={step === 0} onClick={() => move(step - 1)} className="flex items-center gap-2 rounded-xl border border-line bg-surface-2 px-4 py-3 text-xs disabled:opacity-40"><ArrowLeft className="h-4 w-4" />Back</button>
+        </div>
+        <div className="mt-6 flex shrink-0 justify-between gap-3 border-t border-line pt-4">
+          <button type="button" disabled={step === 0} onClick={() => move(step - 1)}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-violet-400/50 bg-violet-500/15 px-4 py-3 text-xs font-semibold text-content-1 hover:bg-violet-500/25 disabled:cursor-not-allowed">
+            <ArrowLeft aria-hidden="true" className="h-4 w-4 shrink-0" />Previous
+          </button>
           <button type="button" onClick={() => step === WALKTHROUGH_STEPS.length - 1 ? finish() : move(step + 1)}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-600 px-5 py-3 text-xs font-bold text-white">
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-500 to-indigo-600 px-4 py-3 text-xs font-bold text-white">
             {step === WALKTHROUGH_STEPS.length - 1 ? <>Get started<Check className="h-4 w-4" /></> : <>Next<ArrowRight className="h-4 w-4" /></>}
           </button>
         </div>

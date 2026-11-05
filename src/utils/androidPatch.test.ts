@@ -27,10 +27,10 @@ test('Android patch installs background queue and non-exported actions idempoten
     writeFileSync(join(root, 'android', 'variables.gradle'), 'ext { compileSdkVersion = 34; targetSdkVersion = 34 }');
     writeFileSync(join(root, 'android', 'build.gradle'), "classpath 'com.android.tools.build:gradle:8.2.1'");
     writeFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'distributionUrl=https\\://services.gradle.org/distributions/gradle-8.2.1-all.zip');
-    writeFileSync(join(root, 'android', 'app', 'build.gradle'), 'android { defaultConfig { versionCode 1; versionName "1.0" } }');
+    writeFileSync(join(root, 'android', 'app', 'build.gradle'), 'android { defaultConfig { versionCode 7; versionName "1.0" } }');
     const script = join(scripts, 'patch-android.mjs');
     writeFileSync(script, readFileSync(new URL('../../scripts/patch-android.mjs', import.meta.url)));
-    writeFileSync(join(app, 'AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application></application></manifest>');
+    writeFileSync(join(app, 'AndroidManifest.xml'), '<manifest xmlns:android="http://schemas.android.com/apk/res/android"><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" /><uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" /><application></application></manifest>');
     writeFileSync(join(java, 'MainActivity.java'), 'package com.trackmoneyflow.app;\npublic class MainActivity extends BridgeActivity {}');
     for (let run = 0; run < 2; run++) {
       if (run === 1) {
@@ -38,18 +38,27 @@ test('Android patch installs background queue and non-exported actions idempoten
           readFileSync(join(app, 'AndroidManifest.xml'), 'utf8')
             .replace('MINARTH Transaction Interceptor', 'Track Money Flow Transaction Interceptor'));
       }
-      const result = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+      const result = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: undefined } });
       assert.equal(result.status, 0, result.stderr);
       assert.match(readFileSync(join(app, 'AndroidManifest.xml'), 'utf8'),
         /android:label="MINARTH Transaction Interceptor"/);
     }
     const manifest = readFileSync(join(app, 'AndroidManifest.xml'), 'utf8');
+    assert.doesNotMatch(manifest, /<uses-permission[^>]*BIND_NOTIFICATION_LISTENER_SERVICE|RECEIVE_BOOT_COMPLETED|ACCESS_BACKGROUND_LOCATION|READ_SMS|RECEIVE_SMS|READ_CALL_LOG/);
+    assert.match(manifest, /android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/);
     assert.match(manifest, /android:allowBackup="false"/);
     assert.match(manifest, /android:usesCleartextTraffic="false"/);
     assert.match(readFileSync(join(root, 'android', 'variables.gradle'), 'utf8'), /targetSdkVersion = 36/);
     assert.match(readFileSync(join(root, 'android', 'build.gradle'), 'utf8'), /gradle:8.13.2/);
     assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8.13-all.zip/);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/apply from: 'minarth-release.gradle'/g)?.length, 1);
+    assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 7/);
+    const explicitVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: '42' } });
+    assert.equal(explicitVersion.status, 0, explicitVersion.stderr);
+    assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 42/);
+    const invalidVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...process.env, ANDROID_VERSION_CODE: '4e2' } });
+    assert.equal(invalidVersion.status, 1);
+    assert.match(invalidVersion.stderr, /Invalid ANDROID_VERSION_CODE/);
     assert.equal(manifest.match(/<service/g)?.length, 1);
     assert.equal(manifest.match(/<receiver/g)?.length, 1);
     assert.match(manifest, /PaymentActionReceiver" android:exported="false"/);

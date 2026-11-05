@@ -1,11 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Mail, CheckCircle2 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { BrandMark } from './BrandMark';
 import { PasswordField } from './PasswordField';
 import { UserSettings } from '../types/finance';
 import { useDialog } from '../hooks/useDialog';
 import { isStrongPassword } from '../utils/passwordPolicy';
-import { createEmailRegistration, EmailAlreadyRegisteredError, getSupabaseClient, sendPasswordResetEmail, signInUser, updatePassword } from '../services/supabaseClient';
+import { createEmailRegistration, EmailAlreadyRegisteredError, getSupabaseClient, sendPasswordResetEmail, verifyPasswordRecoveryCode, signInUser, updatePassword } from '../services/supabaseClient';
 
 type AuthMode = 'login' | 'register' | 'verify_email' | 'forgot_password' | 'set_new_password';
 interface AuthModalProps {
@@ -41,6 +42,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
   const strong = isStrongPassword(password);
   const passwordsMatch = Boolean(confirmPassword && password === confirmPassword);
   const cooldown = Math.max(0, Math.ceil((resendAfter - now) / 1000));
+  const nativeRecovery = Capacitor.isNativePlatform() && mode === 'forgot_password';
 
   useEffect(() => {
     if (!resendAfter) return;
@@ -138,11 +140,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
       setError('Complete the password requirements and make both passwords match.');
       return;
     }
+    if (nativeRecovery && Date.now() < resendAfter) {
+      setError('Please wait before requesting another recovery email.');
+      return;
+    }
     setBusy(true);
     try {
       if (mode === 'forgot_password') {
         await sendPasswordResetEmail(normalizedEmail);
-        setSuccess('If this email has an account, a password reset link has been sent. Open it to continue.');
+        if (nativeRecovery) {
+          setCodeSent(true);
+          setResendAfter(Date.now() + 60_000);
+          setNow(Date.now());
+          setSuccess('If this email has an account, a recovery code has been sent. Enter it below to continue.');
+        } else {
+          setSuccess('If this email has an account, a password reset link has been sent. Open it to continue.');
+        }
       } else if (mode === 'set_new_password') {
         await updatePassword(password);
         changeMode('login');
@@ -158,6 +171,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
       }
     } catch (reason) {
       reportError(reason, 'Authentication failed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const verifyRecovery = async () => {
+    clearFeedback();
+    setBusy(true);
+    try {
+      await verifyPasswordRecoveryCode(normalizedEmail, otp.trim());
+      changeMode('set_new_password');
+    } catch (reason) {
+      reportError(reason, 'Recovery code verification failed. Request a new code.');
     } finally {
       setBusy(false);
     }
@@ -179,7 +204,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
               <h3 id="auth-heading" className="text-xs font-bold uppercase tracking-wider">{heading}</h3>
               <p className="text-[10px] text-content-2">
                 {existingEmail ? 'Continue with your existing account' : registering ? 'Verify email first, then set a password' : mode === 'login' ? 'Enter your credentials'
-                  : mode === 'set_new_password' ? 'Choose and confirm a strong password' : 'We will email you a reset link'}
+                  : mode === 'set_new_password' ? 'Choose and confirm a strong password' : nativeRecovery ? 'We will email you a recovery code' : 'We will email you a reset link'}
               </p>
             </div>
           </div>
@@ -234,14 +259,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({ initialMode = 'login', onC
               value={password} onChange={setPassword} autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
               showRequirements={registering ? password.length > 0 : mode === 'set_new_password'} />
           )}
+          {nativeRecovery && codeSent && (
+            <div className="space-y-2">
+              <label htmlFor="recovery-otp" className="block text-[10px] text-content-2 uppercase">Password recovery code</label>
+              <div className="flex gap-2">
+                <input id="recovery-otp" name="recovery-otp" value={otp} onChange={event => setOtp(event.target.value)}
+                  inputMode="numeric" autoComplete="one-time-code" maxLength={10} disabled={busy}
+                  className={`${inputClass} min-w-0 flex-1 tracking-widest`} />
+                <button type="button" disabled={busy || !/^\d{6,10}$/.test(otp)} onClick={verifyRecovery} className={actionClass}>Verify recovery code</button>
+              </div>
+            </div>
+          )}
           {(registering || mode === 'set_new_password') && (
             <PasswordField key={`${mode}-confirm`} label="Confirm password" value={confirmPassword} onChange={setConfirmPassword}
               autoComplete="new-password" matches={passwordsMatch} />
           )}
           {mode === 'login' && <button type="button" disabled={busy} onClick={() => changeMode('forgot_password')} className="text-xs text-violet-300">Forgot Password?</button>}
-          <button type="submit" disabled={busy || !configured || ((registering || mode === 'set_new_password') && (!strong || !passwordsMatch || (registering && !emailVerified)))}
+          <button type="submit" disabled={busy || !configured || (nativeRecovery && cooldown > 0) || ((registering || mode === 'set_new_password') && (!strong || !passwordsMatch || (registering && !emailVerified)))}
             className={`${actionClass} w-full py-3 uppercase`}>
-            {busy ? 'Please wait...' : registering ? 'Create account' : mode === 'login' ? 'Sign in' : mode === 'set_new_password' ? 'Update password' : 'Send reset link'}
+            {busy ? 'Please wait...' : registering ? 'Create account' : mode === 'login' ? 'Sign in' : mode === 'set_new_password' ? 'Update password' : nativeRecovery ? cooldown > 0 ? `Resend in ${cooldown}s` : 'Send recovery code' : 'Send reset link'}
           </button>
         </form>
         {mode !== 'set_new_password' && (

@@ -16,8 +16,12 @@ test('identity glass keeps all auth modes and the non-dismissible sign-in gate',
     define: { 'import.meta.env': '{}' },
   });
   const module: { exports: Partial<{ AuthModal: typeof AuthComponent }> } = { exports: {} };
+  let native = false;
+  const require = createRequire(import.meta.url);
   runInNewContext(bundle.outputFiles[0].text, {
-    module, exports: module.exports, require: createRequire(import.meta.url), console, Date,
+    module, exports: module.exports, require: (name: string) => name === '@capacitor/core' ? {
+      ...require(name), Capacitor: { isNativePlatform: () => native },
+    } : require(name), console, Date,
   });
   const { AuthModal } = module.exports;
   assert.ok(AuthModal);
@@ -53,6 +57,10 @@ test('identity glass keeps all auth modes and the non-dismissible sign-in gate',
   }
   assert.match(renderToStaticMarkup(<AuthModal onClose={() => {}} onSuccess={() => {}} />),
     /aria-label="Close sign-in"/);
+  native = true;
+  const recovery = renderToStaticMarkup(<AuthModal initialMode="forgot_password" onClose={() => {}} onSuccess={() => {}} />);
+  assert.match(recovery, /Send recovery code/);
+  assert.doesNotMatch(recovery, /Send reset link/);
 });
 
 test('profile settings expose personal details and sign out without a modal', () => {

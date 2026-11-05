@@ -10,6 +10,7 @@
     "preview": "vite preview",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "lint": "tsc --noEmit",
+    "play:check": "node scripts/check-play-release.mjs",
     "icons:generate": "node scripts/generate-icons.mjs",
     "cap:add:android": "cap add android",
     "cap:sync": "npm run build && cap sync android",

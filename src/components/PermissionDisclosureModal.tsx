@@ -14,7 +14,7 @@ interface PermissionDisclosureModalProps {
 const DISCLOSURES: Record<PermissionDisclosure, { title: string; description: string; icon: typeof MapPin; action: string }> = {
   location: {
     title: 'Allow location access?',
-    description: 'MINARTH uses your location only when you choose to add it to a transaction. Your location is saved with that transaction and is never tracked continuously.',
+    description: 'With location tagging enabled, MINARTH accesses foreground location to label transactions. Coordinates are sent to BigDataCloud or OpenStreetMap Nominatim to resolve a place name, even before you save. Saved locations sync with your private cloud records. No continuous or background location tracking is requested.',
     icon: MapPin,
     action: 'Continue to location permission',
   },

@@ -62,10 +62,12 @@ if (!/gradle-[\d.]+-(?:all|bin)\.zip/.test(wrapper)) fail('Gradle wrapper versio
 wrapper = wrapper.replace(/gradle-[\d.]+-(all|bin)\.zip/g, 'gradle-8.13-$1.zip');
 writeFileSync(wrapperPath, wrapper);
 const { version } = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-const versionCode = Number(process.env.ANDROID_VERSION_CODE || 1);
-if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2100000000) fail('Invalid ANDROID_VERSION_CODE');
 let appGradle = readFileSync(appGradlePath, 'utf8');
 if (!/versionCode\s+\d+/.test(appGradle) || !/versionName\s+"[^"]+"/.test(appGradle)) fail('Generated Android version fields missing');
+const suppliedVersionCode = process.env.ANDROID_VERSION_CODE;
+if (suppliedVersionCode !== undefined && !/^[1-9]\d*$/.test(suppliedVersionCode)) fail('Invalid ANDROID_VERSION_CODE');
+const versionCode = Number(suppliedVersionCode ?? appGradle.match(/versionCode\s+(\d+)/)[1]);
+if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 2100000000) fail('Invalid ANDROID_VERSION_CODE');
 appGradle = appGradle.replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
   .replace(/versionName\s+"[^"]+"/, `versionName "${version}"`);
 if (!appGradle.includes("apply from: 'minarth-release.gradle'")) appGradle += "\napply from: 'minarth-release.gradle'\n";
@@ -135,22 +137,19 @@ console.log('[patch-android] Installed MINARTH name, launcher icons and splash a
 // 3. Patch AndroidManifest.xml (idempotent — skips if already patched)
 if (!existsSync(manifestPath)) fail(`AndroidManifest.xml not found at ${manifestPath}`);
 let manifest = readFileSync(manifestPath, 'utf8');
+// Binding permission belongs on the service; no boot receiver is registered.
+manifest = manifest.replace(/\s*<uses-permission\b[^>]*android:name="android\.permission\.(?:BIND_NOTIFICATION_LISTENER_SERVICE|RECEIVE_BOOT_COMPLETED)"[^>]*\/>/g, '');
 manifest = manifest.replace(/\s+android:(?:allowBackup|usesCleartextTraffic)="[^"]*"/g, '');
 manifest = manifest.replace('<application', '<application android:allowBackup="false" android:usesCleartextTraffic="false"');
 
-if (!manifest.includes('BIND_NOTIFICATION_LISTENER_SERVICE')) {
-  manifest = manifest.replace(
-    /(<manifest[^>]*>)/,
-    `$1\n    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />`
-  );
-
+if (!manifest.includes('com.trackmoneyflow.app.TmfNotificationListenerService')) {
   const serviceBlock = `        <service\n            android:name="com.trackmoneyflow.app.TmfNotificationListenerService"\n            android:label="MINARTH Transaction Interceptor"\n            android:exported="true"\n            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">\n            <intent-filter>\n                <action android:name="android.service.notification.NotificationListenerService" />\n            </intent-filter>\n        </service>\n    </application>`;
 
   manifest = manifest.replace(/\s*<\/application>/, `\n${serviceBlock}`);
 
 
   writeFileSync(manifestPath, manifest, 'utf8');
-  console.log('[patch-android] Patched AndroidManifest.xml with permission + service declaration');
+  console.log('[patch-android] Patched AndroidManifest.xml with service declaration');
 } else {
   console.log('[patch-android] AndroidManifest.xml already patched, skipping');
 }

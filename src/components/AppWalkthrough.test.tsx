@@ -13,6 +13,10 @@ test('first sign-in presents an accessible walkthrough with Next and Skip', () =
     assert.match(markup, /Welcome to MINARTH/);
     assert.match(markup, />Skip<\/button>/);
     assert.match(markup, /Next/);
+    assert.match(markup, /Previous<\/button>/);
+    assert.match(markup, /disabled=""[^>]*class="[^"]*text-content-1/);
+    assert.doesNotMatch(markup, /disabled:opacity-40/);
+    assert.match(markup, /flex shrink-0 justify-between/);
     assert.match(markup, /Step 1 of 6/);
     assert.deepEqual(WALKTHROUGH_STEPS.map(step => step.tab), ['dashboard', 'accounts', 'transactions', 'investments', 'loans', 'settings']);
   } finally {

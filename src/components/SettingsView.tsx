@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { App as CapacitorApp } from '@capacitor/app';
 import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { UserSettings, Category, FinancialAccount, Transaction, InvestmentRecord } from '../types/finance';
 import { BackupRestoreData, parseBackupJson } from '../utils/backup';
@@ -218,9 +219,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   /* ---------------- Android notification access ---------------- */
   const isAndroid = isNativeAndroid();
   const [notifAccessGranted, setNotifAccessGranted] = useState<boolean>(false);
+  const [notificationAccessError, setNotificationAccessError] = useState('');
   useEffect(() => {
     if (!isAndroid) return;
-    isNotificationAccessGranted().then(setNotifAccessGranted);
+    let active = true;
+    const refresh = () => {
+      void isNotificationAccessGranted().then(granted => { if (active) setNotifAccessGranted(granted); });
+    };
+    refresh();
+    window.addEventListener('focus', refresh);
+    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => { if (isActive) refresh(); });
+    void listener.catch(error => {
+      console.warn('Could not monitor notification access:', error);
+      if (active) setNotificationAccessError('Could not refresh notification access automatically. Reopen Settings to check it.');
+    });
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refresh);
+      void listener.then(handle => handle.remove(), () => {}).catch(error => console.warn('Could not remove notification access monitor:', error));
+    };
   }, [isAndroid]);
 
   /* ---------------- Push permission ---------------- */
@@ -651,8 +668,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     icon={BellRing}
                     iconClassName="text-red-500"
                     onClick={async () => {
-                      await requestNotificationAccess();
-                      setTimeout(() => isNotificationAccessGranted().then(setNotifAccessGranted), 1000);
+                      setNotificationAccessError('');
+                      try {
+                        await requestNotificationAccess();
+                      } catch (error) {
+                        console.warn('Could not open notification access settings:', error);
+                        setNotificationAccessError('Could not open Android notification access settings. Please try again.');
+                      }
                     }}
                   >
                     {notifAccessGranted ? 'Review' : 'Grant access'}
@@ -666,6 +688,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   badge={<StatusPill tone="neutral">Android only</StatusPill>}
                 />
               )}
+              {notificationAccessError && <p role="alert" className="py-2 text-[11px] text-red-400">{notificationAccessError}</p>}
               {isAndroid && !notifAccessGranted && (
                 <label className="flex items-start gap-2 py-3 text-xs text-content-2">
                   <input type="checkbox" checked={notificationDisclosureAccepted} onChange={event => setNotificationDisclosureAccepted(event.target.checked)} />
@@ -728,7 +751,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingRow label="Mask balances by default" description="Hide net worth and totals until you tap the eye icon." htmlFor="sw-mask-balances">
                 <SettingSwitch id="sw-mask-balances" label="Mask balances by default" checked={settings.defaultNetWorthMasked !== false} onChange={v => update({ defaultNetWorthMasked: v })} />
               </SettingRow>
-              <SettingRow label="Location tagging" description="Ask before accessing device location; attach it only to transactions you choose to save. Saved locations sync with your financial records when signed in." htmlFor="sw-location">
+              <SettingRow label="Location tagging" description="Optional foreground location access. Coordinates go to BigDataCloud or OpenStreetMap Nominatim to resolve a place name, even before saving. Saved locations sync with your private financial records." htmlFor="sw-location">
                 <SettingSwitch id="sw-location" label="Location tagging" checked={settings.locationTracking} onChange={handleToggleLocation} />
               </SettingRow>
               {locationPermissionError && <p role="alert" className="py-2 text-[11px] text-red-600 dark:text-red-400">{locationPermissionError}</p>}
@@ -940,16 +963,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingRow
                 id="settings-android"
                 label="Android app"
-                description="Install the APK to enable real-time UPI/SMS capture."
+                description={isAndroid ? 'Installed Android app. Updates are delivered through Google Play for Play installations.' : 'Install the Android test APK to enable on-device UPI/SMS capture. This sideload build is not a Play Store release.'}
               >
-                <a
-                  href={`${import.meta.env.BASE_URL}downloads/TMF-app.apk`}
+                {!isAndroid && <a
+                  href="https://sagar856.github.io/TMF-app/downloads/TMF-app.apk"
                   className="px-3.5 py-1.5 text-xs font-mono font-bold rounded-xl bg-surface-2 hover:bg-surface-3 border border-line text-content-1 flex items-center gap-2 transition-colors"
                   download
                 >
                   <Download className="w-3.5 h-3.5 text-emerald-500" />
-                  Download APK
-                </a>
+                  Download test APK
+                </a>}
               </SettingRow>
               <SettingRow id="settings-source" label="Open source" description="Issues and feature requests are welcome.">
                 <a

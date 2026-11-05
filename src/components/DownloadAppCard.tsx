@@ -25,7 +25,7 @@ export const DownloadAppCard: React.FC<{ compact?: boolean }> = ({ compact }) =>
         href={LATEST_APK_DOWNLOAD_URL}
         download
         className="p-2 sm:p-2.5 bg-graphite hover:bg-surface-3 border border-nothing rounded-xl text-[#aaa] hover:text-white transition-colors flex items-center justify-center min-w-[38px] min-h-[38px]"
-        title="Download Android App (.apk)"
+        title="Download Android test app (.apk)"
       >
         <Download className="w-4 h-4 text-emerald-400" />
       </a>
@@ -46,7 +46,7 @@ export const DownloadAppCard: React.FC<{ compact?: boolean }> = ({ compact }) =>
         <Download className="w-3.5 h-3.5 text-emerald-400" />
       </div>
       <div className="text-xs text-[#aaa] font-medium group-hover:text-white transition-colors">
-        Download the Android .apk
+        Download test APK (not Play release)
       </div>
     </a>
   );

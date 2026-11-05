@@ -2,6 +2,7 @@ import { createClient, SupabaseClient, AuthChangeEvent, Session } from '@supabas
 import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord } from '../types/finance';
 import { CloudSettings, parseCloudSettings } from '../utils/cloudSettings';
 import { isStrongPassword } from '../utils/passwordPolicy';
+import { Capacitor } from '@capacitor/core';
 
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
@@ -257,17 +258,33 @@ export async function sendPasswordResetEmail(email: string): Promise<void> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Cloud backend is not configured for this build');
 
-  const redirectTo = getAuthRedirectUrl();
+  // Native recovery uses a code entered in-app, not a https://localhost link.
+  const redirectTo = Capacitor.isNativePlatform() ? undefined : getAuthRedirectUrl();
 
-  const { error } = await client.auth.resetPasswordForEmail(email, { redirectTo });
+  const { error } = await client.auth.resetPasswordForEmail(email, redirectTo ? { redirectTo } : undefined);
   if (error) {
     if (error.message?.toLowerCase().includes('requested path is invalid')) {
       throw new Error(
-        `Supabase rejected the redirect URL "${redirectTo}". Add this exact URL to your Supabase project's ` +
-        `Authentication → URL Configuration → Redirect URLs list, then try again.`
+        redirectTo
+          ? `Supabase rejected the redirect URL "${redirectTo}". Add this exact URL to your Supabase project's ` +
+            `Authentication → URL Configuration → Redirect URLs list, then try again.`
+          : 'Supabase rejected password recovery. Check the project Site URL and Reset password email template, then try again.'
       );
     }
     throw error;
+  }
+}
+
+export async function verifyPasswordRecoveryCode(email: string, token: string): Promise<void> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Cloud backend is not configured for this build');
+  if (!/^\d{6,10}$/.test(token)) throw new Error('Enter the numeric recovery code from your email.');
+  const { data, error } = await client.auth.verifyOtp({ email: email.trim().toLowerCase(), token, type: 'recovery' });
+  if (error) throw error;
+  if (!data.session || !isConfirmedEmailUser(data.user)) {
+    const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
+    if (signOutError) throw new Error(`Recovery failed; could not clear the rejected session: ${signOutError.message}`);
+    throw new Error('Password recovery did not establish a verified session.');
   }
 }
 
