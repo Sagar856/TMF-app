@@ -53,7 +53,7 @@ import { MutualFundSelector } from './MutualFundSelector';
 import { useMarketSnapshot } from '../hooks/useMarketSnapshot';
 import { MARKET_FEED_SOURCES, METAL_PURITY_OPTIONS, isIntradaySource, metalKindForType, metalRatePerGram } from '../utils/marketData';
 import { DematManagerModal } from './DematManagerModal';
-import { StockItem } from '../services/stocksDatabase';
+import type { StockItem } from '../utils/stockDirectory';
 import { newId } from '../utils/ids';
 import { todayLocalISO, currentMonthLocal, addMonthsClamped, parseLocalDate } from '../utils/dates';
 
@@ -2405,16 +2405,21 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 <div className="space-y-2.5">
                   <StockSelector
                     selectedSymbol={stockSymbol}
+                    selectedExchange={stockExchange}
                     currencySymbol={currencySymbol}
                     onSelect={(stock: StockItem) => {
                       setStockSymbol(stock.symbol);
                       setName(stock.name);
-                      setStockExchange(stock.exchange === 'NSE' || stock.exchange === 'BSE' ? stock.exchange : 'US');
+                      setStockExchange(stock.exchange);
                       // Holdings are tracked in rupees, so US listings are converted at the published USD/INR rate.
                       const usdInr = marketSnapshot?.fx.USDINR?.rate;
-                      const price = (stock.exchange === 'NASDAQ' || stock.exchange === 'NYSE') && usdInr
-                        ? roundCurrency(stock.basePrice * usdInr)
-                        : stock.basePrice;
+                      const price = stock.price === null
+                        ? null
+                        : stock.currency === 'USD'
+                          ? (usdInr ? roundCurrency(stock.price * usdInr) : null)
+                          : stock.price;
+                      // No recent close (or no FX rate): keep the user's own price entry.
+                      if (price === null) return;
                       setPurchasePrice(price.toString());
                       if (shares && parseFloat(shares) > 0) {
                         const s = parseFloat(shares);

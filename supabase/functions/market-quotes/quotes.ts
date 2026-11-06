@@ -34,7 +34,7 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 function toExchange(raw: unknown): QuoteExchange | null {
   const value = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
   if (value === 'BSE' || value === 'BOM') return 'BSE';
-  if (value === 'US' || value === 'NASDAQ' || value === 'NYSE') return 'US';
+  if (value === 'US' || value === 'NASDAQ' || value === 'NYSE' || value === 'AMEX' || value === 'US_ETF') return 'US';
   if (!value || value === 'NSE' || value === 'OTHER') return 'NSE';
   return null;
 }
@@ -44,6 +44,13 @@ export function yahooTicker(key: string, exchange: QuoteExchange): string {
   if (exchange === 'BSE') return `${key}.BO`;
   // Yahoo writes share classes with a dash (BRK-B).
   return key.replace(/\./g, '-');
+}
+
+/** Key of a quote in the response; must match `stockQuoteKey` in src/utils/marketData.ts. */
+export function quoteResponseKey(request: Pick<QuoteRequest, 'key' | 'exchange'>): string {
+  if (request.exchange === 'BSE') return `BSE:${request.key}`;
+  if (request.exchange === 'US') return `US:${request.key}`;
+  return request.key;
 }
 
 /** Validates the request body: `{ symbols: Array<string | { symbol, exchange }> }`. */

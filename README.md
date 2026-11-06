@@ -693,28 +693,44 @@ so the background **Add** action also credits the Cash account.
 Stock prices come from two layers. The daily file is always available; the
 optional Edge Function adds intraday prices on top of it.
 
-**1. Daily file (baseline, $0).** The
+**1. Daily files (baseline, $0).** The
 [`Update market data`](.github/workflows/market-data.yml) workflow runs on
-weekdays at 19:00 IST (after the NSE bhavcopy and the IBJA PM rate are out) and
-again at 08:00 IST (US closes and retries).
-[`scripts/fetch-market-data.mjs`](scripts/fetch-market-data.mjs) combines:
+weekdays at 19:00 IST (after the NSE/BSE bhavcopies and the IBJA PM rate are
+out) and again at 08:00 IST (US closes and retries).
+[`scripts/fetch-market-data.mjs`](scripts/fetch-market-data.mjs) publishes two
+files:
 
-- the official **NSE bhavcopy** for every NSE equity, so tickers you type in
-  that are not in the built-in catalog also get a daily close;
-- BSE/US closes and USD/INR from Yahoo Finance via
-  [`yfinance`](scripts/fetch_yahoo_quotes.py), which uses browser impersonation.
-  Yahoo answers plain requests from GitHub runners with HTTP 429. Any direct
-  Yahoo call made for remaining gaps stops at the first 429/403 instead of
-  retrying;
-- physical gold/silver per gram from the [IBJA](https://ibjarates.com/)
-  benchmark (gold per purity: 999/995/916/750/585). Metals stay daily only,
-  because IBJA publishes once or twice a day.
+- **`stocks.json`**, the stock directory: every listed security, about 20,000
+  in total (≈1.3 MB, ≈430 KB compressed), each with its name, ISIN and latest
+  daily close. There is no built-in stock list in the app; stock search and
+  pricing both use this file.
+  - **NSE** (about 3,000): closes from the official NSE bhavcopy. Names come
+    from NSE's equity and ETF lists. ETFs use BSE's full name for the same ISIN.
+    Listed stocks that didn't trade that day are included without a price.
+  - **BSE** (about 5,000): the official BSE bhavcopy.
+  - **NASDAQ, NYSE, NYSE American and US ETFs** (about 12,000): the Nasdaq
+    screener. It runs only after the US close (the 08:00 IST run). If the
+    screener is down and nothing was published before, the Nasdaq symbol
+    directory is published as names only.
+- **`market-data.json`**: physical gold/silver per gram from the
+  [IBJA](https://ibjarates.com/) benchmark (gold per purity:
+  999/995/916/750/585), and USD/INR from the ECB reference rate via
+  [Frankfurter](https://frankfurter.dev/). It also keeps NSE closes for older
+  app versions. Metals stay daily only, because IBJA publishes once or twice a
+  day.
 
-The compact JSON is force-pushed to the orphan **`market-data`** branch and read
-from `raw.githubusercontent.com`. When a source fails, its last known values are
-kept and the newer quote always wins over an older one. A run that fetches
-nothing leaves the file unchanged and still succeeds. Each run logs per-source
-counts.
+Both files are force-pushed to the orphan **`market-data`** branch and read from
+`raw.githubusercontent.com`. The app caches the stock directory in IndexedDB, so
+search works offline. When a source fails, its last published block is kept.
+A block that is much smaller or older than the last one is rejected, so a bad
+run never empties the stock list. A run that fetches nothing changes nothing and
+still succeeds. Each run logs per-market counts.
+
+Search matches symbol, company name or ISIN across all exchanges. Results are
+ranked: exact symbol, then symbol prefix, then name prefix, then word matches.
+Dual-listed stocks show both NSE and BSE, and each holding is priced from the
+exchange it was added on. A ticker that isn't listed can still be added as a
+custom ticker with a manual price.
 
 **2. Intraday refresh (Supabase Edge Function, optional).** For signed-in users
 the app asks [`market-quotes`](supabase/functions/market-quotes/index.ts) for
@@ -752,9 +768,10 @@ Holdings are repriced only when the new price is newer than the stored one. US
 stocks are converted to rupees at the latest USD/INR rate. Metal values are
 weight × purity rate and exclude making charges.
 
-Run **Actions → Update market data → Run workflow** once to create the branch.
-To use a different JSON URL, set `VITE_MARKET_DATA_URL` at build time; set it to
-`off` to disable the feed. GitHub pauses scheduled workflows after 60 days
+Run **Actions → Update market data → Run workflow** once to create the branch
+(and `stocks.json`; until then the stock picker has no stocks to list).
+To use different URLs, set `VITE_MARKET_DATA_URL` / `VITE_STOCK_DIRECTORY_URL`
+at build time; set either to `off` to disable it. GitHub pauses scheduled workflows after 60 days
 without repository activity; re-enable them from the Actions tab.
 
 ## Settings navigation

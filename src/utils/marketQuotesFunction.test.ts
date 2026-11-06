@@ -10,9 +10,26 @@ import {
   parseGoogleFinance,
   parseQuoteRequests,
   parseYahooChart,
+  quoteResponseKey,
   yahooTicker,
 } from '../../supabase/functions/market-quotes/quotes';
-import { SOURCE_GOOGLE_INTRADAY as APP_GOOGLE, SOURCE_YAHOO_INTRADAY as APP_YAHOO, isIntradaySource } from './marketData';
+import { SOURCE_GOOGLE_INTRADAY as APP_GOOGLE, SOURCE_YAHOO_INTRADAY as APP_YAHOO, isIntradaySource, stockQuoteKey } from './marketData';
+
+test('function response keys match the app quote keys for every exchange', () => {
+  const requests = parseQuoteRequests({
+    symbols: [
+      { symbol: 'RELIANCE', exchange: 'NSE' },
+      { symbol: 'RELIANCE', exchange: 'BSE' },
+      { symbol: 'INFY', exchange: 'US' },
+      { symbol: 'BRK.B', exchange: 'NYSE' },
+    ],
+  });
+  assert.ok(Array.isArray(requests) && requests.length === 4);
+  for (const request of requests) {
+    assert.equal(quoteResponseKey(request), stockQuoteKey(request.key, request.exchange));
+  }
+  assert.deepEqual(requests.map(quoteResponseKey), ['RELIANCE', 'BSE:RELIANCE', 'US:INFY', 'US:BRK.B']);
+});
 
 test('function source labels match the app so intraday quotes are recognised', () => {
   assert.equal(SOURCE_YAHOO_INTRADAY, APP_YAHOO);

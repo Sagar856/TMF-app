@@ -4,8 +4,9 @@
  * ETFs, and Mutual Funds with clear timestamps and reliable fallback mechanisms.
  */
 
-import { findStockBySymbol } from './stocksDatabase';
+import { getStockDirectory, subscribeStockDirectory } from './stockDirectoryService';
 import { getSupabaseClient } from './supabaseClient';
+import { findDirectoryStock, type StockDirectory } from '../utils/stockDirectory';
 import {
   getStockQuote,
   isIntradaySource,
@@ -40,7 +41,8 @@ const MF_NAV_CACHE_KEY = 'tmf_mf_navs_v1';
 const SNAPSHOT_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 const MF_NAV_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
-const INTRADAY_CACHE_KEY = 'tmf_intraday_quotes_v1';
+// v2: quotes are keyed per exchange (BSE:SYM, US:SYM); v1 entries used bare symbols for every exchange.
+const INTRADAY_CACHE_KEY = 'tmf_intraday_quotes_v2';
 const INTRADAY_BACKOFF_KEY = 'tmf_intraday_backoff_until';
 const INTRADAY_FUNCTION = 'market-quotes';
 /** Each symbol is asked for at most this often; the function also caches upstream calls for everyone. */
@@ -75,10 +77,22 @@ let dailySnapshot: MarketSnapshot | null | undefined;
 let inflightSnapshot: Promise<MarketSnapshot | null> | null = null;
 let intradayCache: IntradayCache | undefined;
 let inflightIntraday: Promise<void> | null = null;
-/** Memoized daily + intraday view so useSyncExternalStore sees a stable reference. */
-let effectiveSnapshot: { daily: MarketSnapshot | null; intraday: IntradayCache; value: MarketSnapshot | null } | null = null;
+/** Memoized daily + directory + intraday view so useSyncExternalStore sees a stable reference. */
+let effectiveSnapshot: {
+  daily: MarketSnapshot | null;
+  directory: StockDirectory | null;
+  intraday: IntradayCache;
+  value: MarketSnapshot | null;
+} | null = null;
 
 const notifySnapshotListeners = () => snapshotListeners.forEach((listener) => listener());
+subscribeStockDirectory(notifySnapshotListeners);
+
+/**
+ * Stock prices come only from the stock directory, which is keyed per exchange; the stock block of
+ * market-data.json is kept for older app versions and ignored here.
+ */
+const withoutStocks = (snapshot: MarketSnapshot): MarketSnapshot => ({ ...snapshot, stocks: {} });
 
 function marketDataUrl(): string | null {
   const metaEnv = (import.meta as { env?: Record<string, string | undefined> }).env || {};
@@ -93,7 +107,7 @@ function readCachedSnapshot(): CachedSnapshot | null {
     const parsed = JSON.parse(raw) as { fetchedAt?: unknown; snapshot?: unknown };
     const snapshot = validateMarketSnapshot(parsed.snapshot);
     if (!snapshot || typeof parsed.fetchedAt !== 'number') return null;
-    return { fetchedAt: parsed.fetchedAt, snapshot };
+    return { fetchedAt: parsed.fetchedAt, snapshot: withoutStocks(snapshot) };
   } catch {
     return null;
   }
@@ -120,12 +134,22 @@ function getDailySnapshot(): MarketSnapshot | null {
   return dailySnapshot;
 }
 
-/** Latest known market data: the daily snapshot with any newer intraday quotes laid over it. */
+/**
+ * Latest known market data: metals and FX from the daily snapshot, stock closes from the stock
+ * directory, and any newer intraday quotes laid over both.
+ */
 export function getCachedMarketSnapshot(): MarketSnapshot | null {
   const daily = getDailySnapshot();
+  const directory = getStockDirectory();
   const intraday = readIntradayCache();
-  if (!effectiveSnapshot || effectiveSnapshot.daily !== daily || effectiveSnapshot.intraday !== intraday) {
-    effectiveSnapshot = { daily, intraday, value: overlayQuotes(daily, intraday.quotes, intraday.fx) };
+  if (
+    !effectiveSnapshot
+    || effectiveSnapshot.daily !== daily
+    || effectiveSnapshot.directory !== directory
+    || effectiveSnapshot.intraday !== intraday
+  ) {
+    const base = directory ? overlayQuotes(daily, directory.quotes) : daily;
+    effectiveSnapshot = { daily, directory, intraday, value: overlayQuotes(base, intraday.quotes, intraday.fx) };
   }
   return effectiveSnapshot.value;
 }
@@ -162,8 +186,9 @@ export async function loadMarketSnapshot(options: { force?: boolean } = {}): Pro
     try {
       const res = await fetchWithTimeout(url, 8000);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const snapshot = validateMarketSnapshot(await res.json());
-      if (!snapshot) throw new Error('Invalid market snapshot');
+      const validated = validateMarketSnapshot(await res.json());
+      if (!validated) throw new Error('Invalid market snapshot');
+      const snapshot = withoutStocks(validated);
       safeSetItem(SNAPSHOT_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), snapshot }));
       dailySnapshot = snapshot;
       notifySnapshotListeners();
@@ -377,8 +402,8 @@ export async function fetchMutualFundNav(schemeCodeOrQuery: string): Promise<Mar
 
 /**
  * Price for a ticker: an intraday quote from the market-quotes Edge Function when available,
- * otherwise the daily close, otherwise the bundled catalog price.
- * Returns null if the symbol is unknown everywhere (never fabricates a price).
+ * otherwise the daily close from the stock directory.
+ * Returns null if no price is known (never fabricates a price).
  */
 export async function fetchStockPrice(symbol: string, exchange: string = 'NSE'): Promise<MarketQuote | null> {
   const normSymbol = normalizeStockSymbol(symbol);
@@ -388,12 +413,12 @@ export async function fetchStockPrice(symbol: string, exchange: string = 'NSE'):
   await refreshIntradayQuotes([{ symbol: normSymbol, exchange }]).catch(() => undefined);
 
   // 2. Latest of the intraday quote and the daily close
-  const dailyQuote = getStockQuote(getCachedMarketSnapshot(), normSymbol);
+  const dailyQuote = getStockQuote(getCachedMarketSnapshot(), normSymbol, exchange);
   if (dailyQuote) {
     const diff = Math.round((dailyQuote.price - dailyQuote.previousClose) * 100) / 100;
     return {
       symbol: normSymbol,
-      name: findStockBySymbol(normSymbol)?.name || normSymbol,
+      name: findDirectoryStock(getStockDirectory(), normSymbol, exchange)?.name || normSymbol,
       currentPrice: dailyQuote.price,
       previousClose: dailyQuote.previousClose,
       change: diff,
@@ -405,27 +430,5 @@ export async function fetchStockPrice(symbol: string, exchange: string = 'NSE'):
     };
   }
 
-  // 3. Check catalog match (exact basePrice, no wobble, status offline_cached)
-  const knownStock = findStockBySymbol(normSymbol);
-
-  if (knownStock) {
-    const prevClose = knownStock.previousClose || knownStock.basePrice;
-    const diff = Math.round((knownStock.basePrice - prevClose) * 100) / 100;
-    const diffPct = prevClose > 0 ? Math.round((diff / prevClose) * 10000) / 100 : 0;
-
-    return {
-      symbol: knownStock.symbol,
-      name: knownStock.name,
-      currentPrice: knownStock.basePrice,
-      previousClose: prevClose,
-      change: diff,
-      changePercent: diffPct,
-      lastUpdated: knownStock.asOfDate,
-      source: 'Last Known Quote',
-      status: 'offline_cached',
-    };
-  }
-
-  // 4. For any unknown symbol, return null (never fabricate 100)
   return null;
 }

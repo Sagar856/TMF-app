@@ -17,7 +17,8 @@ import {
   ArrowRight,
   Sparkles,
 } from 'lucide-react';
-import { findStockBySymbol } from '../services/stocksDatabase';
+import { getStockDirectory } from '../services/stockDirectoryService';
+import { findDirectoryStock } from '../utils/stockDirectory';
 import { roundCurrency } from '../services/financialCalculations';
 import { newId } from '../utils/ids';
 import { parseNumberInput } from '../utils/numberInput';
@@ -147,10 +148,11 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
       const ltp = ltpParse.value ?? buyPrice;
 
       if (isZerodhaFormat || isDhanFormat) {
-        // Find in stock database for clean company name
-        const match = findStockBySymbol(symbol);
+        // Indian broker holdings: take the clean company name from the NSE (else BSE) listing.
+        const found = findDirectoryStock(getStockDirectory(), symbol, 'NSE');
+        const match = found?.exchange === 'US' ? undefined : found;
         const name = match ? match.name : symbol;
-        const finalLtp = ltp > 0 ? ltp : (match?.basePrice || buyPrice);
+        const finalLtp = ltp > 0 ? ltp : (match?.price || buyPrice);
         const invested = roundCurrency(shares * buyPrice);
         const currentVal = roundCurrency(shares * finalLtp);
         const returnsPct = invested > 0 ? roundCurrency(((currentVal - invested) / invested) * 100) : 0;
@@ -160,7 +162,7 @@ export const DematManagerModal: React.FC<DematManagerModalProps> = ({
           name: name,
           type: 'Stocks',
           symbol: match?.symbol || symbol,
-          exchange: match?.exchange === 'BSE' ? 'BSE' : (match?.exchange === 'NASDAQ' || match?.exchange === 'NYSE' ? 'US' : 'NSE'),
+          exchange: match?.exchange === 'BSE' ? 'BSE' : 'NSE',
           shares: shares,
           purchasePrice: buyPrice,
           currentPrice: finalLtp,

@@ -105,6 +105,7 @@ import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount'
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
 import { useMarketSnapshot } from './hooks/useMarketSnapshot';
 import { loadMarketSnapshot, refreshIntradayQuotes, refreshMutualFundNavs } from './services/marketDataService';
+import { loadStockDirectory } from './services/stockDirectoryService';
 import { revalueInvestments, type MutualFundNavEntry } from './utils/marketData';
 import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
@@ -336,6 +337,8 @@ export default function App() {
     let cancelled = false;
     const refresh = () => {
       void loadMarketSnapshot();
+      // Full stock list and daily closes: used for stock search and to value holdings.
+      void loadStockDirectory();
       if (stockHoldingKey) {
         // Intraday prices via the Supabase function; quietly falls back to the daily snapshot.
         void refreshIntradayQuotes(

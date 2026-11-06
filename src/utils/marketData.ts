@@ -4,6 +4,9 @@ export const MARKET_DATA_SCHEMA_VERSION = 1;
 
 export const SOURCE_YAHOO_DAILY = 'Yahoo Finance (daily close)';
 export const SOURCE_NSE_BHAVCOPY = 'NSE bhavcopy (official close)';
+export const SOURCE_BSE_BHAVCOPY = 'BSE bhavcopy (official close)';
+export const SOURCE_NASDAQ_DAILY = 'Nasdaq (daily close)';
+export const SOURCE_ECB_FX = 'ECB reference rate';
 export const SOURCE_IBJA = 'IBJA benchmark rate';
 export const SOURCE_YAHOO_INTRADAY = 'Yahoo Finance (intraday)';
 export const SOURCE_GOOGLE_INTRADAY = 'Google Finance (intraday)';
@@ -12,7 +15,8 @@ const INTRADAY_SOURCES: ReadonlySet<string> = new Set([SOURCE_YAHOO_INTRADAY, SO
 
 /** Price sources that come from a market feed rather than the user's own entry. */
 export const MARKET_FEED_SOURCES: ReadonlySet<string> = new Set([
-  'NSE/BSE (Live)', 'AMFI', SOURCE_YAHOO_DAILY, SOURCE_NSE_BHAVCOPY, SOURCE_IBJA, ...INTRADAY_SOURCES,
+  'NSE/BSE (Live)', 'AMFI', SOURCE_YAHOO_DAILY, SOURCE_NSE_BHAVCOPY, SOURCE_BSE_BHAVCOPY, SOURCE_NASDAQ_DAILY,
+  SOURCE_IBJA, ...INTRADAY_SOURCES,
 ]);
 
 export function isIntradaySource(source: string | undefined): boolean {
@@ -89,6 +93,19 @@ const round2 = (value: number) => Math.round(value * 100) / 100;
 
 export function normalizeStockSymbol(symbol: string | undefined): string {
   return (symbol || '').trim().toUpperCase().replace(/\.(NS|BO)$/, '');
+}
+
+/**
+ * Key of a stock in `MarketSnapshot.stocks`. NSE keeps the bare symbol (the published file's
+ * original format); BSE and US listings are prefixed so e.g. INFY (NSE) and INFY (US ADR) never collide.
+ * Must match `quoteResponseKey` in supabase/functions/market-quotes/quotes.ts.
+ */
+export function stockQuoteKey(symbol: string | undefined, exchange?: string): string {
+  const clean = normalizeStockSymbol(symbol);
+  const ex = (exchange || '').toUpperCase();
+  if (ex === 'BSE') return `BSE:${clean}`;
+  if (ex === 'US' || ex === 'NASDAQ' || ex === 'NYSE' || ex === 'AMEX' || ex === 'US_ETF') return `US:${clean}`;
+  return clean;
 }
 
 /** Maps a catalog symbol + exchange to its Yahoo Finance ticker. */
@@ -334,9 +351,9 @@ export function metalRatePerGram(entry: MetalRateEntry | undefined, purity: numb
   return isPositiveNumber(fine) ? round2((fine * purity) / 999) : null;
 }
 
-export function getStockQuote(snapshot: MarketSnapshot | null, symbol: string | undefined): StockQuoteEntry | null {
-  if (!snapshot) return null;
-  return snapshot.stocks[normalizeStockSymbol(symbol)] || null;
+export function getStockQuote(snapshot: MarketSnapshot | null, symbol: string | undefined, exchange?: string): StockQuoteEntry | null {
+  if (!snapshot || !normalizeStockSymbol(symbol)) return null;
+  return snapshot.stocks[stockQuoteKey(symbol, exchange)] || null;
 }
 
 /** Holdings are valued in rupees; USD listings are converted at the published USD/INR rate. */
@@ -381,7 +398,7 @@ export function revalueInvestments(
     const invested = Number(inv.amountInvested) || 0;
 
     if (inv.type === 'Stocks' && isPositiveNumber(inv.shares)) {
-      const quote = getStockQuote(snapshot, inv.symbol);
+      const quote = getStockQuote(snapshot, inv.symbol, inv.exchange);
       const priceInInr = quote ? quotePriceInInr(quote, snapshot) : null;
       if (!quote || !priceInInr || !isNewer(quote.asOf, inv.priceTimestamp)) return inv;
       const currentValue = round2(inv.shares * priceInInr);

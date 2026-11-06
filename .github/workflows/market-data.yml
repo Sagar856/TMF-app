@@ -26,42 +26,37 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
-      - uses: actions/setup-python@v5
-        continue-on-error: true
-        with:
-          python-version: '3.12'
-      - name: Load the previously published snapshot
+      - name: Load the previously published files
         run: |
-          mkdir -p out
+          mkdir -p out previous
           if git fetch --depth=1 origin market-data 2>/dev/null; then
-            git show FETCH_HEAD:market-data.json > out/previous.json || rm -f out/previous.json
+            for file in market-data.json stocks.json; do
+              git show "FETCH_HEAD:$file" > "previous/$file" 2>/dev/null || rm -f "previous/$file"
+            done
           fi
-      - name: Fetch Yahoo closes with yfinance (browser impersonation; best effort)
-        continue-on-error: true
-        timeout-minutes: 5
-        run: |
-          node --import tsx scripts/fetch-market-data.mjs --print-yahoo-symbols > out/yahoo-symbols.txt
-          python -m pip install --quiet --disable-pip-version-check yfinance
-          python scripts/fetch_yahoo_quotes.py out/yahoo-symbols.txt out/yahoo.json
-      - name: Build the snapshot (NSE bhavcopy, Yahoo, IBJA gold/silver)
-        run: node --import tsx scripts/fetch-market-data.mjs --out out/market-data.json --previous out/previous.json --yahoo-quotes out/yahoo.json
+      - name: Build market data (NSE/BSE bhavcopy, Nasdaq, ECB FX, IBJA gold/silver)
+        run: node --import tsx scripts/fetch-market-data.mjs --out-dir out --previous-dir previous
       - name: Publish to the market-data branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ ! -f out/market-data.json ]; then
+          # Files this run could not build keep their last published version.
+          mkdir publish
+          for file in market-data.json stocks.json; do
+            if [ -f "out/$file" ]; then cp "out/$file" publish/; elif [ -f "previous/$file" ]; then cp "previous/$file" publish/; fi
+          done
+          if [ -z "$(ls -A publish)" ]; then
             echo "Nothing fetched; nothing to publish."
             exit 0
           fi
-          if [ -f out/previous.json ] && cmp -s out/market-data.json out/previous.json; then
-            echo "Snapshot unchanged; nothing to publish."
+          if diff -rq publish previous >/dev/null 2>&1; then
+            echo "Market data unchanged; nothing to publish."
             exit 0
           fi
-          # A single force-pushed orphan commit keeps the data branch tiny; it never touches main.
-          mkdir publish && cp out/market-data.json publish/
+          # A single force-pushed orphan commit keeps the data branch small; it never touches main.
           cd publish
           git init -q -b market-data
-          git add market-data.json
+          git add .
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -q -m "Market data $(date -u +%Y-%m-%dT%H:%MZ)"
           for attempt in 1 2 3; do

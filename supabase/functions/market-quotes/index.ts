@@ -11,6 +11,7 @@ import {
   parseGoogleFinance,
   parseQuoteRequests,
   parseYahooChart,
+  quoteResponseKey,
 } from './quotes.ts';
 
 /** Shared cache: every user asking for the same ticker within this window reuses one upstream call. */
@@ -203,7 +204,7 @@ Deno.serve(async (req) => {
     }
     const quote = toQuote(row);
     if (request.ticker === USD_INR_TICKER) fx.USDINR = { rate: quote.price, asOf: quote.asOf, source: quote.source };
-    else quotes[request.key] = quote;
+    else quotes[quoteResponseKey(request)] = quote;
   }
 
   return json({
