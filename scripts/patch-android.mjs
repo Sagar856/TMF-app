@@ -82,6 +82,9 @@ if (!appGradle.includes("apply from: 'minarth-release.gradle'")) appGradle += "\
 if (!appGradle.includes('androidx.work:work-runtime:2.9.1')) {
   appGradle += "\ndependencies { implementation 'androidx.work:work-runtime:2.9.1' }\n";
 }
+if (!appGradle.includes('androidx.concurrent:concurrent-futures:1.1.0')) {
+  appGradle += "\ndependencies { implementation 'androidx.concurrent:concurrent-futures:1.1.0' }\n";
+}
 writeFileSync(appGradlePath, appGradle);
 copyFileSync(join(repoRoot, 'scripts', 'android-release.gradle'), join(androidAppDir, 'minarth-release.gradle'));
 

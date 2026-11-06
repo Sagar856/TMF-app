@@ -146,6 +146,7 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8\.13-bin\.zip/);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/apply from: 'minarth-release.gradle'/g)?.length, 1);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/androidx\.work:work-runtime:2\.9\.1/g)?.length, 1);
+    assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/implementation 'androidx\.concurrent:concurrent-futures:1\.1\.0'/g)?.length, 1);
     assert.equal(readFileSync(join(java, 'AppUpdateWorker.java'), 'utf8'),
       readFileSync(new URL('../../native/app-update-plugin/AppUpdateWorker.java', import.meta.url), 'utf8'));
     assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 7/);

@@ -90,8 +90,10 @@ This does not read the SMS inbox, recover missing notifications, authenticate
 bank senders, or support background interception on web/iOS.
 
 Rebuild/install the APK after changes: `npm run cap:sync`, then
-`node scripts/patch-android.mjs`, then build with Gradle. Device verification:
-send real bank/UPI alerts with the app open, backgrounded, screen off and after
+`node scripts/patch-android.mjs`, then build with Gradle.
+The patch declares both WorkManager and AndroidX concurrent-futures, whose
+`CallbackToFutureAdapter` completes the asynchronous background save worker.
+Device verification: send real bank/UPI alerts with the app open, backgrounded, screen off and after
 swiping its Activity away; confirm a single pending capture and three system
 actions. Test inline Description while the app is closed, Description then Add,
 Ignore without opening, Edit then cancel/save, Add with the Activity absent,
