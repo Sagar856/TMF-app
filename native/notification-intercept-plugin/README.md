@@ -29,7 +29,28 @@ the Activity/WebView. `InterceptedPaymentStore` posts Android notifications
 with a lavender structured expanded card and Add, Description and Ignore actions.
 Description uses Android RemoteInput and persists a trimmed, 200-character
 description without adding the payment or changing the raw bank notification.
-Add opens the app and adds after authentication/unlock; Edit (inside the card) opens
+Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
+without launching an Activity or bypassing the app's PIN/biometric screen.
+A separate application-context WebView loads only the bundled background entry
+and reuses the production TypeScript payment parser and transaction mapper.
+The existing verified Supabase session must still belong to the capture's owner.
+The `add_notification_payment` RPC inserts the transaction and updates its
+account balance atomically; transaction IDs make retries idempotent, including
+after a process dies between the cloud commit and native receipt persistence.
+The resulting transaction/account receipt is committed to private native storage
+and reconciled with the app on its next resume. It is not an Add confirmation
+deferred until the user opens the app.
+
+**Deployment requirement:** run `supabase_background_payments.sql` after the
+latest `supabase_schema.sql`, then build/install the updated APK. Missing schema,
+offline service or expired sign-in leaves the notification visibly retryable;
+it is never dismissed as a successful save. WorkManager retries automatically,
+and Add can restart a failed attempt. Android scheduling, connectivity and OEM
+restrictions can delay completion; force-stop prevents workers until Android
+allows the app to run again.
+
+Description and Ignore remain broadcasts and never launch the app.
+Edit (inside the card) opens
 the prefilled editor after unlock and retains the capture until Save; Ignore
 is persisted by a non-exported receiver without opening the app. The bridge
 replays captures on startup/resume and forwards live events. JavaScript
@@ -62,7 +83,7 @@ Android background restrictions can leave payments without a location.
 
 Native configuration follows the interceptor and push-notification switches.
 Notification Access and Android 13+ display permission must both be granted.
-Normal backgrounding does not require JavaScript timers or a foreground service.
+Normal backgrounding does not require a foreground service or the app Activity.
 Force-stop, revoked access, hidden SMS notification text, notification-disabled
 source apps, and manufacturer battery/autostart restrictions can prevent delivery.
 This does not read the SMS inbox, recover missing notifications, authenticate
@@ -73,7 +94,9 @@ Rebuild/install the APK after changes: `npm run cap:sync`, then
 send real bank/UPI alerts with the app open, backgrounded, screen off and after
 swiping its Activity away; confirm a single pending capture and three system
 actions. Test inline Description while the app is closed, Description then Add,
-Ignore without opening, Edit then cancel/save, Add after unlock,
+Ignore without opening, Edit then cancel/save, Add with the Activity absent,
+duplicate Add taps, offline failures/reconnection, expired sign-in, account
+switches and app-resume reconciliation without duplicate balance changes,
 permission denial, and rejected promotional/OTP/request/failed messages.
 
 ## Files

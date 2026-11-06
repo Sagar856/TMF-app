@@ -7,6 +7,7 @@ import {
   TrendingUp, 
   HandCoins, 
   Settings,
+  ShieldCheck,
   LucideIcon
 } from 'lucide-react';
 
@@ -23,6 +24,7 @@ interface BottomNavProps {
   setActiveTab: (tab: string) => void;
   pendingNotificationsCount?: number;
   pendingEmiCount?: number;
+  isAdmin?: boolean;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
@@ -30,6 +32,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   setActiveTab,
   pendingNotificationsCount = 0,
   pendingEmiCount = 0,
+  isAdmin = false,
 }) => {
   const navItems: NavItemConfig[] = [
     { id: 'dashboard', label: 'Home', shortLabel: 'Home', icon: LayoutDashboard },
@@ -50,6 +53,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       icon: Settings,
       badgeCount: pendingNotificationsCount > 0 ? pendingNotificationsCount : undefined 
     },
+    ...(isAdmin ? [{ id: 'admin', label: 'Admin', shortLabel: 'Admin', icon: ShieldCheck }] : []),
   ];
 
   return (

@@ -15,6 +15,13 @@ public class PaymentActionReceiver extends BroadcastReceiver {
         String id = intent.getStringExtra("tmfPaymentId");
         if (id == null) return;
         try {
+            if (("tmf.add." + id).equals(intent.getAction())) {
+                org.json.JSONObject payment = InterceptedPaymentStore.find(context, id);
+                boolean retryNow = payment != null && payment.has("saveError");
+                InterceptedPaymentStore.action(context, id, "saving");
+                PaymentSaveWorker.enqueue(context, id, retryNow);
+                return;
+            }
             if (("tmf.description." + id).equals(intent.getAction())) {
                 Bundle reply = RemoteInput.getResultsFromIntent(intent);
                 CharSequence description = reply == null ? null : reply.getCharSequence("tmfDescription");
@@ -26,6 +33,13 @@ public class PaymentActionReceiver extends BroadcastReceiver {
             ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             Log.e("TMFInterceptor", "Could not persist payment notification action", error);
+            if (("tmf.add." + id).equals(intent.getAction())) {
+                try {
+                    InterceptedPaymentStore.saveFailed(context, id, "Could not schedule saving. Tap Add to retry");
+                } catch (org.json.JSONException | IllegalStateException | SecurityException displayError) {
+                    Log.e("TMFInterceptor", "Could not display scheduling failure", displayError);
+                }
+            }
         }
     }
 }

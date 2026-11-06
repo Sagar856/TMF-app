@@ -97,15 +97,18 @@ import {
   fetchCloudTombstones,
   SyncResult,
 } from './services/supabaseClient';
+import { checkIsAdmin, recordActivity } from './services/adminService';
 
-import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, clearInterceptedPayments, type InterceptedPayment } from './services/notificationListener';
+import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, type InterceptedPayment } from './services/notificationListener';
+import { adjustPaymentAccountBalance, createPaymentTransaction } from './utils/paymentTransaction';
+import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
 import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM, toLocalISODate } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
 import { inferTransactionKind, normalizeTransactions } from './utils/transactionKind';
 import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
-import { BackupRestoreData } from './utils/backup';
+import { BackupRestoreData, isFinancialAccount, isTransaction } from './utils/backup';
 import { parseCloudSettings, portableSettings } from './utils/cloudSettings';
 import { isSavingsGoalArray } from './utils/savingsGoals';
 import { formatMoney, getCurrencyLocale } from './utils/money';
@@ -134,6 +137,7 @@ const LoansView = lazy(() => import('./components/LoansView').then((module) => (
 const AccountsView = lazy(() => import('./components/AccountsView').then((module) => ({ default: module.AccountsView })));
 const CustomisationsView = lazy(() => import('./components/CustomisationsView').then((module) => ({ default: module.CustomisationsView })));
 const SettingsView = lazy(() => import('./components/SettingsView').then((module) => ({ default: module.SettingsView })));
+const AdminView = lazy(() => import('./components/AdminView').then((module) => ({ default: module.AdminView })));
 const NotificationPromptModal = lazy(() => import('./components/NotificationPromptModal').then((module) => ({ default: module.NotificationPromptModal })));
 const SmsSimulatorWidget = lazy(() => import('./components/SmsSimulatorWidget').then((module) => ({ default: module.SmsSimulatorWidget })));
 const EditTransactionModal = lazy(() => import('./components/EditTransactionModal').then((module) => ({ default: module.EditTransactionModal })));
@@ -335,6 +339,21 @@ export default function App() {
   const [isPasswordRecovery, setIsPasswordRecovery] = useState<boolean>(false);
   const passwordRecoveryRef = useRef(false);
   const isAuthenticated = Boolean(authUser);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const authUserId = authUser?.id ?? null;
+  // Admin UI visibility only; every admin RPC re-checks authorization server-side.
+  useEffect(() => {
+    setIsAdmin(false);
+    if (!authUserId) return;
+    let active = true;
+    void checkIsAdmin().then((admin) => { if (active) setIsAdmin(admin); }).catch(() => undefined);
+    const beat = (newSession: boolean) => {
+      void recordActivity(Capacitor.getPlatform(), __APP_VERSION__, newSession).catch(() => undefined);
+    };
+    beat(true);
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') beat(false); }, 5 * 60 * 1000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [authUserId]);
   const historyUserRef = useRef<string | null>(null);
   useEffect(() => {
     const userId = authUser?.id || null;
@@ -881,6 +900,16 @@ export default function App() {
   // Shared cloud data loader. Guarded by a ref so the initial-mount fetch and
   // the post-auth fetch can never run concurrently and race/overwrite each other.
   const loadCloudData = async () => {
+    const generation = cloudGenerationRef.current;
+    const load = async () => {
+      if (generation !== cloudGenerationRef.current) return;
+      await loadCloudDataWithLock();
+    };
+    if (navigator.locks) return navigator.locks.request('minarth-account-cloud-write', load);
+    return load();
+  };
+
+  const loadCloudDataWithLock = async () => {
     if (cloudLoadInFlightRef.current) return;
     cloudLoadInFlightRef.current = true;
     const generation = cloudGenerationRef.current;
@@ -1217,17 +1246,62 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking))
+    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '')
       .catch(error => {
         console.warn('Could not configure background payment tracking:', error);
         showToast('Could not configure background payment tracking. Please retry.', 'error');
       });
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, isAuthenticated]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, authUser?.id, isAuthenticated]);
 
   useEffect(() => {
     if (isCloudBackendConfigured() && !isAuthenticated) return;
     const stopListening = startNotificationListener(async (payment, isActive) => {
       const id = `native_${payment.id}`;
+      const generation = cloudGenerationRef.current;
+      if (payment.owner && payment.owner !== authUser?.id) return;
+      if (payment.action === 'saved') {
+        if (!navigator.locks) throw new Error('Update Android System WebView to restore background payment saves');
+        return navigator.locks.request('minarth-account-cloud-write', async () => {
+          const receipts = (await getSavedPayments()).filter(receipt => receipt.owner === authUser?.id);
+          if (!isActive() || generation !== cloudGenerationRef.current || safeGetItem('tmf_cache_owner') !== authUser?.id) return;
+          const latestTransactions = safeGetJson<Transaction[] | null>('tmf_transactions', null,
+            (value): value is Transaction[] => Array.isArray(value) && value.every(isTransaction));
+          const latestAccounts = safeGetJson<FinancialAccount[] | null>('tmf_accounts', null,
+            (value): value is FinancialAccount[] => Array.isArray(value) && value.every(isFinancialAccount));
+          if (!latestTransactions || !latestAccounts) throw new Error('Could not read financial data to restore saved payments');
+          const projection = reconcileSavedPayments(receipts, latestTransactions, latestAccounts);
+          if (!persistPaymentTransaction(projection.transactions, projection.accounts, latestAccounts)) {
+            throw new Error('Could not restore background transactions to the device');
+          }
+          setAccounts(projection.accounts);
+          setTransactions(projection.transactions);
+          const uncategorizedTypes = new Set(projection.transactions
+            .filter(transaction => transaction.category === 'Uncategorized')
+            .map(transaction => transaction.type === 'credit' ? 'income' as const : 'expense' as const));
+          if (uncategorizedTypes.size > 0) {
+            setCategories(previous => {
+              const missing = [...uncategorizedTypes].filter(type => !previous.some(category =>
+                category.name.toLowerCase() === 'uncategorized' && category.type === type));
+              return missing.length === 0 ? previous : [...previous, ...missing.map(type => ({
+                id: `cat_uncategorized_${type}`, name: 'Uncategorized', type,
+                iconName: 'Tag', subcategories: ['General'],
+              }))];
+            });
+          }
+          const ids = new Set([id, ...receipts.map(receipt => `native_${receipt.id}`)]);
+          const remaining = interceptorState.current.pendingNotifications.filter(notification => !ids.has(notification.id));
+          if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) {
+            throw new Error('Could not dismiss saved payment reviews');
+          }
+          interceptorState.current.pendingNotifications = remaining;
+          setPendingNotifications(remaining);
+          setPaymentActions(previous => previous.filter(action => !ids.has(`native_${action.id}`)));
+          for (const receipt of receipts) {
+            if (!isActive() || generation !== cloudGenerationRef.current) return;
+            await acknowledgeSavedPayment(receipt.id);
+          }
+        });
+      }
       const current = interceptorState.current;
       if (payment.action === 'ignore' || current.transactions.some(tx => tx.id === `tx_${id}`)) {
         const remaining = current.pendingNotifications.filter(n => n.id !== id);
@@ -1285,7 +1359,7 @@ export default function App() {
       }
     });
     return stopListening;
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authUser?.id, cloudReady]);
 
 
   // Passcode lockout cooldown ticker
@@ -1439,29 +1513,7 @@ export default function App() {
     methodOrName: string | undefined,
     delta: number
   ): FinancialAccount[] => {
-    if (!methodOrName || accountsList.length === 0) return accountsList;
-    if (methodOrName === 'Cash' || methodOrName.toLowerCase() === 'cash') return accountsList;
-
-    const resolvedId = resolveAccountId(accountsList, methodOrName);
-    let idx = -1;
-
-    if (resolvedId) {
-      idx = accountsList.findIndex((a) => a.id === resolvedId);
-    }
-
-    // c. 'Cash' -> return list unchanged; 'UPI' / 'Other UPI' / unmatched -> use isDefault account if one exists, otherwise return list unchanged (never index 0)
-    if (idx === -1) {
-      idx = accountsList.findIndex((a) => a.isDefault);
-      if (idx === -1) return accountsList;
-    }
-
-    const copy = [...accountsList];
-    const acc = copy[idx];
-    // d. sign: spend raises credit card outstanding, payment/refund lowers it
-    const applied = acc.type === 'Credit Card' ? -delta : delta;
-    const newBal = Math.round((acc.balance + applied) * 100) / 100;
-    copy[idx] = { ...acc, balance: newBal };
-    return copy;
+    return adjustPaymentAccountBalance(accountsList, methodOrName, delta);
   };
 
   // Helper to resolve notification category against current categories, falling back to matching type or Uncategorized
@@ -1510,10 +1562,10 @@ export default function App() {
   };
 
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
-  const persistPaymentTransaction = (nextTransactions: Transaction[], nextAccounts: FinancialAccount[]) => {
+  const persistPaymentTransaction = (nextTransactions: Transaction[], nextAccounts: FinancialAccount[], previousAccounts = accounts) => {
     if (!safeSetItem('tmf_accounts', JSON.stringify(nextAccounts))) return false;
     if (safeSetItem('tmf_transactions', JSON.stringify(nextTransactions))) return true;
-    if (!safeSetItem('tmf_accounts', JSON.stringify(accounts))) {
+    if (!safeSetItem('tmf_accounts', JSON.stringify(previousAccounts))) {
       console.error('Could not restore account balances after payment save failure');
       showToast('Payment save failed and account balances could not be restored. Please review your accounts.', 'error');
     }
@@ -1525,53 +1577,10 @@ export default function App() {
       handleIgnoreNotification(notif.id);
       return;
     }
-    // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
-    let resolvedAccId: string | null = null;
-    if (notif.accountLast4) {
-      const byLast4 = accounts.find((a) => a.accountNumberLast4 === notif.accountLast4);
-      if (byLast4) resolvedAccId = byLast4.id;
-    }
-    if (!resolvedAccId && notif.appSource) {
-      resolvedAccId = resolveAccountId(accounts, notif.appSource);
-    }
-    if (!resolvedAccId && notif.paymentMethod) {
-      resolvedAccId = resolveAccountId(accounts, notif.paymentMethod);
-    }
-    if (!resolvedAccId) {
-      const defaultAcc = accounts.find((a) => a.isDefault);
-      if (defaultAcc) resolvedAccId = defaultAcc.id;
-    }
-
-    const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
-    const { category: resolvedCat, subcategory: resolvedSubcat } = resolveNotificationCategory(
-      notif.category,
-      notif.subcategory,
-      notif.type
-    );
-
-    const newTx: Transaction = {
-      id: notif.id.startsWith('native_') ? `tx_${notif.id}` : newId('tx_notif'),
-      title: notif.description?.trim() || notif.payeeOrPayer,
-      amount: notif.amount,
-      type: notif.type,
-      kind: inferTransactionKind({ type: notif.type, category: resolvedCat, subcategory: resolvedSubcat, title: notif.payeeOrPayer, note: notif.rawText }),
-      category: resolvedCat,
-      subcategory: resolvedSubcat,
-      date: notif.date,
-      time: notif.time,
-      location: notif.location,
-      source: 'UPI',
-      payeeOrPayer: notif.payeeOrPayer,
-      accountId: resolvedAccId || undefined,
-      paymentMethod: finalPaymentMethod,
-      rawText: notif.rawText,
-      refNumber: notif.refNumber,
-    };
-
-    const delta = notif.type === 'credit' ? notif.amount : -notif.amount;
-    const nextAccounts = adjustAccountBalance(accounts, finalPaymentMethod, delta);
+    const { transaction: newTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(notif, accounts, categories);
     const nextTransactions = [newTx, ...transactions];
     if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+    if (nextCategories !== categories) setCategories(nextCategories);
     setAccounts(nextAccounts);
     setTransactions(nextTransactions);
     void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
@@ -2831,6 +2840,7 @@ export default function App() {
           pendingEmiCount={pendingEmiRequests.length}
           currencySymbol={settings.currencySymbol}
           locationTrackingEnabled={settings.locationTracking}
+          isAdmin={isAdmin}
         />
       </div>
 
@@ -2852,6 +2862,8 @@ export default function App() {
               ? 'Loans & Lends'
               : activeTab === 'customisations'
               ? 'Customisations'
+              : activeTab === 'admin'
+              ? 'Admin'
               : 'Settings'
           }
           subtitle={
@@ -2867,6 +2879,8 @@ export default function App() {
               ? 'Repayments & Liability'
               : activeTab === 'customisations'
               ? 'Categories & Budgets'
+              : activeTab === 'admin'
+              ? 'Users & Subscriptions'
               : 'Account Controls'
           }
           userName={settings.userName || 'User'}
@@ -3035,6 +3049,10 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'admin' && isAdmin && (
+            <AdminView currentUserId={authUser?.id} />
+          )}
+
           {activeTab === 'settings' && (
             <SettingsView
               settings={settings}
@@ -3094,6 +3112,7 @@ export default function App() {
           setActiveTab={setActiveTab}
           pendingNotificationsCount={pendingNotifications.length}
           pendingEmiCount={pendingEmiRequests.length}
+          isAdmin={isAdmin}
         />
       </div>
 

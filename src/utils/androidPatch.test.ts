@@ -239,10 +239,44 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.doesNotMatch(readFileSync(join(app, 'AndroidManifest.xml'), 'utf8'), /REQUEST_INSTALL_PACKAGES/);
     assert.deepEqual(readFileSync(join(app, 'res', 'layout', 'payment_notification.xml')),
       readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'layout', 'payment_notification.xml')));
-    for (const file of ['InterceptedPaymentStore.java', 'PaymentNotificationDetails.java', 'PaymentActionReceiver.java', 'TransactionEligibility.java', 'NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {
+    for (const file of ['InterceptedPaymentStore.java', 'PaymentNotificationDetails.java', 'PaymentActionReceiver.java', 'PaymentSaveWorker.java', 'TransactionEligibility.java', 'NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java']) {
       assert.deepEqual(readFileSync(join(java, file)), readFileSync(join(root, 'native', 'notification-intercept-plugin', file)));
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Payment notification actions save without launching an Activity and retain failed work', () => {
+  const store = readFileSync(new URL('../../native/notification-intercept-plugin/InterceptedPaymentStore.java', import.meta.url), 'utf8');
+  const receiver = readFileSync(new URL('../../native/notification-intercept-plugin/PaymentActionReceiver.java', import.meta.url), 'utf8');
+  const worker = readFileSync(new URL('../../native/notification-intercept-plugin/PaymentSaveWorker.java', import.meta.url), 'utf8');
+  for (const name of ['add', 'ignore']) {
+    assert.match(store, new RegExp(`Intent ${name} = new Intent\\(context, PaymentActionReceiver.class\\)`));
+    assert.match(store, new RegExp(`PendingIntent.getBroadcast\\(context, 0, ${name}, PendingIntent.FLAG_UPDATE_CURRENT \\| PendingIntent.FLAG_IMMUTABLE\\)`));
+  }
+  assert.match(store, /PendingIntent\.getBroadcast\(context, 0, reply,/);
+  assert.match(store, /"Add", addIntent/);
+  assert.doesNotMatch(store, /open\(context, id, "add"\)/);
+  assert.match(store, /open\(context, id, "edit"\)/);
+  assert.match(store, /open\(context, id, "open"\)/);
+  assert.match(receiver, /PaymentSaveWorker\.enqueue\(context, id, retryNow\)/);
+  assert.doesNotMatch(receiver + worker, /startActivity|getLaunchIntentForPackage|PendingIntent\.getActivity/);
+  assert.match(worker, /new WebView\(getApplicationContext\(\)\)/);
+  assert.match(worker, /setDomStorageEnabled\(true\)/);
+  assert.match(worker, /setAllowFileAccess\(false\)/);
+  assert.match(worker, /ExistingWorkPolicy\.KEEP/);
+  assert.match(worker, /Result\.retry\(\)/);
+  assert.match(worker, /InterceptedPaymentStore\.completeSave/);
+  assert.match(store, /saved\.put\(id, record\)/);
+  assert.match(store, /record\.put\("account", result\.getJSONObject\("account"\)\)/);
+  assert.match(store, /"Not saved: "/);
+  const sql = readFileSync(new URL('../../supabase_background_payments.sql', import.meta.url), 'utf8');
+  assert.match(sql, /SECURITY INVOKER/);
+  assert.match(sql, /caller IS DISTINCT FROM expected_user/);
+  assert.match(sql, /deleted_at IS NULL FOR UPDATE/);
+  assert.match(sql, /ON CONFLICT \(user_id, id\) DO NOTHING/);
+  assert.match(sql, /inserted_count = 1 AND target_account IS NOT NULL/);
+  assert.match(sql, /WHEN type = 'Credit Card' THEN -1 ELSE 1/);
+  assert.doesNotMatch(sql, /SECURITY DEFINER/);
 });

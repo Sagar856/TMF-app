@@ -3,6 +3,8 @@ import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord }
 import { CloudSettings, parseCloudSettings } from '../utils/cloudSettings';
 import { isStrongPassword } from '../utils/passwordPolicy';
 import { Capacitor } from '@capacitor/core';
+import { getSavedPayments } from './notificationListener';
+import { isFinancialAccount, isTransaction } from '../utils/backup';
 
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
@@ -713,28 +715,54 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
   const { data: { user } } = await client.auth.getUser();
   if (!user) return { success: false, error: 'Not signed in' };
 
-  try {
-    const rows = accounts.map((a) => ({
-      id: a.id,
-      user_id: user.id,
-      name: a.name,
-      bank_name: a.bankName,
-      type: a.type,
-      account_number_last4: a.accountNumberLast4,
-      balance: a.balance,
-      credit_limit: a.creditLimit || 0,
-      approx_monthly_bill: a.approxMonthlyBill || 0,
-      due_date: a.dueDate || null,
-      card_holder_name: a.cardHolderName || null,
-      card_network: a.cardNetwork || null,
-      card_color_theme: a.cardColorTheme || 'dark',
-      is_default: Boolean(a.isDefault),
-    }));
+  const upload = async (): Promise<SyncResult> => {
+    try {
+      let currentAccounts = accounts;
+      if (Capacitor.getPlatform() === 'android' && localStorage.getItem('tmf_cache_owner') === user.id) {
+        // A native Add may commit while an older foreground upload waits for
+        // the lock. Read the latest projection and include unimported receipts.
+        const stored = localStorage.getItem('tmf_accounts');
+        if (stored) {
+          const parsed: unknown = JSON.parse(stored);
+          if (!Array.isArray(parsed) || !parsed.every(isFinancialAccount)) throw new Error('Invalid account cache');
+          currentAccounts = parsed;
+        }
+        const storedTransactions: unknown = JSON.parse(localStorage.getItem('tmf_transactions') || '[]');
+        if (!Array.isArray(storedTransactions) || !storedTransactions.every(isTransaction)) throw new Error('Invalid transaction cache');
+        const transactionIds = new Set(storedTransactions.map(transaction => transaction.id));
+        const receipts = await getSavedPayments();
+        for (const receipt of receipts) {
+          const transaction = receipt.transaction;
+          if (receipt.owner !== user.id || !transaction || transactionIds.has(transaction.id)) continue;
+          return { success: false, error: 'A background payment was saved. Resume the app to refresh balances before syncing.' };
+        }
+      }
+      const rows = currentAccounts.map((a) => ({
+        id: a.id,
+        user_id: user.id,
+        name: a.name,
+        bank_name: a.bankName,
+        type: a.type,
+        account_number_last4: a.accountNumberLast4,
+        balance: a.balance,
+        credit_limit: a.creditLimit || 0,
+        approx_monthly_bill: a.approxMonthlyBill || 0,
+        due_date: a.dueDate || null,
+        card_holder_name: a.cardHolderName || null,
+        card_network: a.cardNetwork || null,
+        card_color_theme: a.cardColorTheme || 'dark',
+        is_default: Boolean(a.isDefault),
+      }));
 
-    return upsertWithSchemaFallback(client, 'financial_accounts', rows, 'financial_accounts');
-  } catch (err) {
-    return syncError('financial_accounts', err);
+      return await upsertWithSchemaFallback(client, 'financial_accounts', rows, 'financial_accounts');
+    } catch (err) {
+      return syncError('financial_accounts', err);
+    }
+  };
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('minarth-account-cloud-write', upload);
   }
+  return upload();
 }
 
 export async function deleteAccountFromSupabase(id: string): Promise<SyncResult> {

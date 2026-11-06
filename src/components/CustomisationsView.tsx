@@ -923,17 +923,30 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                                   ? `${currencySymbol}${formatAmount(cat.budgetLimit)}`
                                   : 'No budget'}
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingBudgetId(cat.id);
-                                  setEditingBudgetVal(cat.budgetLimit ? cat.budgetLimit.toString() : '');
-                                }}
-                                className="text-[10px] text-red-600 dark:text-red-400 hover:underline cursor-pointer flex items-center gap-1 justify-end"
-                              >
-                                <Edit3 className="w-2.5 h-2.5" />
-                                <span>{hasBudget ? 'Edit budget' : 'Set budget'}</span>
-                              </button>
+                              <div className="flex items-center justify-end gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingBudgetId(cat.id);
+                                    setEditingBudgetVal(cat.budgetLimit ? cat.budgetLimit.toString() : '');
+                                  }}
+                                  className="text-[10px] text-red-600 dark:text-red-400 hover:underline cursor-pointer flex items-center gap-1 justify-end"
+                                >
+                                  <Edit3 className="w-2.5 h-2.5" />
+                                  <span>{hasBudget ? 'Edit budget' : 'Set budget'}</span>
+                                </button>
+                                {hasBudget && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveBudgetLimit(cat, 0)}
+                                    aria-label={`Delete budget for ${cat.name}`}
+                                    className="text-[10px] text-content-3 hover:text-red-600 dark:hover:text-red-400 hover:underline cursor-pointer flex items-center gap-1 justify-end"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                    <span>Delete</span>
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                           </div>

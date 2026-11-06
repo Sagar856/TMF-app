@@ -198,6 +198,15 @@ is automatically kept private from every other user via RLS.
    `deleted_at` tombstones…). If the live schema is behind, the app keeps
    working and shows an amber *"Cloud schema is outdated"* banner instead of
    failing — the skipped columns simply aren't synced until you re-run it.
+   Then run [`supabase_background_payments.sql`](supabase_background_payments.sql)
+   before deploying this version. Android notification **Add** uses this
+   authenticated, idempotent RPC to save the transaction and account balance
+   together without opening the app. **Description** and **Ignore** also remain
+   notification-only actions; the notification body and **Edit** still open the
+   app. Offline/expired-session/missing-migration failures remain visible and
+   retryable, not silently marked saved. WorkManager can run after process
+   termination, but not while Android force-stops or otherwise restricts the app.
+
 3. In Supabase Auth settings, enable **Email**, **Allow new users to sign up**
    and **Confirm email**. Update **both Confirm signup and Magic Link** email
    templates to display the code, for example:
@@ -644,8 +653,14 @@ without adding the transaction. The description becomes its title when added;
 the original merchant, amount and SMS remain intact. **Edit transaction in app**
 is available inside the expanded card. Android/OEM notification layouts and
 collapsed presentation may differ from the reference image.
-Add opens the app and adds after authentication/unlocking; Edit opens a prefilled editor after unlocking;
-Ignore is saved natively without opening the app. Cancelling Edit keeps the
+Add saves the transaction and account balance through an authenticated background
+worker without opening the app, even after its process is terminated. Apply
+[`supabase_background_payments.sql`](supabase_background_payments.sql) before
+deploying the updated APK. Network/authentication failures retain a visible,
+retryable notification. Native receipts and a shared cloud-write lock prevent
+duplicate balance changes and older foreground uploads overwriting the save.
+Edit opens a prefilled editor after unlocking; Ignore is saved natively without
+opening the app. Cancelling Edit keeps the
 payment pending. Replay uses the original notification date/time.
 
 Enable both **SMS / UPI Auto-Interceptor** and **Push Notifications**, grant

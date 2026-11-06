@@ -6,7 +6,8 @@ import {
   HandCoins, 
   Building2,
   Settings, 
-  MapPin
+  MapPin,
+  ShieldCheck
 } from 'lucide-react';
 import { DownloadAppCard } from './DownloadAppCard';
 import { BrandMark } from './BrandMark';
@@ -18,6 +19,7 @@ interface SidebarProps {
   pendingEmiCount?: number;
   currencySymbol: string;
   locationTrackingEnabled?: boolean;
+  isAdmin?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -26,6 +28,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   pendingNotificationsCount,
   pendingEmiCount = 0,
   locationTrackingEnabled = false,
+  isAdmin = false,
 }) => {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, section: 'Main' },
@@ -34,6 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'investments', label: 'Investments', icon: TrendingUp, section: 'Main' },
     { id: 'loans', label: 'Loans & Lends', icon: HandCoins, section: 'Main' },
     { id: 'settings', label: 'Settings', icon: Settings, section: 'System' },
+    ...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: ShieldCheck, section: 'System' }] : []),
   ];
 
   return (

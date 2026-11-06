@@ -1,6 +1,6 @@
 import { registerPlugin, Capacitor, type PluginListenerHandle } from '@capacitor/core';
 import { isEligiblePaymentNotification } from './notification/transactionEligibility';
-import type { LocationTag } from '../types/finance';
+import type { FinancialAccount, LocationTag, Transaction } from '../types/finance';
 
 export interface InterceptedPayment {
   id: string;
@@ -8,7 +8,12 @@ export interface InterceptedPayment {
   title: string;
   text: string;
   postedAt: number;
-  action: 'review' | 'open' | 'add' | 'edit' | 'ignore';
+  action: 'review' | 'open' | 'add' | 'edit' | 'ignore' | 'saving' | 'saved';
+  owner?: string;
+  transaction?: Transaction;
+  account?: FinancialAccount;
+  localBalance?: number;
+  savedRevision?: number;
   description?: string;
   location?: Omit<LocationTag, 'name'> & { name?: string; capturedAt?: number };
 }
@@ -16,11 +21,12 @@ export interface InterceptedPayment {
 interface NotificationInterceptPlugin {
   isPermissionGranted(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<void>;
-  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean }): Promise<void>;
+  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string }): Promise<void>;
   reverseGeocode(options: { lat: number; lng: number }): Promise<{ name: string }>;
   getPending(): Promise<{ notifications: InterceptedPayment[] }>;
   resolvePayment(options: { id: string }): Promise<void>;
   acknowledgeAction(options: { id: string }): Promise<void>;
+  acknowledgeSaved(options: { id: string }): Promise<void>;
   clearPayments(): Promise<void>;
   addListener(event: 'notificationReceived', callback: (data: InterceptedPayment) => void): Promise<PluginListenerHandle>;
 }
@@ -49,8 +55,17 @@ export async function requestNotificationAccess(): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.requestPermission();
 }
 
-export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false): Promise<void> {
-  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking });
+export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false, owner = ''): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking, owner });
+}
+
+export async function acknowledgeSavedPayment(id: string): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.acknowledgeSaved({ id });
+}
+
+export async function getSavedPayments(): Promise<InterceptedPayment[]> {
+  if (!isNativeAndroid()) return [];
+  return (await NotificationIntercept.getPending()).notifications.filter(payment => payment.action === 'saved');
 }
 
 export async function resolveInterceptedPayment(id: string): Promise<void> {
@@ -75,6 +90,8 @@ export function startNotificationListener(onPayment: (payment: InterceptedPaymen
   const enqueue = (payment: InterceptedPayment) => {
     chain = chain.then(async () => {
       if (removed) return;
+      if (payment.action === 'saving') return;
+      if (payment.action === 'saved' && document.visibilityState === 'hidden') return;
       if (payment.action !== 'ignore' && !isEligiblePaymentNotification(payment.packageName, payment.title, payment.text)) {
         await NotificationIntercept.resolvePayment({ id: payment.id });
         return;

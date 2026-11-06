@@ -30,7 +30,7 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
 
-function isTransaction(value: unknown): value is Transaction {
+export function isTransaction(value: unknown): value is Transaction {
   if (!isRecord(value)) return false;
   return typeof value.id === 'string'
     && typeof value.title === 'string'
@@ -53,7 +53,7 @@ function isCategory(value: unknown): value is Category {
     && isStringArray(value.subcategories);
 }
 
-function isFinancialAccount(value: unknown): value is FinancialAccount {
+export function isFinancialAccount(value: unknown): value is FinancialAccount {
   if (!isRecord(value)) return false;
   return typeof value.id === 'string'
     && typeof value.name === 'string'

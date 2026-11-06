@@ -27,4 +27,4 @@ A R T H I M N
 *4. app icon 
 *5. location co-ordinate extraction in redable format
 
-
+1. Admin login for subscriptions & user management

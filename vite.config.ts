@@ -7,6 +7,7 @@ import fs from 'fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const pkg = JSON.parse(fs.readFileSync(new URL('./package.json', import.meta.url), 'utf-8'));
 const windowsCacheDir = join(tmpdir(), `minarth-vite-${createHash('sha256')
@@ -122,6 +123,14 @@ export default defineConfig({
   ],
   optimizeDeps: {
     include: ['@capacitor/geolocation'],
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        app: fileURLToPath(new URL('./index.html', import.meta.url)),
+        paymentBackground: fileURLToPath(new URL('./payment-background.html', import.meta.url)),
+      },
+    },
   },
   server: {
     port: 3000,

@@ -748,8 +748,8 @@ main:focus {
   }
 }
 
-/* Premium glass surfaces shared by every app view. */
-:root {
+/* Premium glass surfaces shared by every app view (dark theme tokens; the .light block owns light mode). */
+:root:not(.light) {
   --bg-app: hsl(calc(225 + var(--ui-hue-shift, 0)) 42.857143% 5.490196%);
   --bg-sidebar: hsl(calc(225.714286 + var(--ui-hue-shift, 0)) 48.837209% 8.431373%);
   --bg-card: hsl(calc(220.909091 + var(--ui-hue-shift, 0)) 39.285714% 10.980392%);

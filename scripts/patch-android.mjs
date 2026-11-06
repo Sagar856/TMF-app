@@ -87,7 +87,7 @@ copyFileSync(join(repoRoot, 'scripts', 'android-release.gradle'), join(androidAp
 
 // 1. Copy Java plugin sources
 mkdirSync(javaPackageDir, { recursive: true });
-for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java', 'TransactionEligibility.java', 'PaymentNotificationDetails.java', 'InterceptedPaymentStore.java', 'PaymentActionReceiver.java']) {
+for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListenerService.java', 'TransactionEligibility.java', 'PaymentNotificationDetails.java', 'InterceptedPaymentStore.java', 'PaymentActionReceiver.java', 'PaymentSaveWorker.java']) {
   copyFileSync(join(pluginSrcDir, file), join(javaPackageDir, file));
   console.log(`[patch-android] Copied ${file}`);
 }

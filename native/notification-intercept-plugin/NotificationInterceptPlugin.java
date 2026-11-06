@@ -85,17 +85,7 @@ public class NotificationInterceptPlugin extends Plugin {
         }
         new Thread(() -> {
             try {
-                java.util.List<android.location.Address> addresses = new android.location.Geocoder(getContext(), java.util.Locale.getDefault())
-                    .getFromLocation(lat, lng, 1);
-                if (addresses == null || addresses.isEmpty()) {
-                    call.reject("No readable address found");
-                    return;
-                }
-                android.location.Address address = addresses.get(0);
-                String local = address.getSubLocality();
-                String city = address.getLocality();
-                String name = local != null && city != null && !local.equalsIgnoreCase(city) ? local + ", " + city
-                    : city != null ? city : address.getAdminArea();
+                String name = InterceptedPaymentStore.readableLocationName(getContext(), lat, lng);
                 if (name == null || name.trim().isEmpty()) {
                     call.reject("No readable address found");
                     return;
@@ -113,7 +103,8 @@ public class NotificationInterceptPlugin extends Plugin {
     public void configure(PluginCall call) {
         try {
             InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")),
-                Boolean.TRUE.equals(call.getBoolean("notifications")), Boolean.TRUE.equals(call.getBoolean("locationTracking")));
+                Boolean.TRUE.equals(call.getBoolean("notifications")), Boolean.TRUE.equals(call.getBoolean("locationTracking")),
+                call.getString("owner", ""));
             call.resolve();
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             call.reject("Could not configure interceptor", error);
@@ -124,10 +115,22 @@ public class NotificationInterceptPlugin extends Plugin {
     public void getPending(PluginCall call) {
         try {
             JSObject result = new JSObject();
-            result.put("notifications", new JSArray(InterceptedPaymentStore.read(getContext()).toString()));
+            result.put("notifications", new JSArray(InterceptedPaymentStore.pending(getContext()).toString()));
             call.resolve(result);
         } catch (org.json.JSONException error) {
             call.reject("Could not read intercepted payment queue", error);
+        }
+    }
+
+    @PluginMethod
+    public void acknowledgeSaved(PluginCall call) {
+        String id = call.getString("id");
+        if (id == null) { call.reject("Payment id required"); return; }
+        try {
+            InterceptedPaymentStore.acknowledgeSaved(getContext(), id);
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not acknowledge saved payment", error);
         }
     }
 
@@ -175,7 +178,7 @@ public class NotificationInterceptPlugin extends Plugin {
         if (activeInstance == null) return;
 
         JSObject data = new JSObject();
-        for (String key : new String[] { "id", "packageName", "title", "text", "postedAt", "action", "description", "location" }) {
+        for (String key : new String[] { "id", "packageName", "title", "text", "postedAt", "action", "description", "location", "owner", "transaction" }) {
             data.put(key, record.opt(key));
         }
         activeInstance.notifyListeners("notificationReceived", data);
