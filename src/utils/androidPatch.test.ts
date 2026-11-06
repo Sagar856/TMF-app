@@ -30,6 +30,29 @@ test('Capacitor packages stay aligned on the filename-sanitizing patch release',
   }
 });
 
+test('Payment interception preserves API 22 compatibility without suppressing lint', () => {
+  const store = readFileSync(new URL('../../native/notification-intercept-plugin/InterceptedPaymentStore.java', import.meta.url), 'utf8');
+  const receiver = readFileSync(new URL('../../native/notification-intercept-plugin/PaymentActionReceiver.java', import.meta.url), 'utf8');
+  const listener = readFileSync(new URL('../../native/notification-intercept-plugin/TmfNotificationListenerService.java', import.meta.url), 'utf8');
+  for (const source of [store, receiver]) {
+    assert.doesNotMatch(source, /context\.(?:getSystemService|checkSelfPermission)\(/);
+    assert.match(source, /ContextCompat\.getSystemService\(context, NotificationManager\.class\)/);
+    assert.match(source, /import androidx\.core\.app\.RemoteInput;/);
+    assert.doesNotMatch(source, /import android\.app\.RemoteInput;/);
+  }
+  assert.match(store, /ContextCompat\.checkSelfPermission\(context, Manifest\.permission\.ACCESS_COARSE_LOCATION\)/);
+  assert.match(store, /ContextCompat\.checkSelfPermission\(context, Manifest\.permission\.ACCESS_FINE_LOCATION\)/);
+  assert.match(store, /ContextCompat\.getSystemService\(context, LocationManager\.class\)/);
+  assert.match(store, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O\) \{\s+NotificationChannel/);
+  assert.match(store, /new NotificationCompat\.Builder\(context, CHANNEL\)/);
+  assert.match(store, /new NotificationCompat\.DecoratedCustomViewStyle\(\)/);
+  assert.doesNotMatch(store, /new Notification\.(?:Builder|Action\.Builder|DecoratedCustomViewStyle)/);
+  assert.match(listener, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.N\) \{\s+requestRebind\(/);
+  for (const source of [store, receiver, listener]) {
+    assert.doesNotMatch(source, /@SuppressLint|@RequiresApi/);
+  }
+});
+
 test('Android patch installs background queue and non-exported actions idempotently', () => {
   const baseEnv = { ...process.env, ANDROID_DISTRIBUTION: 'play', ANDROID_VERSION_CODE: undefined };
   const root = mkdtempSync(join(tmpdir(), 'tmf-android-patch-'));
@@ -78,6 +101,10 @@ test('Android patch installs background queue and non-exported actions idempoten
         /android:label="MINARTH Transaction Interceptor"/);
     }
     const manifest = readFileSync(join(app, 'AndroidManifest.xml'), 'utf8');
+    for (const name of ['InterceptedPaymentStore.java', 'PaymentActionReceiver.java', 'TmfNotificationListenerService.java']) {
+      assert.equal(readFileSync(join(java, name), 'utf8'),
+        readFileSync(new URL(`../../native/notification-intercept-plugin/${name}`, import.meta.url), 'utf8'));
+    }
     assert.doesNotMatch(manifest, /<uses-permission[^>]*BIND_NOTIFICATION_LISTENER_SERVICE|RECEIVE_BOOT_COMPLETED|ACCESS_BACKGROUND_LOCATION|READ_SMS|RECEIVE_SMS|READ_CALL_LOG/);
     assert.match(manifest, /android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/);
     assert.match(manifest, /android:allowBackup="false"/);

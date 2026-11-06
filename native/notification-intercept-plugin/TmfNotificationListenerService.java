@@ -2,6 +2,7 @@ package com.trackmoneyflow.app;
 
 import android.app.Notification;
 import android.os.Bundle;
+import android.os.Build;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
@@ -31,7 +32,11 @@ public class TmfNotificationListenerService extends NotificationListenerService 
     @Override
     public void onListenerDisconnected() {
         super.onListenerDisconnected();
-        requestRebind(new android.content.ComponentName(this, TmfNotificationListenerService.class));
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            requestRebind(new android.content.ComponentName(this, TmfNotificationListenerService.class));
+        } else {
+            Log.w("TMFInterceptor", "Listener disconnected; automatic rebind requires Android 7 or later");
+        }
     }
 
     @Override

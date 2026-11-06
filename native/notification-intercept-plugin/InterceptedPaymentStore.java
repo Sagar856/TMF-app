@@ -5,7 +5,6 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
-import android.app.RemoteInput;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.widget.RemoteViews;
@@ -18,6 +17,9 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.RemoteInput;
+import androidx.core.content.ContextCompat;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -36,7 +38,7 @@ public final class InterceptedPaymentStore {
         JSONArray records = read(context);
         save(context, new JSONArray());
         for (int i = 0; i < records.length(); i++) {
-            context.getSystemService(NotificationManager.class).cancel(records.getJSONObject(i).getString("id"), 1);
+            ContextCompat.getSystemService(context, NotificationManager.class).cancel(records.getJSONObject(i).getString("id"), 1);
         }
     }
 
@@ -70,10 +72,10 @@ public final class InterceptedPaymentStore {
     private static Location captureLocation(Context context, long postedAt) {
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("locationTracking", false)
             || Math.abs(System.currentTimeMillis() - postedAt) > 120000L) return null;
-        if (context.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
-            && context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null;
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null;
         try {
-            LocationManager manager = context.getSystemService(LocationManager.class);
+            LocationManager manager = ContextCompat.getSystemService(context, LocationManager.class);
             Location best = null;
             for (String provider : manager.getProviders(true)) {
                 Location candidate = manager.getLastKnownLocation(provider);
@@ -166,7 +168,7 @@ public final class InterceptedPaymentStore {
             .putString("queue", remaining.toString()).putString("resolved", resolved.toString()).commit()) {
             throw new IllegalStateException("Could not persist payment resolution");
         }
-        context.getSystemService(NotificationManager.class).cancel(id, 1);
+        ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
     }
 
     public static synchronized void configure(Context context, boolean enabled, boolean notifications, boolean locationTracking) throws JSONException {
@@ -178,7 +180,7 @@ public final class InterceptedPaymentStore {
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.getJSONObject(i);
             if (enabled && notifications && !"ignore".equals(record.getString("action"))) show(context, record);
-            else context.getSystemService(NotificationManager.class).cancel(record.getString("id"), 1);
+            else ContextCompat.getSystemService(context, NotificationManager.class).cancel(record.getString("id"), 1);
         }
     }
 
@@ -193,14 +195,16 @@ public final class InterceptedPaymentStore {
 
     private static void show(Context context, JSONObject record) throws JSONException {
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("notifications", false)) return;
-        if (Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             Log.w("TMFInterceptor", "Payment captured; notification display permission is missing");
             return;
         }
-        NotificationManager manager = context.getSystemService(NotificationManager.class);
-        NotificationChannel channel = new NotificationChannel(CHANNEL, "Payment confirmations", NotificationManager.IMPORTANCE_DEFAULT);
-        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
-        manager.createNotificationChannel(channel);
+        NotificationManager manager = ContextCompat.getSystemService(context, NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "Payment confirmations", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            manager.createNotificationChannel(channel);
+        }
         String id = record.getString("id");
         Intent ignore = new Intent(context, PaymentActionReceiver.class).setAction("tmf.ignore." + id).putExtra("tmfPaymentId", id);
         PendingIntent ignoreIntent = PendingIntent.getBroadcast(context, 0, ignore, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -215,19 +219,19 @@ public final class InterceptedPaymentStore {
             .setAction("tmf.description." + id).putExtra("tmfPaymentId", id);
         PendingIntent replyIntent = PendingIntent.getBroadcast(context, 0, reply,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-        Notification.Action replyAction = new Notification.Action.Builder(null, "Description", replyIntent)
+        NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(0, "Description", replyIntent)
             .addRemoteInput(new RemoteInput.Builder("tmfDescription").setLabel("What was this payment for?").build())
             .setAllowGeneratedReplies(false).build();
-        Notification notification = new Notification.Builder(context, CHANNEL)
+        Notification notification = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle("New transaction detected")
             .setLargeIcon(BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_minarth_purple))
             .setColor(Color.rgb(126, 58, 210)).setContentText(summary.amount)
-            .setStyle(new Notification.DecoratedCustomViewStyle()).setCustomBigContentView(card)
+            .setStyle(new NotificationCompat.DecoratedCustomViewStyle()).setCustomBigContentView(card)
             .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
             .setContentIntent(open(context, id, "open"))
-            .addAction(new Notification.Action.Builder(null, "Add", open(context, id, "add")).build())
+            .addAction(new NotificationCompat.Action.Builder(0, "Add", open(context, id, "add")).build())
             .addAction(replyAction)
-            .addAction(new Notification.Action.Builder(null, "Ignore", ignoreIntent).build())
+            .addAction(new NotificationCompat.Action.Builder(0, "Ignore", ignoreIntent).build())
             .build();
         manager.notify(id, 1, notification);
     }

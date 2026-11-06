@@ -4,7 +4,8 @@ import android.app.NotificationManager;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.app.RemoteInput;
+import androidx.core.app.RemoteInput;
+import androidx.core.content.ContextCompat;
 import android.os.Bundle;
 import android.util.Log;
 
@@ -22,7 +23,7 @@ public class PaymentActionReceiver extends BroadcastReceiver {
             }
             if (!("tmf.ignore." + id).equals(intent.getAction())) return;
             InterceptedPaymentStore.action(context, id, "ignore");
-            context.getSystemService(NotificationManager.class).cancel(id, 1);
+            ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             Log.e("TMFInterceptor", "Could not persist payment notification action", error);
         }

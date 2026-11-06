@@ -42,6 +42,13 @@ Missing details show "Review in app"; JavaScript still parses the original
 message. A purple M is used in the card and as the large icon. Android requires
 a monochrome small-icon mask and controls its tint and the surrounding shell.
 Exact layout, available space and collapsed appearance depend on Android/OEM.
+Service and permission lookups use AndroidX compatibility APIs to retain the
+app's API 22 minimum. Notifications and inline replies use NotificationCompat
+and RemoteInput compatibility support; notification channels are created only
+on Android 8+. Automatic listener rebinding is requested only on Android 7+;
+older versions log the disconnection and depend on Android reconnecting the
+listener (the user may need to toggle Notification Access). Verify notification
+actions and capture on API 22 as well as a current Android device.
 Only the explicit RemoteInput PendingIntent is mutable; other actions remain
 immutable and the broadcast receiver is non-exported.
 
