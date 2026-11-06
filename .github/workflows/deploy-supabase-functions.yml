@@ -39,7 +39,7 @@ jobs:
             echo "ready=true" >> "$GITHUB_OUTPUT"
             echo "ref=$ref" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.project.outputs.ready == 'true'
       - uses: supabase/setup-cli@v1
         if: steps.project.outputs.ready == 'true'
@@ -47,4 +47,7 @@ jobs:
           version: latest
       - name: Deploy market-quotes
         if: steps.project.outputs.ready == 'true'
-        run: supabase functions deploy market-quotes --project-ref "${{ steps.project.outputs.ref }}" --use-api
+        env:
+          PROJECT_REF: ${{ steps.project.outputs.ref }}
+        # --yes: CI has no terminal to answer the CLI's deploy confirmation prompt.
+        run: supabase functions deploy market-quotes --project-ref "$PROJECT_REF" --use-api --yes
