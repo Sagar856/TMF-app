@@ -2,8 +2,8 @@ name: Update market data
 
 on:
   schedule:
-    # 17:00 IST on trading days: after the NSE close and the IBJA PM rate.
-    - cron: '30 11 * * 1-5'
+    # 19:00 IST on trading days: after the NSE close, the bhavcopy publication and the IBJA PM rate.
+    - cron: '30 13 * * 1-5'
     # 08:00 IST next morning: picks up US closes and retries anything missed.
     - cron: '30 2 * * 2-6'
   workflow_dispatch: {}
@@ -26,18 +26,33 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - uses: actions/setup-python@v5
+        continue-on-error: true
+        with:
+          python-version: '3.12'
       - name: Load the previously published snapshot
         run: |
           mkdir -p out
           if git fetch --depth=1 origin market-data 2>/dev/null; then
             git show FETCH_HEAD:market-data.json > out/previous.json || rm -f out/previous.json
           fi
-      - name: Fetch prices (Yahoo Finance closes, IBJA gold/silver)
-        run: node --import tsx scripts/fetch-market-data.mjs out/market-data.json out/previous.json
+      - name: Fetch Yahoo closes with yfinance (browser impersonation; best effort)
+        continue-on-error: true
+        timeout-minutes: 5
+        run: |
+          node --import tsx scripts/fetch-market-data.mjs --print-yahoo-symbols > out/yahoo-symbols.txt
+          python -m pip install --quiet --disable-pip-version-check yfinance
+          python scripts/fetch_yahoo_quotes.py out/yahoo-symbols.txt out/yahoo.json
+      - name: Build the snapshot (NSE bhavcopy, Yahoo, IBJA gold/silver)
+        run: node --import tsx scripts/fetch-market-data.mjs --out out/market-data.json --previous out/previous.json --yahoo-quotes out/yahoo.json
       - name: Publish to the market-data branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          if [ ! -f out/market-data.json ]; then
+            echo "Nothing fetched; nothing to publish."
+            exit 0
+          fi
           if [ -f out/previous.json ] && cmp -s out/market-data.json out/previous.json; then
             echo "Snapshot unchanged; nothing to publish."
             exit 0

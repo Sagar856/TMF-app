@@ -51,7 +51,7 @@ import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } fr
 import { StockSelector } from './StockSelector';
 import { MutualFundSelector } from './MutualFundSelector';
 import { useMarketSnapshot } from '../hooks/useMarketSnapshot';
-import { METAL_PURITY_OPTIONS, metalKindForType, metalRatePerGram } from '../utils/marketData';
+import { MARKET_FEED_SOURCES, METAL_PURITY_OPTIONS, isIntradaySource, metalKindForType, metalRatePerGram } from '../utils/marketData';
 import { DematManagerModal } from './DematManagerModal';
 import { StockItem } from '../services/stocksDatabase';
 import { newId } from '../utils/ids';
@@ -90,8 +90,6 @@ interface InvestmentTxn {
 
 const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', 'var(--ui-investment-accent)', '#ef4444', '#14b8a6'];
 
-const MARKET_FEED_SOURCES = new Set(['NSE/BSE (Live)', 'AMFI', 'Yahoo Finance (daily close)', 'IBJA benchmark rate']);
-
 /** Market-fed prices are "fresh" for 4 days so weekend/holiday gaps between daily closes don't look stale. */
 function isQuoteLive(inv: InvestmentRecord): boolean {
   const tsStr = inv.priceTimestamp || inv.navDate;
@@ -105,6 +103,14 @@ function formatQuoteDate(value?: string): string | null {
   if (!value) return null;
   const date = new Date(value);
   return isNaN(date.getTime()) ? null : date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+}
+
+function formatQuoteDateTime(value?: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return isNaN(date.getTime())
+    ? null
+    : date.toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
 export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
@@ -1819,7 +1825,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                               <span className="text-[#666] block text-[9px] uppercase">Market Price</span>
                               {inv.currentPrice ? (
                                 isQuoteLive(inv) ? (
-                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">DAILY</span>
+                                  isIntradaySource(inv.priceSource) ? (
+                                    <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LIVE</span>
+                                  ) : (
+                                    <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">DAILY</span>
+                                  )
                                 ) : (
                                   <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
                                 )
@@ -1829,7 +1839,9 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                               {inv.currentPrice ? `${currencySymbol}${inv.currentPrice}` : '—'}
                             </span>
                             {inv.currentPrice && quoteDate && (
-                              <span className="block text-[9px] text-[#666]">as of {quoteDate}</span>
+                              <span className="block text-[9px] text-[#666]">
+                                as of {isIntradaySource(inv.priceSource) ? formatQuoteDateTime(inv.priceTimestamp) || quoteDate : quoteDate}
+                              </span>
                             )}
                           </div>
                         </>

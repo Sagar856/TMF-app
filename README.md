@@ -690,30 +690,72 @@ so the background **Add** action also credits the Cash account.
 
 ## Daily market prices
 
-Holdings are revalued once a day, at no running cost:
+Stock prices come from two layers. The daily file is always available; the
+optional Edge Function adds intraday prices on top of it.
 
-- The [`Update market data`](.github/workflows/market-data.yml) workflow runs on
-  weekdays after the Indian market close (and again the next morning as a
-  retry). [`scripts/fetch-market-data.mjs`](scripts/fetch-market-data.mjs)
-  collects daily closes for the built-in stock catalog and USD/INR from Yahoo
-  Finance, and physical gold/silver rates per gram from the
-  [IBJA](https://ibjarates.com/) benchmark (gold per purity: 999/995/916/750/585).
-- The JSON is force-pushed to the orphan **`market-data`** branch (separate from
-  the GitHub Pages artifact) and read by the app from
-  `raw.githubusercontent.com`. Anything a run fails to fetch keeps its last
-  known value; a run that fetches nothing leaves the file unchanged.
-- Mutual fund NAVs come directly from AMFI via [mfapi.in](https://www.mfapi.in/)
-  for the schemes you hold; the scheme picker searches the full AMFI list.
-- Stocks, mutual funds and physical gold/silver are repriced on app start and
-  when it returns to the foreground, but only when the published price is newer
-  than the stored one. US stocks are converted to rupees at the published USD/INR
-  rate. Metal values are weight × purity rate and exclude making charges.
+**1. Daily file (baseline, $0).** The
+[`Update market data`](.github/workflows/market-data.yml) workflow runs on
+weekdays at 19:00 IST (after the NSE bhavcopy and the IBJA PM rate are out) and
+again at 08:00 IST (US closes and retries).
+[`scripts/fetch-market-data.mjs`](scripts/fetch-market-data.mjs) combines:
 
-Run the workflow once manually (**Actions → Update market data → Run workflow**)
-to create the branch. Set `VITE_MARKET_DATA_URL` at build time to use a different
-JSON URL, or `off` to disable the feed. GitHub pauses scheduled workflows after
-60 days without repository activity; re-enable them from the Actions tab.
-Tickers outside the built-in catalog are not in the daily feed.
+- the official **NSE bhavcopy** for every NSE equity, so tickers you type in
+  that are not in the built-in catalog also get a daily close;
+- BSE/US closes and USD/INR from Yahoo Finance via
+  [`yfinance`](scripts/fetch_yahoo_quotes.py), which uses browser impersonation.
+  Yahoo answers plain requests from GitHub runners with HTTP 429. Any direct
+  Yahoo call made for remaining gaps stops at the first 429/403 instead of
+  retrying;
+- physical gold/silver per gram from the [IBJA](https://ibjarates.com/)
+  benchmark (gold per purity: 999/995/916/750/585). Metals stay daily only,
+  because IBJA publishes once or twice a day.
+
+The compact JSON is force-pushed to the orphan **`market-data`** branch and read
+from `raw.githubusercontent.com`. When a source fails, its last known values are
+kept and the newer quote always wins over an older one. A run that fetches
+nothing leaves the file unchanged and still succeeds. Each run logs per-source
+counts.
+
+**2. Intraday refresh (Supabase Edge Function, optional).** For signed-in users
+the app asks [`market-quotes`](supabase/functions/market-quotes/index.ts) for
+the stocks they hold, at most every 10 minutes per symbol. It does this on app
+start and whenever the app returns to the foreground.
+
+- The function tries Yahoo Finance first, then Google Finance.
+- Results are cached for everyone in `market_quotes` for 15 minutes, or 2 hours
+  after the market closes.
+- A provider that answers 429/403 is skipped for 30 minutes.
+- An intraday quote is used only if it is newer than the daily close. Holdings
+  priced this way show a **LIVE** badge with the time; daily prices show
+  **DAILY**.
+- If the function is missing, the user is signed out, the device is offline, or
+  the function is throttled, the app quietly backs off and keeps using the daily
+  file.
+
+Setup (one time, all in the browser):
+
+1. Run [`supabase_market_quotes.sql`](supabase_market_quotes.sql) in the Supabase
+   SQL editor. It creates the two service-role-only cache tables.
+2. Create an access token at <https://supabase.com/dashboard/account/tokens> and
+   save it as the repository secret `SUPABASE_ACCESS_TOKEN`. Then run
+   **Actions → Deploy Supabase functions → Run workflow**. The project ref is
+   taken from `VITE_SUPABASE_URL` (or set `SUPABASE_PROJECT_REF`). The workflow
+   redeploys automatically when `supabase/functions/**` changes on `main`.
+
+   Alternatively, create a function named `market-quotes` in the dashboard
+   editor and paste both files from `supabase/functions/market-quotes/`.
+
+**Mutual funds** use AMFI NAVs via [mfapi.in](https://www.mfapi.in/) for the
+schemes you hold; the scheme picker searches the full AMFI list.
+
+Holdings are repriced only when the new price is newer than the stored one. US
+stocks are converted to rupees at the latest USD/INR rate. Metal values are
+weight × purity rate and exclude making charges.
+
+Run **Actions → Update market data → Run workflow** once to create the branch.
+To use a different JSON URL, set `VITE_MARKET_DATA_URL` at build time; set it to
+`off` to disable the feed. GitHub pauses scheduled workflows after 60 days
+without repository activity; re-enable them from the Actions tab.
 
 ## Settings navigation
 

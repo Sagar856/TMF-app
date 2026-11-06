@@ -2,6 +2,23 @@ import type { InvestmentRecord, InvestmentType } from '../types/finance';
 
 export const MARKET_DATA_SCHEMA_VERSION = 1;
 
+export const SOURCE_YAHOO_DAILY = 'Yahoo Finance (daily close)';
+export const SOURCE_NSE_BHAVCOPY = 'NSE bhavcopy (official close)';
+export const SOURCE_IBJA = 'IBJA benchmark rate';
+export const SOURCE_YAHOO_INTRADAY = 'Yahoo Finance (intraday)';
+export const SOURCE_GOOGLE_INTRADAY = 'Google Finance (intraday)';
+
+const INTRADAY_SOURCES: ReadonlySet<string> = new Set([SOURCE_YAHOO_INTRADAY, SOURCE_GOOGLE_INTRADAY]);
+
+/** Price sources that come from a market feed rather than the user's own entry. */
+export const MARKET_FEED_SOURCES: ReadonlySet<string> = new Set([
+  'NSE/BSE (Live)', 'AMFI', SOURCE_YAHOO_DAILY, SOURCE_NSE_BHAVCOPY, SOURCE_IBJA, ...INTRADAY_SOURCES,
+]);
+
+export function isIntradaySource(source: string | undefined): boolean {
+  return Boolean(source && INTRADAY_SOURCES.has(source));
+}
+
 export type MetalKind = 'gold' | 'silver';
 
 export interface StockQuoteEntry {
@@ -138,17 +155,108 @@ export function parseIbjaRates(html: string, asOf: string): Partial<Record<Metal
   }
   // Sanity bounds protect against layout changes that would pick up an unrelated number.
   if (goldRates['999'] && goldRates['999'] > 1000 && goldRates['999'] < 200000) {
-    metals.gold = { ratesPerGram: goldRates, asOf, source: 'IBJA benchmark rate' };
+    metals.gold = { ratesPerGram: goldRates, asOf, source: SOURCE_IBJA };
   }
 
   const silverPerKg = read('Silver999');
   if (silverPerKg) {
     const perGram = round2(silverPerKg / 1000);
     if (perGram > 10 && perGram < 5000) {
-      metals.silver = { ratesPerGram: { '999': perGram }, asOf, source: 'IBJA benchmark rate' };
+      metals.silver = { ratesPerGram: { '999': perGram }, asOf, source: SOURCE_IBJA };
     }
   }
   return metals;
+}
+
+const BHAVCOPY_MONTHS: Record<string, string> = {
+  JAN: '01', FEB: '02', MAR: '03', APR: '04', MAY: '05', JUN: '06',
+  JUL: '07', AUG: '08', SEP: '09', OCT: '10', NOV: '11', DEC: '12',
+};
+/** Equity series that trade normally (EQ) or in trade-for-trade (BE); excludes bonds, warrants etc. */
+const BHAVCOPY_SERIES = new Set(['EQ', 'BE']);
+
+/**
+ * Parses NSE's "sec_bhavdata_full" CSV (official end-of-day prices for every listed security).
+ * The close is stamped at 15:30 IST of the trading date.
+ */
+export function parseNseBhavcopy(csv: string): { date: string; quotes: Record<string, StockQuoteEntry> } | null {
+  const lines = csv.split(/\r?\n/).filter((line) => line.trim());
+  if (lines.length < 2) return null;
+  const header = lines[0].split(',').map((cell) => cell.trim().toUpperCase());
+  const col = (name: string) => header.indexOf(name);
+  const [iSymbol, iSeries, iDate, iPrev, iClose] = ['SYMBOL', 'SERIES', 'DATE1', 'PREV_CLOSE', 'CLOSE_PRICE'].map(col);
+  if ([iSymbol, iSeries, iDate, iPrev, iClose].some((index) => index < 0)) return null;
+
+  const quotes: Record<string, StockQuoteEntry> = {};
+  let date = '';
+  for (const line of lines.slice(1)) {
+    const cells = line.split(',').map((cell) => cell.trim());
+    if (!BHAVCOPY_SERIES.has(cells[iSeries]?.toUpperCase())) continue;
+    const match = /^(\d{2})-([A-Za-z]{3})-(\d{4})$/.exec(cells[iDate] || '');
+    const month = match ? BHAVCOPY_MONTHS[match[2].toUpperCase()] : undefined;
+    const close = Number(cells[iClose]);
+    const previous = Number(cells[iPrev]);
+    const symbol = normalizeStockSymbol(cells[iSymbol]);
+    if (!match || !month || !symbol || !isPositiveNumber(close)) continue;
+    date = `${match[3]}-${month}-${match[1]}`;
+    // EQ is listed before BE for the rare symbols present in both; keep the first.
+    if (quotes[symbol]) continue;
+    quotes[symbol] = {
+      price: round2(close),
+      previousClose: round2(isPositiveNumber(previous) ? previous : close),
+      currency: 'INR',
+      asOf: `${date}T10:00:00.000Z`,
+      source: SOURCE_NSE_BHAVCOPY,
+    };
+  }
+  return date ? { date, quotes } : null;
+}
+
+/** Returns whichever quote is more recent; `primary` wins ties. */
+export function pickNewerQuote<T extends { asOf: string }>(primary: T | undefined, secondary: T | undefined): T | undefined {
+  if (!primary) return secondary;
+  if (!secondary) return primary;
+  return new Date(secondary.asOf).getTime() > new Date(primary.asOf).getTime() ? secondary : primary;
+}
+
+/**
+ * Overlays on-demand (intraday) quotes onto the daily snapshot. Only quotes newer than the
+ * daily close replace it, so a stale intraday cache never hides a fresher published close.
+ */
+export function overlayQuotes(
+  snapshot: MarketSnapshot | null,
+  quotes: Record<string, StockQuoteEntry>,
+  fx: Record<string, FxRateEntry> = {}
+): MarketSnapshot | null {
+  const symbols = Object.keys(quotes);
+  const fxKeys = Object.keys(fx);
+  if (!symbols.length && !fxKeys.length) return snapshot;
+  const base: MarketSnapshot = snapshot || {
+    schemaVersion: MARKET_DATA_SCHEMA_VERSION,
+    generatedAt: new Date(0).toISOString(),
+    stocks: {},
+    metals: {},
+    fx: {},
+  };
+  let changed = false;
+  const stocks = { ...base.stocks };
+  for (const symbol of symbols) {
+    const key = normalizeStockSymbol(symbol);
+    const chosen = pickNewerQuote(stocks[key], quotes[symbol]);
+    if (chosen !== stocks[key]) {
+      stocks[key] = chosen!;
+      changed = true;
+    }
+  }
+  const nextFx = { ...base.fx };
+  for (const key of fxKeys) {
+    const chosen = pickNewerQuote(nextFx[key], fx[key]);
+    if (chosen !== nextFx[key]) {
+      nextFx[key] = chosen!;
+      changed = true;
+    }
+  }
+  return changed ? { ...base, stocks, fx: nextFx } : snapshot;
 }
 
 const isIsoDateString = (value: unknown): value is string =>
@@ -196,18 +304,24 @@ export function validateMarketSnapshot(raw: unknown): MarketSnapshot | null {
   };
 }
 
-/** Keeps last-known values for anything the latest run failed to fetch. */
+function mergeNewer<T extends { asOf: string }>(previous: Record<string, T>, next: Record<string, T>): Record<string, T> {
+  const merged = { ...previous };
+  for (const [key, entry] of Object.entries(next)) merged[key] = pickNewerQuote(entry, previous[key])!;
+  return merged;
+}
+
+/** Keeps last-known values for anything the latest run failed to fetch; never replaces a newer quote with an older one. */
 export function mergeMarketSnapshots(previous: MarketSnapshot | null, next: MarketSnapshot): MarketSnapshot {
   if (!previous) return next;
   return {
     schemaVersion: MARKET_DATA_SCHEMA_VERSION,
     generatedAt: next.generatedAt,
-    stocks: { ...previous.stocks, ...next.stocks },
+    stocks: mergeNewer(previous.stocks, next.stocks),
     metals: {
       ...(next.metals.gold || previous.metals.gold ? { gold: next.metals.gold || previous.metals.gold } : {}),
       ...(next.metals.silver || previous.metals.silver ? { silver: next.metals.silver || previous.metals.silver } : {}),
     },
-    fx: { ...previous.fx, ...next.fx },
+    fx: mergeNewer(previous.fx, next.fx),
   };
 }
 

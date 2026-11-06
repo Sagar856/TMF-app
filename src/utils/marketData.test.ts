@@ -4,6 +4,12 @@ import type { InvestmentRecord } from '../types/finance';
 import {
   MARKET_DATA_SCHEMA_VERSION,
   MarketSnapshot,
+  SOURCE_NSE_BHAVCOPY,
+  SOURCE_YAHOO_INTRADAY,
+  isIntradaySource,
+  overlayQuotes,
+  parseNseBhavcopy,
+  pickNewerQuote,
   mergeMarketSnapshots,
   metalRatePerGram,
   normalizeNavDate,
@@ -154,4 +160,65 @@ test('revalueInvestments keeps newer or redeemed holdings and returns the same a
   const result = revalueInvestments(input, snapshot());
   assert.equal(result.changed, false);
   assert.equal(result.investments, input);
+});
+
+test('mergeMarketSnapshots never replaces a newer quote with an older one', () => {
+  const previous = snapshot();
+  const merged = mergeMarketSnapshots(previous, snapshot({
+    stocks: {
+      TCS: { price: 3400, previousClose: 3390, currency: 'INR', asOf: '2025-05-30T10:00:00.000Z', source: 'Daily Close' },
+      AAPL: { price: 205, previousClose: 200, currency: 'USD', asOf: '2025-06-03T20:00:00.000Z', source: 'Daily Close' },
+    },
+  }));
+  assert.equal(merged.stocks.TCS.price, 3500);
+  assert.equal(merged.stocks.AAPL.price, 205);
+});
+
+test('parseNseBhavcopy reads EQ/BE closes with padded cells and stamps 15:30 IST', () => {
+  const csv = [
+    'SYMBOL, SERIES, DATE1, PREV_CLOSE, OPEN_PRICE, HIGH_PRICE, LOW_PRICE, LAST_PRICE, CLOSE_PRICE, AVG_PRICE',
+    'TCS, EQ, 02-Jun-2025, 3450.00, 3460, 3510, 3440, 3500.1, 3500.05, 3480',
+    'SMALLCO, BE, 02-Jun-2025, 10.00, 10, 11, 9, 10.5, 10.50, 10.2',
+    'GSEC, GS, 02-Jun-2025, 100.00, 100, 100, 100, 100, 100.00, 100',
+    'BROKEN, EQ, 02-Jun-2025, 5, 5, 5, 5, 5, -, 5',
+  ].join('\n');
+  const parsed = parseNseBhavcopy(csv);
+  assert.ok(parsed);
+  assert.equal(parsed.date, '2025-06-02');
+  assert.deepEqual(Object.keys(parsed.quotes).sort(), ['SMALLCO', 'TCS']);
+  assert.equal(parsed.quotes.TCS.price, 3500.05);
+  assert.equal(parsed.quotes.TCS.previousClose, 3450);
+  assert.equal(parsed.quotes.TCS.asOf, '2025-06-02T10:00:00.000Z');
+  assert.equal(parsed.quotes.TCS.source, SOURCE_NSE_BHAVCOPY);
+  assert.equal(parseNseBhavcopy('<html>Not found</html>'), null);
+});
+
+test('pickNewerQuote prefers the newer quote and the primary on ties', () => {
+  const a = { asOf: '2025-06-02T10:00:00.000Z', id: 'a' };
+  const b = { asOf: '2025-06-02T10:00:00.000Z', id: 'b' };
+  const c = { asOf: '2025-06-02T11:00:00.000Z', id: 'c' };
+  assert.equal(pickNewerQuote(a, b), a);
+  assert.equal(pickNewerQuote(a, c), c);
+  assert.equal(pickNewerQuote(undefined, b), b);
+  assert.equal(pickNewerQuote(a, undefined), a);
+});
+
+test('overlayQuotes applies only newer intraday quotes and keeps the reference when unchanged', () => {
+  const daily = snapshot();
+  const intraday = {
+    tcs: { price: 3550, previousClose: 3500, currency: 'INR', asOf: '2025-06-03T06:00:00.000Z', source: SOURCE_YAHOO_INTRADAY },
+    AAPL: { price: 190, previousClose: 198, currency: 'USD', asOf: '2025-06-01T15:00:00.000Z', source: SOURCE_YAHOO_INTRADAY },
+  };
+  const overlaid = overlayQuotes(daily, intraday);
+  assert.notEqual(overlaid, daily);
+  assert.equal(overlaid?.stocks.TCS.price, 3550);
+  assert.equal(overlaid?.stocks.AAPL.price, 200);
+  assert.equal(daily.stocks.TCS.price, 3500);
+  assert.ok(isIntradaySource(overlaid?.stocks.TCS.source));
+
+  assert.equal(overlayQuotes(daily, { AAPL: intraday.AAPL }), daily);
+  assert.equal(overlayQuotes(daily, {}), daily);
+  const fromNothing = overlayQuotes(null, { TCS: intraday.tcs }, { USDINR: { rate: 86, asOf: AS_OF, source: SOURCE_YAHOO_INTRADAY } });
+  assert.equal(fromNothing?.stocks.TCS.price, 3550);
+  assert.equal(fromNothing?.fx.USDINR.rate, 86);
 });

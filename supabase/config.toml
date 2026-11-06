@@ -1,0 +1,5 @@
+project_id = "minarth"
+
+[functions.market-quotes]
+# The function also checks the user itself; the gateway check rejects unauthenticated calls early.
+verify_jwt = true

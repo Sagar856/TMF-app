@@ -104,7 +104,7 @@ import { adjustPaymentAccountBalance, applyTransactionToAccounts, createPaymentT
 import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount';
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
 import { useMarketSnapshot } from './hooks/useMarketSnapshot';
-import { loadMarketSnapshot, refreshMutualFundNavs } from './services/marketDataService';
+import { loadMarketSnapshot, refreshIntradayQuotes, refreshMutualFundNavs } from './services/marketDataService';
 import { revalueInvestments, type MutualFundNavEntry } from './utils/marketData';
 import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
@@ -318,11 +318,33 @@ export default function App() {
         .join(','),
     [investments]
   );
+  const stockHoldingKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          investments
+            .filter((inv) => inv.type === 'Stocks' && inv.status !== 'redeemed' && inv.symbol?.trim())
+            .map((inv) => `${inv.symbol!.trim().toUpperCase()}|${inv.exchange || 'NSE'}`)
+        )
+      )
+        .sort()
+        .join(','),
+    [investments]
+  );
 
   useEffect(() => {
     let cancelled = false;
     const refresh = () => {
       void loadMarketSnapshot();
+      if (stockHoldingKey) {
+        // Intraday prices via the Supabase function; quietly falls back to the daily snapshot.
+        void refreshIntradayQuotes(
+          stockHoldingKey.split(',').map((entry) => {
+            const [symbol, exchange] = entry.split('|');
+            return { symbol, exchange };
+          })
+        );
+      }
       if (mutualFundSchemeKey) {
         void refreshMutualFundNavs(mutualFundSchemeKey.split(',')).then((navs) => {
           if (!cancelled) setMutualFundNavs(navs);
@@ -338,7 +360,7 @@ export default function App() {
       cancelled = true;
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [mutualFundSchemeKey]);
+  }, [mutualFundSchemeKey, stockHoldingKey]);
 
   useEffect(() => {
     // revalueInvestments returns the same array when nothing is newer, so this settles after one pass.
