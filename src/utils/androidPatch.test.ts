@@ -46,6 +46,9 @@ test('Payment interception preserves API 22 compatibility without suppressing li
   assert.match(store, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.O\) \{\s+NotificationChannel/);
   assert.match(store, /new NotificationCompat\.Builder\(context, CHANNEL\)/);
   assert.match(store, /new NotificationCompat\.DecoratedCustomViewStyle\(\)/);
+  assert.match(store, /\.setVisibility\(NotificationCompat\.VISIBILITY_PRIVATE\)/);
+  assert.doesNotMatch(store, /\.setVisibility\(Notification\.VISIBILITY_/);
+  assert.match(store, /channel\.setLockscreenVisibility\(Notification\.VISIBILITY_PRIVATE\)/);
   assert.doesNotMatch(store, /new Notification\.(?:Builder|Action\.Builder|DecoratedCustomViewStyle)/);
   assert.match(listener, /if \(Build\.VERSION\.SDK_INT >= Build\.VERSION_CODES\.N\) \{\s+requestRebind\(/);
   for (const source of [store, receiver, listener]) {

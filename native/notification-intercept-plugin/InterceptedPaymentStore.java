@@ -227,7 +227,7 @@ public final class InterceptedPaymentStore {
             .setLargeIcon(BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_minarth_purple))
             .setColor(Color.rgb(126, 58, 210)).setContentText(summary.amount)
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle()).setCustomBigContentView(card)
-            .setVisibility(Notification.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
             .setContentIntent(open(context, id, "open"))
             .addAction(new NotificationCompat.Action.Builder(0, "Add", open(context, id, "add")).build())
             .addAction(replyAction)
