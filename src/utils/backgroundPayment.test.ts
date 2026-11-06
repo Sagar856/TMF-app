@@ -103,28 +103,28 @@ test('background cloud/auth failures never report a successful save', async () =
     auth: { getUser: async () => ({ data: { user: { id: 'another-user', email_confirmed_at: 'confirmed' } }, error: null }) },
     rpc: async () => { throw new Error('Must not call RPC for another owner'); },
   });
-
-  test('a native receipt failure after cloud commit retries without charging the account twice', async () => {
-    const h = harness();
-    h.state.bridge.complete = () => false;
-    await assert.rejects(h.run(), /persist background payment receipt/);
-    assert.equal(h.transactions.length, 1);
-    assert.equal(h.accounts[0].balance, 3500);
-    h.state.bridge.complete = result => { h.completed.push(JSON.parse(result)); return true; };
-    await h.run();
-    assert.equal(h.accounts[0].balance, 3500);
-    assert.equal(h.calls(), 1);
-    assert.equal(h.completed[0].transaction?.id, 'tx_native_payment-1');
-  });
-
-  test('background saving resolves captured coordinates without acquiring a new location', async () => {
-    const h = harness();
-    h.state.bridge.input = () => JSON.stringify({ ...payment, location: { lat: 18.5, lng: 73.8 } });
-    await h.run();
-    assert.deepEqual(h.completed[0].transaction?.location, { lat: 18.5, lng: 73.8, name: 'Pune' });
-  });
   await assert.rejects(wrongAccount.run(), /account that received/);
   assert.equal(wrongAccount.completed.length, 0);
+});
+
+test('a native receipt failure after cloud commit retries without charging the account twice', async () => {
+  const h = harness();
+  h.state.bridge.complete = () => false;
+  await assert.rejects(h.run(), /persist background payment receipt/);
+  assert.equal(h.transactions.length, 1);
+  assert.equal(h.accounts[0].balance, 3500);
+  h.state.bridge.complete = result => { h.completed.push(JSON.parse(result)); return true; };
+  await h.run();
+  assert.equal(h.accounts[0].balance, 3500);
+  assert.equal(h.calls(), 1);
+  assert.equal(h.completed[0].transaction?.id, 'tx_native_payment-1');
+});
+
+test('background saving resolves captured coordinates without acquiring a new location', async () => {
+  const h = harness();
+  h.state.bridge.input = () => JSON.stringify({ ...payment, location: { lat: 18.5, lng: 73.8 } });
+  await h.run();
+  assert.deepEqual(h.completed[0].transaction?.location, { lat: 18.5, lng: 73.8, name: 'Pune' });
 });
 
 test('shared mapping retains account matching, category fallback, card signs and cash behavior', () => {
