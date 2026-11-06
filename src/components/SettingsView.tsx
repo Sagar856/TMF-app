@@ -879,9 +879,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     id="settings-auto-lock"
                     label="Auto-lock"
                     description="Re-lock after the app has been in the background for this long."
+                    stacked
                   >
                     <SegmentedControl<string>
                       ariaLabel="Auto-lock delay"
+                      className="w-full flex-wrap [&>button]:flex-1 [&>button]:min-h-11 [&>button]:justify-center [&>button]:whitespace-nowrap [&>button]:focus-visible:outline-none [&>button]:focus-visible:ring-2 [&>button]:focus-visible:ring-red-500"
                       value={settings.autoLockMinutes === undefined ? 'never' : String(settings.autoLockMinutes)}
                       onChange={(v) => update({ autoLockMinutes: v === 'never' ? undefined : Number(v) })}
                       options={[

@@ -65,6 +65,13 @@ test('categories and budgets remain a separate menu below preferences', (context
     />
   );
   const markup = renderToStaticMarkup(view);
+  const lockedMarkup = renderToStaticMarkup(React.cloneElement(view, {
+    settings: { ...view.props.settings, passcodeEnabled: true, autoLockMinutes: 5 },
+  }));
+  assert.match(lockedMarkup, /id="settings-auto-lock"[^>]*class="[^"]*flex flex-col/);
+  assert.match(lockedMarkup, /aria-label="Auto-lock delay"[^>]*class="[^"]*w-full flex-wrap/);
+  assert.match(lockedMarkup, /aria-label="Auto-lock delay"[^>]*class="[^"]*min-h-11/);
+  assert.match(lockedMarkup, /role="radio" aria-checked="true"[^>]*>5 min<\/button>/);
   assert.doesNotMatch(markup, /id="settings-source"|Open source/);
   assert.ok(!SETTINGS_SEARCH_ENTRIES.some(entry => entry.targetId === 'settings-source'));
   assert.doesNotMatch(markup, /data-settings-group="categories"/);

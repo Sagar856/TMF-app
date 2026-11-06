@@ -177,11 +177,12 @@ interface SegmentedControlProps<T extends string> {
   ariaLabel: string;
   size?: 'sm' | 'md';
   variant?: 'segments' | 'tabs';
+  className?: string;
 }
 
-export function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel, size = 'sm', variant = 'segments' }: SegmentedControlProps<T>) {
+export function SegmentedControl<T extends string>({ value, options, onChange, ariaLabel, size = 'sm', variant = 'segments', className = '' }: SegmentedControlProps<T>) {
   return (
-    <div role="radiogroup" aria-label={ariaLabel} className={variant === 'tabs' ? 'settings-browser-tabs' : 'inline-flex items-center gap-1 p-1 bg-surface-2 border border-line rounded-xl'}>
+    <div role="radiogroup" aria-label={ariaLabel} className={`${variant === 'tabs' ? 'settings-browser-tabs' : 'inline-flex items-center gap-1 p-1 bg-surface-2 border border-line rounded-xl'} ${className}`}>
       {options.map((opt) => {
         const active = opt.value === value;
         return (
