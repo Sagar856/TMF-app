@@ -69,6 +69,8 @@ public final class InterceptedPaymentStore {
             record.put("transaction", transaction);
             if (result.has("account")) record.put("account", result.getJSONObject("account"));
             if (result.has("localBalance")) record.put("localBalance", result.getDouble("localBalance"));
+            if (result.has("cashAccount")) record.put("cashAccount", result.getJSONObject("cashAccount"));
+            if (result.has("localCashBalance")) record.put("localCashBalance", result.getDouble("localCashBalance"));
         }
         JSONObject saved = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("saved", "{}"));
         long revision = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("savedRevision", 0) + 1;

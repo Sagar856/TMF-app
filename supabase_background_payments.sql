@@ -10,9 +10,13 @@ DECLARE
   caller uuid := auth.uid();
   inserted_count integer;
   target_account text := payment->>'accountId';
+  cash_account text := CASE
+    WHEN payment->>'kind' = 'transfer' AND payment->>'subcategory' = 'Cash Withdrawal' AND payment->>'type' = 'debit'
+    THEN NULLIF(payment->>'toAccountId', '') END;
   amount numeric := (payment->>'amount')::numeric;
   direction text := payment->>'type';
   target_balance numeric;
+  cash_balance numeric;
 BEGIN
   IF caller IS NULL OR caller IS DISTINCT FROM expected_user OR NOT public.has_verified_email() THEN
     RAISE EXCEPTION 'Verified account authentication required';
@@ -29,15 +33,29 @@ BEGIN
       WHERE user_id = caller AND id = target_account AND deleted_at IS NULL FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'Payment account is unavailable; review in app'; END IF;
   END IF;
+  -- ATM withdrawals move money into the Cash account instead of being spend.
+  IF cash_account IS NOT NULL THEN
+    IF target_account IS NULL OR cash_account = target_account THEN
+      RAISE EXCEPTION 'Invalid cash withdrawal';
+    END IF;
+    IF cash_account LIKE 'acc\_cash\_%' THEN
+      INSERT INTO public.financial_accounts (user_id, id, name, bank_name, type, account_number_last4, balance)
+      VALUES (caller, cash_account, 'Cash in Hand', 'Cash', 'Cash', '', 0)
+      ON CONFLICT (user_id, id) DO NOTHING;
+    END IF;
+    PERFORM 1 FROM public.financial_accounts
+      WHERE user_id = caller AND id = cash_account AND type = 'Cash' AND deleted_at IS NULL FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'Cash account is unavailable; review in app'; END IF;
+  END IF;
   INSERT INTO public.transactions (
     user_id, id, title, amount, type, category, subcategory, date, time,
-    location, source, raw_text, payee_or_payer, payment_method, ref_number, kind, account_id
+    location, source, raw_text, payee_or_payer, payment_method, ref_number, kind, account_id, to_account_id
   ) VALUES (
     caller, payment->>'id', payment->>'title', amount, direction,
     payment->>'category', payment->>'subcategory', (payment->>'date')::date,
     payment->>'time', payment->'location', payment->>'source', payment->>'rawText',
     payment->>'payeeOrPayer', payment->>'paymentMethod', payment->>'refNumber',
-    payment->>'kind', target_account
+    payment->>'kind', target_account, cash_account
   ) ON CONFLICT (user_id, id) DO NOTHING;
   GET DIAGNOSTICS inserted_count = ROW_COUNT;
   IF inserted_count = 1 AND payment->>'category' = 'Uncategorized' THEN
@@ -52,11 +70,18 @@ BEGIN
         * CASE WHEN type = 'Credit Card' THEN -1 ELSE 1 END, 2
     ) WHERE user_id = caller AND id = target_account;
   END IF;
+  IF inserted_count = 1 AND cash_account IS NOT NULL THEN
+    UPDATE public.financial_accounts SET balance = pg_catalog.round(balance + amount, 2)
+      WHERE user_id = caller AND id = cash_account;
+  END IF;
   SELECT balance INTO target_balance FROM public.financial_accounts WHERE user_id = caller AND id = target_account;
+  IF cash_account IS NOT NULL THEN
+    SELECT balance INTO cash_balance FROM public.financial_accounts WHERE user_id = caller AND id = cash_account;
+  END IF;
   RETURN pg_catalog.jsonb_build_object(
     'saved', EXISTS (
       SELECT 1 FROM public.transactions WHERE user_id = caller AND id = payment->>'id' AND deleted_at IS NULL
-    ), 'balance', target_balance
+    ), 'balance', target_balance, 'cash_balance', cash_balance
   );
 END;
 $$;

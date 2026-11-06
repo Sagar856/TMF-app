@@ -13,6 +13,7 @@ import {
   sumOperatingExpense,
   sumOperatingIncome,
 } from '../utils/transactionKind';
+import { isLiquidAccount } from '../utils/cashAccount';
 import { CashflowTrendLineChart } from './CashflowTrendLineChart';
 import { SevenDaySpendingTrendChart } from './SevenDaySpendingTrendChart';
 import { CategoryDonutChart } from './CategoryDonutChart';
@@ -211,11 +212,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // Accounts & Net worth calculations
   const hasAccounts = Boolean(accounts && accounts.length > 0);
 
-  // liquid = Σ balance of accounts with type 'Bank' | 'Wallet/UPI' | 'Debit Card'
+  // liquid = Σ balance of Bank, Wallet/UPI, Debit Card and Cash accounts
   const liquid = useMemo(() => {
     if (!hasAccounts || !accounts) return 0;
     return accounts
-      .filter((a) => a.type === 'Bank' || a.type === 'Wallet/UPI' || a.type === 'Debit Card')
+      .filter(isLiquidAccount)
       .reduce((sum, a) => sum + (Number(a.balance) || 0), 0);
   }, [accounts, hasAccounts]);
 
@@ -435,7 +436,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <div className="text-[10px] sm:text-[11px] text-emerald-400 flex items-center gap-0.5 font-bold">
                 {hasAccounts ? (
-                  <span>{accounts.filter((a) => a.type !== 'Credit Card').length} Liquid Accounts</span>
+                  <span>{accounts.filter(isLiquidAccount).length} Liquid Accounts</span>
                 ) : (
                   <span className="text-amber-400">Add accounts to see true net worth</span>
                 )}

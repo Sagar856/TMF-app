@@ -1,5 +1,6 @@
 import { Category, FinancialAccount, Transaction } from '../types/finance';
 import { getTransactionKind, isOperatingExpense, isRefund } from './transactionKind';
+import { isLiquidAccount } from './cashAccount';
 
 const LOOKBACK_DAYS = 90;
 const FORECAST_DAYS = 30;
@@ -121,9 +122,7 @@ function detectRecurringGroups(transactions: readonly Transaction[], asOfOrdinal
 
 function calculateAvailableBalance(accounts: readonly FinancialAccount[]): number | null {
   if (accounts.length === 0) return null;
-  const cashAccounts = accounts.filter(
-    (account) => account.type === 'Bank' || account.type === 'Wallet/UPI' || account.type === 'Debit Card'
-  );
+  const cashAccounts = accounts.filter(isLiquidAccount);
   if (cashAccounts.length === 0) return null;
   return cashAccounts.reduce((total, account) => {
     const balance = Number(account.balance);

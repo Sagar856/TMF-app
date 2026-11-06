@@ -49,6 +49,9 @@ import { calculateFixedDeposit, roundCurrency, type FdCalculationResult } from '
 import { parseNumberInput, parsePositiveAmount } from '../utils/numberInput';
 import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } from 'lucide-react';
 import { StockSelector } from './StockSelector';
+import { MutualFundSelector } from './MutualFundSelector';
+import { useMarketSnapshot } from '../hooks/useMarketSnapshot';
+import { METAL_PURITY_OPTIONS, metalKindForType, metalRatePerGram } from '../utils/marketData';
 import { DematManagerModal } from './DematManagerModal';
 import { StockItem } from '../services/stocksDatabase';
 import { newId } from '../utils/ids';
@@ -87,14 +90,21 @@ interface InvestmentTxn {
 
 const PALETTE = ['#06b6d4', '#3b82f6', '#10b981', '#f59e0b', '#ec4899', 'var(--ui-investment-accent)', '#ef4444', '#14b8a6'];
 
+const MARKET_FEED_SOURCES = new Set(['NSE/BSE (Live)', 'AMFI', 'Yahoo Finance (daily close)', 'IBJA benchmark rate']);
+
+/** Market-fed prices are "fresh" for 4 days so weekend/holiday gaps between daily closes don't look stale. */
 function isQuoteLive(inv: InvestmentRecord): boolean {
-  const isLiveSource = inv.priceSource === 'NSE/BSE (Live)' || inv.priceSource === 'AMFI';
   const tsStr = inv.priceTimestamp || inv.navDate;
-  if (!isLiveSource || !tsStr) return false;
+  if (!inv.priceSource || !MARKET_FEED_SOURCES.has(inv.priceSource) || !tsStr) return false;
   const ts = new Date(tsStr).getTime();
   if (isNaN(ts)) return false;
-  const diffMs = Math.abs(Date.now() - ts);
-  return diffMs < 24 * 60 * 60 * 1000;
+  return Math.abs(Date.now() - ts) < 4 * 24 * 60 * 60 * 1000;
+}
+
+function formatQuoteDate(value?: string): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return isNaN(date.getTime()) ? null : date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
 }
 
 export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
@@ -222,10 +232,20 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [linkedAccountId, setLinkedAccountId] = useState<string>(accounts[0]?.id || '');
   const [recordInLedger, setRecordInLedger] = useState<boolean>(true);
   const [formError, setFormError] = useState<string | null>(null);
-  const [isSearchingMf, setIsSearchingMf] = useState<boolean>(false);
-  const [mfSearchResults, setMfSearchResults] = useState<Array<{ schemeCode: number; schemeName: string }>>([]);
-  const [showMfSearchResults, setShowMfSearchResults] = useState<boolean>(false);
+  const [metalWeightGrams, setMetalWeightGrams] = useState<string>('');
+  const [metalPurity, setMetalPurity] = useState<number>(999);
+  const marketSnapshot = useMarketSnapshot();
   const lastAddAssetRequestRef = useRef(0);
+
+  const formMetal = metalKindForType(type);
+  const formMetalEntry = formMetal ? marketSnapshot?.metals[formMetal] : undefined;
+  const formMetalRate = formMetal ? metalRatePerGram(formMetalEntry, metalPurity) : null;
+
+  const applyMetalValuation = (gramsText: string, purity: number, metal = formMetal) => {
+    const grams = parseFloat(gramsText);
+    const rate = metal ? metalRatePerGram(marketSnapshot?.metals[metal], purity) : null;
+    if (grams > 0 && rate) setCurrentValue((grams * rate).toFixed(2));
+  };
 
   const resetForm = () => {
     setEditingInv(null);
@@ -255,8 +275,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setLinkedAccountId(accounts[0]?.id || '');
     setRecordInLedger(true);
     setFormError(null);
-    setShowMfSearchResults(false);
-    setMfSearchResults([]);
+    setMetalWeightGrams('');
+    setMetalPurity(999);
   };
 
   useEffect(() => {
@@ -266,41 +286,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     setShowAddModal(true);
   }, [openAddAssetRequest]);
 
-  const handleSearchMfCode = async () => {
-    const q = (name || schemeCode).trim();
-    if (!q) {
-      setFormError('Type a mutual fund name first to search for AMFI scheme code');
-      return;
-    }
-    setFormError(null);
-    setIsSearchingMf(true);
-    setShowMfSearchResults(false);
-    try {
-      const res = await fetch(`https://api.mfapi.in/mf/search?q=${encodeURIComponent(q)}`);
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data) && data.length > 0) {
-          setMfSearchResults(data.slice(0, 10));
-          setShowMfSearchResults(true);
-        } else {
-          setFormError(`No schemes found matching "${q}". Enter code manually or try another keyword.`);
-        }
-      } else {
-        setFormError('Failed to fetch scheme search results from AMFI.');
-      }
-    } catch {
-      setFormError('Network error while searching AMFI scheme codes.');
-    } finally {
-      setIsSearchingMf(false);
-    }
-  };
-
-  const handleSelectMfScheme = (item: { schemeCode: number; schemeName: string }) => {
-    setSchemeCode(item.schemeCode.toString());
-    setName(item.schemeName);
-    setShowMfSearchResults(false);
-    setFormError(null);
-  };
 
   // Count active filters
   const activeFilterCount = useMemo(() => {
@@ -543,6 +528,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     if (inv.payoutFrequency) setFdPayout(inv.payoutFrequency);
     if (inv.prematurePenaltyPercent !== undefined) setFdPrematurePenalty(inv.prematurePenaltyPercent.toString());
 
+    // Physical gold / silver
+    if (inv.metalWeightGrams !== undefined) setMetalWeightGrams(inv.metalWeightGrams.toString());
+    if (inv.metalPurity) setMetalPurity(inv.metalPurity);
+
     if (inv.linkedAccountId) setLinkedAccountId(inv.linkedAccountId);
 
     setShowAddModal(true);
@@ -734,6 +723,15 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
       if (numVal <= 0 || !editingInv || numInv !== editingInv.amountInvested) {
         numVal = roundCurrency(numInv + fdCalc.accruedInterestToDate);
       }
+    } else if (formMetal) {
+      const grams = parseFloat(metalWeightGrams);
+      if (!(grams > 0)) {
+        setFormError('Please enter the weight in grams');
+        return;
+      }
+      if (numVal <= 0 && formMetalRate) {
+        numVal = roundCurrency(grams * formMetalRate);
+      }
     }
 
     if (numInv <= 0) {
@@ -746,6 +744,20 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     }
 
     const returnPct = numInv > 0 ? parseFloat((((numVal - numInv) / numInv) * 100).toFixed(2)) : 0;
+    const metalGrams = formMetal ? parseFloat(metalWeightGrams) : undefined;
+    const metalPerGram = formMetal && metalGrams ? roundCurrency(numVal / metalGrams) : undefined;
+    const metalHoldingChanged = Boolean(
+      formMetal && editingInv && (editingInv.metalWeightGrams !== metalGrams || editingInv.metalPurity !== metalPurity || editingInv.type !== type)
+    );
+    // A different instrument must be re-priced from the next market refresh instead of keeping the old quote date.
+    const pricingIdentityChanged = Boolean(
+      editingInv && (
+        metalHoldingChanged ||
+        editingInv.type !== type ||
+        (type === 'Mutual Funds' && schemeCode.trim() !== (editingInv.schemeCode || '').trim()) ||
+        (type === 'Stocks' && stockSymbol.trim().toUpperCase() !== (editingInv.symbol || '').trim().toUpperCase())
+      )
+    );
 
     if (editingInv && onUpdateInvestment) {
       onUpdateInvestment({
@@ -771,8 +783,14 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         exchange: type === 'Stocks' ? stockExchange : editingInv.exchange,
         shares: type === 'Stocks' ? calculatedShares : editingInv.shares,
         purchasePrice: type === 'Stocks' ? pPrice : editingInv.purchasePrice,
-        currentPrice: type === 'Stocks' ? cPrice : editingInv.currentPrice,
+        currentPrice: type === 'Stocks' ? cPrice : formMetal ? metalPerGram : editingInv.currentPrice,
         brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : editingInv.brokerageFees,
+        // Physical metal fields; a changed weight/purity is re-priced from the next daily rate.
+        metalWeightGrams: formMetal ? metalGrams : undefined,
+        metalPurity: formMetal ? metalPurity : undefined,
+        priceTimestamp: pricingIdentityChanged ? undefined : editingInv.priceTimestamp,
+        priceSource: pricingIdentityChanged ? undefined : editingInv.priceSource,
+        navDate: pricingIdentityChanged ? undefined : editingInv.navDate,
         // FD fields (recomputed from the engine so edits to rate/tenure/payout refresh maturity & accrual)
         bankName: type === 'Fixed Deposit' ? fdBankName : editingInv.bankName,
         interestRate: type === 'Fixed Deposit' ? Number(fdInterestRate) : editingInv.interestRate,
@@ -816,9 +834,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         exchange: type === 'Stocks' ? stockExchange : undefined,
         shares: type === 'Stocks' ? calculatedShares : undefined,
         purchasePrice: type === 'Stocks' ? pPrice : undefined,
-        currentPrice: type === 'Stocks' ? cPrice : undefined,
+        currentPrice: type === 'Stocks' ? cPrice : formMetal ? metalPerGram : undefined,
         brokerageFees: type === 'Stocks' ? (parseFloat(brokerageFees) || 0) : undefined,
         lots: type === 'Stocks' ? [{ id: 'lot_1', date: purchaseDate, shares: calculatedShares, purchasePrice: pPrice, brokerageFees: parseFloat(brokerageFees) || 0 }] : undefined,
+        // Physical metal fields
+        metalWeightGrams: formMetal ? metalGrams : undefined,
+        metalPurity: formMetal ? metalPurity : undefined,
         // FD fields
         bankName: type === 'Fixed Deposit' ? fdBankName : undefined,
         interestRate: type === 'Fixed Deposit' ? Number(fdInterestRate) : undefined,
@@ -1697,6 +1718,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 const isMF = inv.type === 'Mutual Funds';
                 const isStock = inv.type === 'Stocks';
                 const isFD = inv.type === 'Fixed Deposit';
+                const isMetal = Boolean(metalKindForType(inv.type));
+                const quoteDate = formatQuoteDate(inv.priceTimestamp || inv.navDate);
                 const isRedeemed = inv.status === 'redeemed' || inv.currentValue === 0;
 
                 return (
@@ -1770,7 +1793,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                               <span className="text-[#666] block text-[9px] uppercase">Current NAV</span>
                               {inv.currentNav ? (
                                 isQuoteLive(inv) ? (
-                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LIVE</span>
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">DAILY</span>
                                 ) : (
                                   <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
                                 )
@@ -1779,6 +1802,9 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             <span className="text-cyan-400 font-bold">
                               {inv.currentNav ? `${currencySymbol}${inv.currentNav}` : '—'}
                             </span>
+                            {inv.currentNav && quoteDate && (
+                              <span className="block text-[9px] text-[#666]">as of {quoteDate}</span>
+                            )}
                           </div>
                         </>
                       )}
@@ -1793,7 +1819,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                               <span className="text-[#666] block text-[9px] uppercase">Market Price</span>
                               {inv.currentPrice ? (
                                 isQuoteLive(inv) ? (
-                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">LIVE</span>
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">DAILY</span>
                                 ) : (
                                   <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
                                 )
@@ -1802,6 +1828,38 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                             <span className="text-cyan-400 font-bold">
                               {inv.currentPrice ? `${currencySymbol}${inv.currentPrice}` : '—'}
                             </span>
+                            {inv.currentPrice && quoteDate && (
+                              <span className="block text-[9px] text-[#666]">as of {quoteDate}</span>
+                            )}
+                          </div>
+                        </>
+                      )}
+                      {isMetal && (
+                        <>
+                          <div>
+                            <span className="text-[#666] block text-[9px] uppercase">Weight · Purity</span>
+                            <span className="text-white font-bold">
+                              {inv.metalWeightGrams ? `${inv.metalWeightGrams} g` : '—'}
+                              {inv.metalPurity ? ` · ${inv.metalPurity}` : ''}
+                            </span>
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[#666] block text-[9px] uppercase">Rate / gram</span>
+                              {inv.currentPrice ? (
+                                isQuoteLive(inv) ? (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">DAILY</span>
+                                ) : (
+                                  <span className="px-1 py-0.2 text-[8px] font-mono font-bold rounded bg-neutral-800 text-neutral-400 border border-neutral-700">SAVED</span>
+                                )
+                              ) : null}
+                            </div>
+                            <span className="text-amber-400 font-bold">
+                              {inv.currentPrice ? `${currencySymbol}${formatAmount(inv.currentPrice)}` : '—'}
+                            </span>
+                            {inv.currentPrice && quoteDate && (
+                              <span className="block text-[9px] text-[#666]">{inv.priceSource === 'IBJA benchmark rate' ? 'IBJA' : 'as of'} {quoteDate}</span>
+                            )}
                           </div>
                         </>
                       )}
@@ -1817,7 +1875,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                           </div>
                         </>
                       )}
-                      {!isMF && !isStock && !isFD && (
+                      {!isMF && !isStock && !isFD && !isMetal && (
                         <div>
                           <span className="text-[#666] block text-[9px] uppercase">Valuation Date</span>
                           <span className="text-white">{inv.date}</span>
@@ -2132,15 +2190,23 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                   <select
                     value={type}
                     onChange={(e) => {
-                      setType(e.target.value as InvestmentType);
+                      const nextType = e.target.value as InvestmentType;
+                      setType(nextType);
                       setFormError(null);
+                      const nextMetal = metalKindForType(nextType);
+                      if (nextMetal) {
+                        setMetalPurity(999);
+                        applyMetalValuation(metalWeightGrams, 999, nextMetal);
+                      }
                     }}
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
                   >
                     <option value="Mutual Funds">Mutual Funds (SIP / Lump sum)</option>
                     <option value="Stocks">Direct Stocks & Equity ETFs</option>
                     <option value="Fixed Deposit">Fixed Deposit / Term Deposit</option>
-                    <option value="Gold">Sovereign Gold Bond / Gold</option>
+                    <option value="Physical Gold">Physical Gold (Jewellery / Coins / Bars)</option>
+                    <option value="Physical Silver">Physical Silver (Coins / Bars / Articles)</option>
+                    <option value="Gold">Sovereign Gold Bond / Digital Gold</option>
                     <option value="Crypto">Crypto Assets</option>
                     <option value="Real Estate">Real Estate / REITs</option>
                   </select>
@@ -2160,15 +2226,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 </div>
               </div>
 
-              {/* Asset / Fund Name (for non-stock types) */}
-              {type !== 'Stocks' && (
+              {/* Asset / Fund Name (MF and stock names come from their pickers) */}
+              {type !== 'Stocks' && type !== 'Mutual Funds' && (
                 <div>
                   <label className="block text-[10px] text-[#aaa] uppercase tracking-wider mb-1">
-                    {type === 'Mutual Funds'
-                      ? 'Scheme Name'
-                      : type === 'Fixed Deposit'
-                      ? 'Bank / Institution Name'
-                      : 'Investment Name'}
+                    {type === 'Fixed Deposit' ? 'Bank / Institution Name' : formMetal ? 'Item Description' : 'Investment Name'}
                   </label>
                   <input
                     type="text"
@@ -2176,10 +2238,12 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder={
-                      type === 'Mutual Funds'
-                        ? 'e.g. UTI Nifty 50 Index Fund Direct Growth'
-                        : type === 'Fixed Deposit'
+                      type === 'Fixed Deposit'
                         ? 'e.g. HDFC Bank Fixed Deposit'
+                        : type === 'Physical Gold'
+                        ? 'e.g. 22K gold chain / 10 g coin'
+                        : type === 'Physical Silver'
+                        ? 'e.g. Silver coins / 1 kg bar'
                         : 'e.g. Sovereign Gold Bond 2026'
                     }
                     className="w-full px-3 py-2 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
@@ -2187,63 +2251,83 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 </div>
               )}
 
+              {/* PHYSICAL GOLD / SILVER - valued daily from IBJA benchmark rates */}
+              {formMetal && (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Weight (grams)</label>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        required
+                        value={metalWeightGrams}
+                        onWheel={(e) => (e.target as HTMLElement).blur()}
+                        onChange={(e) => {
+                          setMetalWeightGrams(e.target.value);
+                          applyMetalValuation(e.target.value, metalPurity);
+                          if (formError) setFormError(null);
+                        }}
+                        placeholder={formMetal === 'gold' ? 'e.g. 10' : 'e.g. 500'}
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] text-[#aaa] uppercase mb-1">Purity</label>
+                      <select
+                        value={metalPurity}
+                        onChange={(e) => {
+                          const purity = Number(e.target.value);
+                          setMetalPurity(purity);
+                          applyMetalValuation(metalWeightGrams, purity);
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white"
+                      >
+                        {METAL_PURITY_OPTIONS[formMetal].map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <p className="text-[10px] font-mono text-[#888]">
+                    {formMetalRate && formMetalEntry ? (
+                      <>
+                        Today's rate <span className="text-amber-400 font-bold">{currencySymbol}{formatAmount(formMetalRate)}/g</span>
+                        {' '}· {formatQuoteDate(formMetalEntry.asOf)} · {formMetalEntry.source}. Current value updates daily; making charges aren't included.
+                      </>
+                    ) : (
+                      <>Daily {formMetal} rate isn't available offline yet — enter the current valuation manually; it will update once rates download.</>
+                    )}
+                  </p>
+                </div>
+              )}
+
               {/* MUTUAL FUNDS SPECIFIC FIELDS */}
               {type === 'Mutual Funds' && (
                 <div className="space-y-2.5">
-                  {/* AMFI Scheme Code with Find Code search */}
-                  <div>
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[9px] text-[#aaa] uppercase">
-                        AMFI Scheme Code
-                      </label>
-                      <button
-                        type="button"
-                        disabled={isSearchingMf}
-                        onClick={handleSearchMfCode}
-                        className="text-[9px] text-cyan-400 hover:text-cyan-300 font-bold flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                        title="Search AMFI scheme code by name"
-                      >
-                        <Search className="w-2.5 h-2.5" />
-                        <span>{isSearchingMf ? 'Searching...' : 'Find code'}</span>
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      value={schemeCode}
-                      onChange={(e) => {
-                        setSchemeCode(e.target.value);
-                        if (formError) setFormError(null);
-                      }}
-                      placeholder="e.g. 122639 (Parag Parikh Flexi Cap)"
-                      className="w-full px-2.5 py-1.5 bg-[#181820] border border-[#333] rounded-xl text-xs text-white focus:outline-none focus:border-red-600"
-                    />
-
-                    {showMfSearchResults && mfSearchResults.length > 0 && (
-                      <div className="mt-1.5 max-h-48 overflow-y-auto bg-surface-1 border border-[#333] rounded-xl p-1 shadow-2xl divide-y divide-line">
-                        <div className="flex items-center justify-between px-2 py-1 text-[9px] text-[#777]">
-                          <span>Select AMFI Scheme:</span>
-                          <button
-                            type="button"
-                            onClick={() => setShowMfSearchResults(false)}
-                            className="text-[#888] hover:text-white p-0.5"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                        {mfSearchResults.map((item) => (
-                          <button
-                            key={item.schemeCode}
-                            type="button"
-                            onClick={() => handleSelectMfScheme(item)}
-                            className="w-full text-left px-2 py-1.5 hover:bg-surface-3 rounded-lg transition-colors flex items-center justify-between gap-2 cursor-pointer"
-                          >
-                            <span className="text-[11px] text-white truncate flex-1">{item.schemeName}</span>
-                            <span className="text-[10px] font-mono text-cyan-400 shrink-0 font-bold">{item.schemeCode}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                  <MutualFundSelector
+                    schemeCode={schemeCode}
+                    schemeName={name}
+                    currencySymbol={currencySymbol}
+                    onSelect={(fund) => {
+                      setSchemeCode(fund.schemeCode);
+                      setName(fund.schemeName);
+                      setFormError(null);
+                      // Prefill the buy NAV for a new holding with today's NAV; users can overwrite it.
+                      if (!editingInv && fund.latestNav && !purchaseNav.trim()) {
+                        setPurchaseNav(String(fund.latestNav));
+                        const amount = parseFloat(amountInvested);
+                        if (amount > 0) setUnits((amount / fund.latestNav).toFixed(3));
+                      }
+                    }}
+                    onManualNameChange={(value) => {
+                      setName(value);
+                      setSchemeCode('');
+                    }}
+                  />
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                     <div>
@@ -2314,19 +2398,24 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       setStockSymbol(stock.symbol);
                       setName(stock.name);
                       setStockExchange(stock.exchange === 'NSE' || stock.exchange === 'BSE' ? stock.exchange : 'US');
-                      setPurchasePrice(stock.basePrice.toString());
+                      // Holdings are tracked in rupees, so US listings are converted at the published USD/INR rate.
+                      const usdInr = marketSnapshot?.fx.USDINR?.rate;
+                      const price = (stock.exchange === 'NASDAQ' || stock.exchange === 'NYSE') && usdInr
+                        ? roundCurrency(stock.basePrice * usdInr)
+                        : stock.basePrice;
+                      setPurchasePrice(price.toString());
                       if (shares && parseFloat(shares) > 0) {
                         const s = parseFloat(shares);
-                        setAmountInvested((s * stock.basePrice).toFixed(2));
-                        setCurrentValue((s * stock.basePrice).toFixed(2));
+                        setAmountInvested((s * price).toFixed(2));
+                        setCurrentValue((s * price).toFixed(2));
                       } else if (amountInvested && parseFloat(amountInvested) > 0) {
                         const amt = parseFloat(amountInvested);
-                        setShares(Math.floor(amt / stock.basePrice).toString());
+                        setShares(Math.floor(amt / price).toString());
                         setCurrentValue(amt.toFixed(2));
                       } else {
                         setShares('10');
-                        setAmountInvested((10 * stock.basePrice).toFixed(2));
-                        setCurrentValue((10 * stock.basePrice).toFixed(2));
+                        setAmountInvested((10 * price).toFixed(2));
+                        setCurrentValue((10 * price).toFixed(2));
                       }
                     }}
                     onCustomSymbolChange={(sym) => {

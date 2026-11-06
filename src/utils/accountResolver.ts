@@ -7,7 +7,7 @@ import { FinancialAccount } from '../types/finance';
  * a. Exact match on id -> return id
  * b. Legacy fallback: if string contains "(**dddd)" match accountNumberLast4 (and bankName if present)
  *    else match name / bankName case-insensitively
- * c. 'Cash', 'UPI', 'Other UPI', or unmatched -> return null
+ * c. 'Cash' -> the user's Cash account when one exists; 'UPI', 'Other UPI', or unmatched -> return null
  */
 export function resolveAccountId(
   accountsList: FinancialAccount[],
@@ -15,7 +15,7 @@ export function resolveAccountId(
 ): string | null {
   if (!methodOrName || accountsList.length === 0) return null;
   const trimmed = methodOrName.trim();
-  if (trimmed === 'Cash' || trimmed.toLowerCase() === 'cash') return null;
+  if (trimmed.toLowerCase() === 'cash') return accountsList.find((a) => a.type === 'Cash')?.id ?? null;
 
   // a. exact match on id
   const exactById = accountsList.find((a) => a.id === trimmed);

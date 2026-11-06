@@ -2,6 +2,18 @@ import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Search, ChevronDown, Check, TrendingUp, Sparkles, Building2 } from 'lucide-react';
 import { StockItem, POPULAR_STOCKS_CATALOG, searchStocksCatalog } from '../services/stocksDatabase';
+import { useMarketSnapshot } from '../hooks/useMarketSnapshot';
+import type { MarketSnapshot } from '../utils/marketData';
+
+const isForeignListing = (stock: StockItem) => stock.exchange === 'NASDAQ' || stock.exchange === 'NYSE';
+
+/** Overlays the latest published daily close onto a catalog entry. */
+function withDailyClose(stock: StockItem, snapshot: MarketSnapshot | null): StockItem {
+  const quote = snapshot?.stocks[stock.symbol];
+  const expectedCurrency = isForeignListing(stock) ? 'USD' : 'INR';
+  if (!quote || quote.currency !== expectedCurrency) return stock;
+  return { ...stock, basePrice: quote.price, previousClose: quote.previousClose, asOfDate: quote.asOf };
+}
 
 interface StockSelectorProps {
   selectedSymbol: string;
@@ -35,6 +47,12 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSector, setSelectedSector] = useState('All');
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const marketSnapshot = useMarketSnapshot();
+  const priceSymbol = (stock: StockItem) => (isForeignListing(stock) ? '$' : currencySymbol);
+  const asOfLabel = (stock: StockItem) => {
+    const date = new Date(stock.asOfDate);
+    return isNaN(date.getTime()) ? stock.asOfDate : date.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+  };
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -48,15 +66,16 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
   }, []);
 
   const filteredStocks = useMemo(() => {
-    return searchStocksCatalog(searchQuery, selectedSector);
-  }, [searchQuery, selectedSector]);
+    return searchStocksCatalog(searchQuery, selectedSector).map((stock) => withDailyClose(stock, marketSnapshot));
+  }, [searchQuery, selectedSector, marketSnapshot]);
 
   const currentSelectedStock = useMemo(() => {
     const clean = selectedSymbol.trim().toUpperCase();
-    return POPULAR_STOCKS_CATALOG.find(
+    const match = POPULAR_STOCKS_CATALOG.find(
       (s) => s.symbol === clean || s.aliases?.some((a) => a.toUpperCase() === clean)
     );
-  }, [selectedSymbol]);
+    return match ? withDailyClose(match, marketSnapshot) : undefined;
+  }, [selectedSymbol, marketSnapshot]);
 
   const handleSelect = (stock: StockItem) => {
     onSelect(stock);
@@ -115,7 +134,7 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           {currentSelectedStock && (
             <span className="text-xs font-bold text-emerald-400">
-              {currencySymbol}{formatAmount(currentSelectedStock.basePrice)}
+              {priceSymbol(currentSelectedStock)}{formatAmount(currentSelectedStock.basePrice)}
             </span>
           )}
           <ChevronDown className={`w-4 h-4 text-[#888] transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -205,10 +224,10 @@ export const StockSelector: React.FC<StockSelectorProps> = ({
 
                     <div className="text-right shrink-0">
                       <div className="text-xs font-bold text-emerald-400">
-                        {currencySymbol}{formatAmount(stock.basePrice)}
+                        {priceSymbol(stock)}{formatAmount(stock.basePrice)}
                       </div>
                       <div className="text-[9px] text-[#666]">
-                        Prev {currencySymbol}{stock.previousClose}
+                        Prev {priceSymbol(stock)}{stock.previousClose} · {asOfLabel(stock)}
                       </div>
                     </div>
 

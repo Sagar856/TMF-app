@@ -13,6 +13,9 @@ export interface InterceptedPayment {
   transaction?: Transaction;
   account?: FinancialAccount;
   localBalance?: number;
+  /** Cash account credited by a background-saved ATM withdrawal. */
+  cashAccount?: FinancialAccount;
+  localCashBalance?: number;
   savedRevision?: number;
   description?: string;
   location?: Omit<LocationTag, 'name'> & { name?: string; capturedAt?: number };

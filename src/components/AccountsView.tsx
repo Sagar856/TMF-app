@@ -36,6 +36,7 @@ import { InfoButton } from './InfoButton';
 import { newId } from '../utils/ids';
 import { formatMoney } from '../utils/money';
 import { transactionBelongsToAccount } from '../utils/transactionKind';
+import { isCashWithdrawal, isLiquidAccount } from '../utils/cashAccount';
 
 function formatDueDay(dayStr?: string): string {
   if (!dayStr) return '';
@@ -167,6 +168,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         if (selectedType === 'Bank' && acc.type !== 'Bank') return false;
         if (selectedType === 'Credit Card' && acc.type !== 'Credit Card') return false;
         if (selectedType === 'Wallet/UPI' && acc.type !== 'Wallet/UPI') return false;
+        if (selectedType === 'Cash' && acc.type !== 'Cash') return false;
       }
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -184,10 +186,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const bankAccounts = accounts.filter((a) => a.type === 'Bank');
   const creditCards = accounts.filter((a) => a.type === 'Credit Card');
   const wallets = accounts.filter((a) => a.type === 'Wallet/UPI');
+  const cashCount = accounts.filter((a) => a.type === 'Cash').length;
 
-  const totalBankBalance = bankAccounts.reduce((sum, a) => sum + a.balance, 0);
-  const totalWalletBalance = wallets.reduce((sum, a) => sum + a.balance, 0);
-  const totalLiquidAssets = totalBankBalance + totalWalletBalance;
+  const totalLiquidAssets = accounts.filter(isLiquidAccount).reduce((sum, a) => sum + a.balance, 0);
 
   const totalCreditCardSpent = creditCards.reduce((sum, a) => sum + a.balance, 0);
   const totalApproxMonthlyBill = creditCards.reduce((sum, a) => sum + (a.approxMonthlyBill || a.balance), 0);
@@ -253,7 +254,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setFormError('');
 
     const cleanedLast4 = last4.trim();
-    if (!/^\d{4}$/.test(cleanedLast4)) {
+    if (!(accType === 'Cash' && cleanedLast4 === '') && !/^\d{4}$/.test(cleanedLast4)) {
       setFormError('Account / Card last 4 must be exactly 4 digits');
       return;
     }
@@ -407,7 +408,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             {/* Filter Dropdown Popup (ALL, BANK, CARD, UPI inside filter icon) */}
             {isFilterOpen && (
               <div className="absolute right-0 mt-1 w-36 bg-[#111] border border-[#333] rounded-xl shadow-xl z-50 py-1 font-mono text-xs">
-                {['All', 'Bank', 'Credit Card', 'Wallet/UPI'].map((type) => (
+                {['All', 'Bank', 'Credit Card', 'Wallet/UPI', 'Cash'].map((type) => (
                   <button
                     key={type}
                     type="button"
@@ -718,7 +719,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 {showNetLiquid ? formatMoney(totalLiquidAssets, { symbol: currencySymbol, locale: settings?.locale }) : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
-                {bankAccounts.length} Banks + {wallets.length} Wallets
+                {bankAccounts.length} Banks + {wallets.length} Wallets{cashCount > 0 ? ` + ${cashCount} Cash` : ''}
               </div>
             </div>
           </div>
@@ -800,7 +801,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       </div>
 
       {/* ==================== BANK ACCOUNTS & WALLETS ==================== */}
-      {(selectedType === 'All' || selectedType === 'Bank' || selectedType === 'Wallet/UPI') && (
+      {(selectedType === 'All' || selectedType === 'Bank' || selectedType === 'Wallet/UPI' || selectedType === 'Cash') && (
         <div className="space-y-4">
           <div className="text-xs font-bold text-[#888] uppercase tracking-wider flex items-center gap-2">
             <Building2 className="w-4 h-4 text-emerald-500" />
@@ -839,7 +840,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                           )}
                         </div>
                         <div className="text-[10px] text-[#666] font-mono">
-                          {acc.type} • A/C **{acc.accountNumberLast4}
+                          {acc.type === 'Cash' ? 'Cash in hand' : `${acc.type} • A/C **${acc.accountNumberLast4}`}
                         </div>
                       </div>
                     </div>
@@ -886,7 +887,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             <div>
               <h3 className="text-xs font-bold text-white uppercase flex items-center gap-2">
                 <span>TRANSACTION LOGS FOR {selectedAccountObj.name}</span>
-                <span className="text-[10px] text-red-400 font-mono">(**{selectedAccountObj.accountNumberLast4})</span>
+                {selectedAccountObj.accountNumberLast4 && (
+                  <span className="text-[10px] text-red-400 font-mono">(**{selectedAccountObj.accountNumberLast4})</span>
+                )}
               </h3>
               <p className="text-[10px] text-[#666]">
                 Filtered payment records associated with this specific account
@@ -905,10 +908,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           <div className="space-y-2">
             {accountTxns.length === 0 ? (
               <div className="p-8 text-center text-xs text-[#666]">
-                No recent transactions found for **{selectedAccountObj.accountNumberLast4}.
+                No recent transactions found for {selectedAccountObj.accountNumberLast4 ? `**${selectedAccountObj.accountNumberLast4}` : selectedAccountObj.name}.
               </div>
             ) : (
-              accountTxns.map((tx) => (
+              accountTxns.map((tx) => {
+                // A withdrawal is stored once; it is money in for the receiving cash account.
+                const isIncoming = tx.type === 'credit' || (isCashWithdrawal(tx) && tx.toAccountId === selectedAccountObj.id);
+                return (
                 <div
                   key={tx.id}
                   className="p-3 bg-[#0a0a0a] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-xl flex items-center justify-between text-xs transition-all tactile-lift cursor-pointer"
@@ -918,11 +924,12 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     <div className="text-[10px] text-[#666]">{tx.date} • {tx.category} • {tx.paymentMethod}</div>
                   </div>
 
-                  <div className={`font-bold font-mono text-xs ${tx.type === 'debit' ? 'text-red-500' : 'text-emerald-400'}`}>
-                    {tx.type === 'debit' ? '-' : '+'}{formatMoney(tx.amount, { symbol: currencySymbol, locale: settings?.locale })}
+                  <div className={`font-bold font-mono text-xs ${isIncoming ? 'text-emerald-400' : 'text-red-500'}`}>
+                    {isIncoming ? '+' : '-'}{formatMoney(tx.amount, { symbol: currencySymbol, locale: settings?.locale })}
                   </div>
                 </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -994,6 +1001,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     <option value="Credit Card">Credit Card</option>
                     <option value="Debit Card">Debit Card</option>
                     <option value="Wallet/UPI">Wallet / UPI</option>
+                    <option value="Cash">Cash in Hand</option>
                   </select>
                 </div>
               </div>

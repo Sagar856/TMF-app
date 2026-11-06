@@ -16,7 +16,7 @@ export type TransactionKind =
 
 export type PaymentSource = 'UPI' | 'SMS' | 'Manual' | 'Bank Sync';
 
-export type AccountType = 'Bank' | 'Credit Card' | 'Debit Card' | 'Wallet/UPI';
+export type AccountType = 'Bank' | 'Credit Card' | 'Debit Card' | 'Wallet/UPI' | 'Cash';
 
 export interface FinancialAccount {
   id: string;
@@ -87,7 +87,15 @@ export interface MonthlyContribution {
   amount: number;
 }
 
-export type InvestmentType = 'Stocks' | 'Mutual Funds' | 'Crypto' | 'Fixed Deposit' | 'Gold' | 'Real Estate';
+export type InvestmentType =
+  | 'Stocks'
+  | 'Mutual Funds'
+  | 'Crypto'
+  | 'Fixed Deposit'
+  | 'Gold'
+  | 'Physical Gold'
+  | 'Physical Silver'
+  | 'Real Estate';
 
 
 export interface StockLot {
@@ -155,6 +163,11 @@ export interface InvestmentRecord {
   priceSource?: string;
   brokerageFees?: number;
   lots?: StockLot[];
+
+  // Physical gold / silver specific (currentPrice holds the per-gram rate)
+  metalWeightGrams?: number;
+  /** Purity in parts per thousand, e.g. 999 (24K), 916 (22K), 925 (sterling). */
+  metalPurity?: number;
 
   // Fixed Deposits specific
   bankName?: string;

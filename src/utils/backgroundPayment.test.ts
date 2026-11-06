@@ -10,6 +10,7 @@ import { toLocalISODate } from './dates';
 import type { FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
 import { isFinancialAccount, isTransaction } from './backup';
 import { reconcileSavedPayments } from './savedPaymentReconciliation';
+import { createCashAccount, isCashWithdrawal } from './cashAccount';
 import type { InterceptedPayment } from '../services/notificationListener';
 
 const source = readFileSync(new URL('../services/backgroundPayment.ts', import.meta.url), 'utf8');
@@ -61,6 +62,7 @@ function harness() {
       id: 'groceries', name: 'Groceries', type: 'expense', iconName: 'Tag', subcategories: ['General'],
     }],
     parseNotification, isEligiblePaymentNotification, createPaymentTransaction, toLocalISODate, isFinancialAccount,
+    createCashAccount, isCashWithdrawal,
   };
   return { state, completed, accounts, transactions, calls: () => calls, run: () => runInNewContext(save, state) as Promise<void> };
 }
@@ -142,6 +144,22 @@ test('shared mapping retains account matching, category fallback, card signs and
   assert.equal(adjustPaymentAccountBalance([card], 'Cash', -100)[0].balance, 5000);
   assert.equal(adjustPaymentAccountBalance([card], 'Unknown', -100)[0].balance, 5000);
   assert.equal(adjustPaymentAccountBalance([bank], 'Unknown', -100)[0].balance, 4900);
+});
+
+test('ATM withdrawals move money from the bank into a cash account instead of counting as spending', () => {
+  const parsed: ParsedNotification = {
+    id: 'native_atm', amount: 2000, type: 'debit', date: '2026-11-01', time: '12:00',
+    payeeOrPayer: 'ATM', rawText: 'Rs 2000 withdrawn at ATM from a/c XX4411', category: 'Missing', subcategory: 'Missing',
+    status: 'pending', accountLast4: '4411', appSource: 'Other UPI', confidenceScore: 1, requiresManualVerification: false,
+  };
+  const result = createPaymentTransaction(parsed, [{ ...bank }], []);
+  assert.equal(result.transaction.kind, 'transfer');
+  assert.equal(result.transaction.accountId, 'bank');
+  assert.ok(result.transaction.toAccountId);
+  const cash = result.accounts.find(account => account.id === result.transaction.toAccountId);
+  assert.equal(cash?.type, 'Cash');
+  assert.equal(cash?.balance, 2000);
+  assert.equal(result.accounts.find(account => account.id === 'bank')?.balance, 3000);
 });
 
 test('saved receipts reconcile multiple payments once, preserve intervening local edits and use the newest server balance', async () => {

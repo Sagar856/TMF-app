@@ -33,20 +33,24 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
   const isFD = investment.type === 'Fixed Deposit';
   const isStock = investment.type === 'Stocks';
   const isMF = investment.type === 'Mutual Funds';
+  // Physical metal is sold by weight; currentPrice holds the per-gram rate.
+  const isMetal = (investment.type === 'Physical Gold' || investment.type === 'Physical Silver') && (investment.metalWeightGrams || 0) > 0;
 
   // Determine available units/shares/amount
   const availableQuantity = useMemo(() => {
     if (isStock) return investment.shares || (investment.amountInvested / (investment.purchasePrice || 100));
     if (isMF) return investment.units || (investment.amountInvested / (investment.purchaseNav || 100));
+    if (isMetal) return investment.metalWeightGrams as number;
     return 1; // for FD or generic
-  }, [investment, isStock, isMF]);
+  }, [investment, isStock, isMF, isMetal]);
 
   const defaultPrice = useMemo(() => {
     if (isStock) return investment.currentPrice || investment.purchasePrice || (investment.currentValue / (availableQuantity || 1));
     if (isMF) return investment.currentNav || investment.purchaseNav || (investment.currentValue / (availableQuantity || 1));
+    if (isMetal) return investment.currentPrice || (investment.currentValue / (availableQuantity || 1));
     if (isFD) return investment.currentValue || investment.amountInvested;
     return investment.currentValue || investment.amountInvested;
-  }, [investment, isStock, isMF, isFD, availableQuantity]);
+  }, [investment, isStock, isMF, isMetal, isFD, availableQuantity]);
 
   const [isFull, setIsFull] = useState<boolean>(true);
   const [redeemQuantity, setRedeemQuantity] = useState<string>(String(roundCurrency(availableQuantity)));
@@ -99,6 +103,8 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
     ? investment.currentPrice || investment.purchasePrice || 0
     : isMF
     ? investment.currentNav || investment.purchaseNav || 0
+    : isMetal
+    ? investment.currentPrice || 0
     : 0;
 
   // Real-time calculation using financial engine (FIFO lots for stocks when available)
@@ -191,6 +197,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         currentValue: 0,
         units: 0,
         shares: 0,
+        metalWeightGrams: isMetal ? 0 : investment.metalWeightGrams,
         lots: isStock ? [] : investment.lots,
         realizedProfitLoss: totalRealizedPL,
         redemptions: updatedRedemptions,
@@ -215,6 +222,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
         returnsPercent: remainingReturnPct,
         units: isMF ? remainingQty : investment.units,
         shares: isStock ? remainingQty : investment.shares,
+        metalWeightGrams: isMetal ? remainingQty : investment.metalWeightGrams,
         lots: isStock && calculationResult.remainingLots ? calculationResult.remainingLots : investment.lots,
         realizedProfitLoss: totalRealizedPL,
         redemptions: updatedRedemptions,
@@ -312,7 +320,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           </div>
           <div>
             <span className="text-[#666] block text-[9px] uppercase">
-              {isStock ? 'Total Shares' : isMF ? 'Total Units' : 'Tenure'}
+              {isStock ? 'Total Shares' : isMF ? 'Total Units' : isMetal ? 'Total Grams' : 'Tenure'}
             </span>
             <span className="font-bold text-white">
               {isFD ? `${investment.tenureMonths || 12} Mos` : formatAmount(availableQuantity, { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
@@ -326,7 +334,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           {!isFull && !isFD && (
             <div>
               <label className="block text-[10px] text-[#aaa] uppercase mb-1">
-                {isStock ? 'Shares to Sell' : isMF ? 'Units to Redeem' : 'Amount to Redeem'}
+                {isStock ? 'Shares to Sell' : isMF ? 'Units to Redeem' : isMetal ? 'Grams to Sell' : 'Amount to Redeem'}
               </label>
               <div className="relative">
                 <input
@@ -354,7 +362,7 @@ export const InvestmentRedemptionModal: React.FC<InvestmentRedemptionModalProps>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-[10px] text-[#aaa] uppercase mb-1">
-                {isStock ? 'Sale Price Per Share' : isMF ? 'Applicable NAV' : 'Gross Maturity / Value'}
+                {isStock ? 'Sale Price Per Share' : isMF ? 'Applicable NAV' : isMetal ? 'Sale Price Per Gram' : 'Gross Maturity / Value'}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-2 text-xs text-[#666]">{currencySymbol}</span>

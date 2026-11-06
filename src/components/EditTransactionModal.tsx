@@ -17,6 +17,7 @@ import { PermissionDisclosureModal } from './PermissionDisclosureModal';
 import { newId } from '../utils/ids';
 import { todayLocalISO, currentMonthLocal, addDays, nowLocalTimeHHMM } from '../utils/dates';
 import { resolveAccountId } from '../utils/accountResolver';
+import { NEW_CASH_ACCOUNT_OPTION } from '../utils/cashAccount';
 import { useDialog } from '../hooks/useDialog';
 
 export type CategoryType = 'Expense' | 'Income' | 'Investment' | 'Loan & Lend' | 'Transfer';
@@ -136,7 +137,8 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       const def = accounts.find((a) => a.isDefault);
       return def ? def.id : (accounts[0]?.id || 'Cash');
     }
-    if (raw === 'Cash' || raw === 'Other UPI') return raw;
+    if (raw === 'Cash') return accounts.find((a) => a.type === 'Cash')?.id || raw;
+    if (raw === 'Other UPI') return raw;
     if (accounts.some((a) => a.id === raw)) return raw;
     const resolved = resolveAccountId(accounts, raw);
     return resolved || raw;
@@ -194,10 +196,12 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   // --- Transfer State ---
   const cashAccounts = accounts.filter((a) => a.type !== 'Credit Card');
+  // With no Cash account yet, a withdrawal into a new "Cash in Hand" account is still a valid transfer target.
+  const canTransfer = accounts.length >= 2 || (accounts.length === 1 && !accounts.some((a) => a.type === 'Cash'));
   const [transferFrom, setTransferFrom] = useState<string>(() => accounts.find((a) => a.isDefault)?.id || cashAccounts[0]?.id || '');
   const [transferTo, setTransferTo] = useState<string>(() => {
     const first = accounts.find((a) => a.isDefault)?.id || cashAccounts[0]?.id || '';
-    return accounts.find((a) => a.id !== first)?.id || '';
+    return accounts.find((a) => a.id !== first)?.id || (accounts.some((a) => a.type === 'Cash') ? '' : NEW_CASH_ACCOUNT_OPTION);
   });
   const [transferAmount, setTransferAmount] = useState<string>('');
   const [transferDate, setTransferDate] = useState<string>(todayLocalISO());
@@ -753,7 +757,14 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                             ))}
                         </optgroup>
                         <optgroup label="General">
-                          <option value="Cash">Cash</option>
+                          {accounts
+                            .filter((a) => a.type === 'Cash')
+                            .map((a) => (
+                              <option key={a.id} value={a.id}>
+                                {a.name}
+                              </option>
+                            ))}
+                          {!accounts.some((a) => a.type === 'Cash') && <option value="Cash">Cash</option>}
                           <option value="Other UPI">Other UPI</option>
                         </optgroup>
                       </>
@@ -1092,6 +1103,9 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
                         {a.name}{a.type === 'Credit Card' ? ' (card bill payment)' : ''}
                       </option>
                     ))}
+                    {!accounts.some((a) => a.type === 'Cash') && (
+                      <option value={NEW_CASH_ACCOUNT_OPTION}>Cash in Hand (cash withdrawal)</option>
+                    )}
                   </select>
                 </div>
               </div>
@@ -1149,10 +1163,10 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               <div className="pt-2">
                 <button
                   type="submit"
-                  disabled={isSubmitting || accounts.length < 2}
+                  disabled={isSubmitting || !canTransfer}
                   className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-mono font-bold text-xs uppercase tracking-[0.15em] rounded-xl transition-colors cursor-pointer shadow-lg shadow-red-900/20"
                 >
-                  {accounts.length < 2 ? 'ADD A SECOND ACCOUNT FIRST' : isSubmitting ? 'SAVING…' : 'RECORD TRANSFER'}
+                  {!canTransfer ? 'ADD AN ACCOUNT FIRST' : isSubmitting ? 'SAVING…' : 'RECORD TRANSFER'}
                 </button>
               </div>
             </form>

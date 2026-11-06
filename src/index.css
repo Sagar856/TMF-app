@@ -1343,8 +1343,9 @@ main:focus {
   background: var(--dashboard-panel-background) !important;
 }
 
+/* Floating popovers (absolute/fixed) keep their opaque surface so expanded menus never show content through them. */
 .app-viewport main .bg-carbon:not([role="dialog"]):not(.dashboard-section-content):not(.z-modal *):not([role="dialog"] *),
-.app-viewport main .border.rounded-2xl:where(.bg-surface-1, .bg-surface-2, .bg-\[\#111\], .bg-\[\#111111\], .bg-\[\#121217\], .bg-\[\#16161e\], .bg-\[\#181818\], .bg-\[\#181820\], .bg-\[\#181822\]):not(.dark-surface):not(.kpi-stack > *):not(.dark .finance-kpi-stack > *):not(.z-modal *):not([role="dialog"] *),
+.app-viewport main .border.rounded-2xl:where(.bg-surface-1, .bg-surface-2, .bg-\[\#111\], .bg-\[\#111111\], .bg-\[\#121217\], .bg-\[\#16161e\], .bg-\[\#181818\], .bg-\[\#181820\], .bg-\[\#181822\]):not(.absolute):not(.fixed):not(.dark-surface):not(.kpi-stack > *):not(.dark .finance-kpi-stack > *):not(.z-modal *):not([role="dialog"] *),
 .app-viewport main section.bg-obsidian,
 .app-viewport main nav.bg-surface-1 {
   background: var(--dashboard-panel-background) !important;

@@ -1,0 +1,58 @@
+name: Update market data
+
+on:
+  schedule:
+    # 17:00 IST on trading days: after the NSE close and the IBJA PM rate.
+    - cron: '30 11 * * 1-5'
+    # 08:00 IST next morning: picks up US closes and retries anything missed.
+    - cron: '30 2 * * 2-6'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: market-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Load the previously published snapshot
+        run: |
+          mkdir -p out
+          if git fetch --depth=1 origin market-data 2>/dev/null; then
+            git show FETCH_HEAD:market-data.json > out/previous.json || rm -f out/previous.json
+          fi
+      - name: Fetch prices (Yahoo Finance closes, IBJA gold/silver)
+        run: node --import tsx scripts/fetch-market-data.mjs out/market-data.json out/previous.json
+      - name: Publish to the market-data branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -f out/previous.json ] && cmp -s out/market-data.json out/previous.json; then
+            echo "Snapshot unchanged; nothing to publish."
+            exit 0
+          fi
+          # A single force-pushed orphan commit keeps the data branch tiny; it never touches main.
+          mkdir publish && cp out/market-data.json publish/
+          cd publish
+          git init -q -b market-data
+          git add market-data.json
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Market data $(date -u +%Y-%m-%dT%H:%MZ)"
+          for attempt in 1 2 3; do
+            if git push --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" market-data; then
+              exit 0
+            fi
+            sleep $((attempt * 10))
+          done
+          exit 1

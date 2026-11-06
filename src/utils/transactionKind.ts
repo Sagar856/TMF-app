@@ -25,7 +25,7 @@ export function inferTransactionKind(tx: Pick<Transaction, 'type' | 'category' |
   }
 
   if (category === INVESTMENT_CATEGORY) return 'investment';
-  if (category === 'transfer' || subcategory === 'transfer' || subcategory === 'self transfer') return 'transfer';
+  if (category === 'transfer' || subcategory === 'transfer' || subcategory === 'self transfer' || subcategory === 'cash withdrawal') return 'transfer';
 
   if (tx.type === 'credit' && REFUND_HINT.test(`${tx.title || ''} ${tx.note || ''} ${subcategory}`)) {
     return 'refund';

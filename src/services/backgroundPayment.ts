@@ -1,8 +1,9 @@
 import type { InterceptedPayment } from './notificationListener';
-import type { ParsedNotification } from '../types/finance';
+import type { FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
 import { parseNotification } from './notification/ParserManager';
 import { isEligiblePaymentNotification } from './notification/transactionEligibility';
 import { createPaymentTransaction } from '../utils/paymentTransaction';
+import { createCashAccount, isCashWithdrawal } from '../utils/cashAccount';
 import { toLocalISODate } from '../utils/dates';
 import { isFinancialAccount } from '../utils/backup';
 import {
@@ -48,9 +49,11 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
   if (!transactions || !accounts || !categories) throw new Error('Cloud unavailable; payment retained for retry');
   const existing = transactions.find(transaction => transaction.id === `tx_native_${payment.id}`);
   if (existing) {
+    const cashAccount = cashReceiptAccount(existing, accounts);
     if (!bridge.complete(JSON.stringify({
       owner: payment.owner, transaction: existing, account: accounts.find(account => account.id === existing.accountId),
       localBalance: localAccounts.find(account => account.id === existing.accountId)?.balance,
+      ...(cashAccount ? { cashAccount, localCashBalance: localAccounts.find(account => account.id === cashAccount.id)?.balance } : {}),
     }))) throw new Error('Could not persist background payment receipt');
     return;
   }
@@ -86,12 +89,24 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
   if (account && (typeof saved.balance !== 'number' || !Number.isFinite(saved.balance))) {
     throw new Error('Invalid background account balance response');
   }
+  // Older database functions do not credit the cash leg; only report it when the server did.
+  const serverCreditedCash = isCashWithdrawal(transaction) && typeof saved.cash_balance === 'number' && Number.isFinite(saved.cash_balance);
+  const cashAccount = serverCreditedCash
+    ? { ...(accounts.find(value => value.id === transaction.toAccountId) || createCashAccount(transaction.toAccountId!)), balance: saved.cash_balance }
+    : undefined;
+  const receiptTransaction = isCashWithdrawal(transaction) && !serverCreditedCash
+    ? { ...transaction, toAccountId: undefined } : transaction;
   if (!bridge.complete(JSON.stringify(saved.saved
     ? {
-      owner: payment.owner, transaction, account: account ? { ...account, balance: saved.balance } : undefined,
+      owner: payment.owner, transaction: receiptTransaction, account: account ? { ...account, balance: saved.balance } : undefined,
       localBalance: localAccounts.find(value => value.id === transaction.accountId)?.balance,
+      ...(cashAccount ? { cashAccount, localCashBalance: localAccounts.find(value => value.id === cashAccount.id)?.balance } : {}),
     }
     : { owner: payment.owner, duplicate: true }))) throw new Error('Could not persist background payment receipt');
+}
+
+function cashReceiptAccount(transaction: Transaction, accounts: FinancialAccount[]): FinancialAccount | undefined {
+  return isCashWithdrawal(transaction) ? accounts.find(account => account.id === transaction.toAccountId) : undefined;
 }
 
 if (window.PaymentBackground) {

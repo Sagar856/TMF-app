@@ -4,8 +4,9 @@ import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useActivityState, useBackActivity } from '../hooks/useActivityState';
 import { motion, AnimatePresence } from 'motion/react';
-import { Category, FinancialAccount, Transaction } from '../types/finance';
+import { AccountType, Category, FinancialAccount, Transaction } from '../types/finance';
 import { newId } from '../utils/ids';
+import { isLiquidAccount } from '../utils/cashAccount';
 import { currentMonthLocal } from '../utils/dates';
 import { 
   Plus, 
@@ -174,7 +175,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [categoryTypeFilter, setCategoryTypeFilter] = useActivityState<'all' | 'expense' | 'income' | 'investment'>('customisations.categoryFilter', 'all');
   const [budgetStatusFilter, setBudgetStatusFilter] = useActivityState<'all' | 'alert' | 'over' | 'safe' | 'nolimit'>('customisations.budgetFilter', 'all');
-  const [accountTypeFilter, setAccountTypeFilter] = useActivityState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI'>('customisations.accountFilter', 'all');
+  const [accountTypeFilter, setAccountTypeFilter] = useActivityState<'all' | 'Bank' | 'Credit Card' | 'Wallet/UPI' | 'Cash'>('customisations.accountFilter', 'all');
   const [expandedFilters, setExpandedFilters] = useActivityState('customisations.filtersOpen', { budgets: false, categories: false, accounts: false });
   const filterToolbarRef = useRef<HTMLDivElement>(null);
 
@@ -438,7 +439,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
   useBackActivity(showAccountModal, () => setShowAccountModal(false));
   const [accName, setAccName] = useState<string>('');
   const [accBankName, setAccBankName] = useState<string>('HDFC');
-  const [accType, setAccType] = useState<'Bank' | 'Credit Card' | 'Debit Card' | 'Wallet/UPI'>('Bank');
+  const [accType, setAccType] = useState<AccountType>('Bank');
   const [accLast4, setAccLast4] = useState<string>('');
   const [accBalance, setAccBalance] = useState<string>('');
   const [accCreditLimit, setAccCreditLimit] = useState<string>('');
@@ -466,9 +467,9 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
     const newAcc: FinancialAccount = {
       id: newId('acc'),
       name: accName.trim(),
-      bankName: accBankName.trim() || 'Bank',
+      bankName: accType === 'Cash' ? 'Cash' : accBankName.trim() || 'Bank',
       type: accType,
-      accountNumberLast4: accLast4.trim() || Math.floor(1000 + Math.random() * 9000).toString(),
+      accountNumberLast4: accType === 'Cash' ? '' : accLast4.trim() || Math.floor(1000 + Math.random() * 9000).toString(),
       balance: parseFloat(accBalance) || 0,
       creditLimit: accType === 'Credit Card' && accCreditLimit ? parseFloat(accCreditLimit) : undefined,
       approxMonthlyBill: accType === 'Credit Card' && accMonthlyBill ? parseFloat(accMonthlyBill) : undefined,
@@ -1226,10 +1227,10 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               <div className="text-xs sm:text-lg font-bold text-emerald-600 dark:text-emerald-400 mt-1">
                 {currencySymbol}
                 {formatAmount(accounts
-                  .filter((a) => a.type === 'Bank' || a.type === 'Wallet/UPI')
+                  .filter(isLiquidAccount)
                   .reduce((sum, a) => sum + (a.balance || 0), 0))}
               </div>
-              <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across bank &amp; wallet accounts</div>
+              <div className="text-[10px] text-slate-400 dark:text-[#666] mt-0.5">Across bank, wallet &amp; cash accounts</div>
             </div>
 
             <div className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-2 sm:p-4 rounded-2xl sm:rounded-3xl shadow-sm">
@@ -1272,6 +1273,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 { id: 'Bank', label: 'Bank A/c' },
                 { id: 'Credit Card', label: 'Credit Cards' },
                 { id: 'Wallet/UPI', label: 'Wallets & UPI' },
+                { id: 'Cash', label: 'Cash' },
               ] as const).map((chip) => (
                 <button
                   key={chip.id}
@@ -1732,6 +1734,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                     { id: 'Credit Card', label: 'Credit Card' },
                     { id: 'Wallet/UPI', label: 'Digital Wallet' },
                     { id: 'Debit Card', label: 'Debit Card' },
+                    { id: 'Cash', label: 'Cash in Hand' },
                   ].map((t) => (
                     <button
                       key={t.id}

@@ -100,8 +100,12 @@ import {
 import { checkIsAdmin, recordActivity } from './services/adminService';
 
 import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, type InterceptedPayment } from './services/notificationListener';
-import { adjustPaymentAccountBalance, createPaymentTransaction } from './utils/paymentTransaction';
+import { adjustPaymentAccountBalance, applyTransactionToAccounts, createPaymentTransaction } from './utils/paymentTransaction';
+import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount';
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
+import { useMarketSnapshot } from './hooks/useMarketSnapshot';
+import { loadMarketSnapshot, refreshMutualFundNavs } from './services/marketDataService';
+import { revalueInvestments, type MutualFundNavEntry } from './utils/marketData';
 import { resetDuplicateMemory } from './services/notification/DuplicateDetector';
 import { newId } from './utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM, toLocalISODate } from './utils/dates';
@@ -297,6 +301,49 @@ export default function App() {
     const isLoaded = parsedSettings ? parsedSettings.sampleDataLoaded !== false : true;
     return isLoaded ? INITIAL_INVESTMENTS.filter((i) => !deletedIds.has(i.id)) : [];
   });
+
+  // Daily market valuations: stock closes + IBJA metal rates (published snapshot) and AMFI NAVs.
+  const marketSnapshot = useMarketSnapshot();
+  const [mutualFundNavs, setMutualFundNavs] = useState<Record<string, MutualFundNavEntry>>({});
+  const mutualFundSchemeKey = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          investments
+            .filter((inv) => inv.type === 'Mutual Funds' && inv.status !== 'redeemed' && inv.schemeCode?.trim())
+            .map((inv) => inv.schemeCode!.trim())
+        )
+      )
+        .sort()
+        .join(','),
+    [investments]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void loadMarketSnapshot();
+      if (mutualFundSchemeKey) {
+        void refreshMutualFundNavs(mutualFundSchemeKey.split(',')).then((navs) => {
+          if (!cancelled) setMutualFundNavs(navs);
+        });
+      }
+    };
+    refresh();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [mutualFundSchemeKey]);
+
+  useEffect(() => {
+    // revalueInvestments returns the same array when nothing is newer, so this settles after one pass.
+    setInvestments((prev) => revalueInvestments(prev, marketSnapshot, mutualFundNavs).investments);
+  }, [marketSnapshot, mutualFundNavs, investments]);
 
   const [loans, setLoans] = useState<LoanRecord[]>(() => {
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_loan_ids'));
@@ -1674,8 +1721,6 @@ export default function App() {
   // Transaction Actions
   const handleSaveTransaction = (incoming: Transaction) => {
     const oldTx = transactions.find(t => t.id === incoming.id);
-    const newTarget = resolveAccountId(accounts, incoming.accountId || incoming.paymentMethod) || incoming.paymentMethod;
-    const oldTarget = oldTx && (resolveAccountId(accounts, oldTx.accountId || oldTx.paymentMethod) || oldTx.paymentMethod);
     const resolvedAccountId = resolveAccountId(accounts, incoming.accountId || incoming.paymentMethod) || undefined;
     // Re-derive the semantic kind unless the editor set one explicitly, so a
     // category change (e.g. to Investment) is reflected in dashboard metrics.
@@ -1686,7 +1731,7 @@ export default function App() {
     };
     if (editingPaymentId) {
       tx.id = `tx_${editingPaymentId}`;
-      const nextAccounts = adjustAccountBalance(accounts, newTarget, tx.type === 'credit' ? tx.amount : -tx.amount);
+      const nextAccounts = applyTransactionToAccounts(accounts, tx, 1);
       const nextTransactions = [tx, ...transactions];
       if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
       setAccounts(nextAccounts);
@@ -1698,10 +1743,8 @@ export default function App() {
       return;
     }
     setAccounts(previous => {
-      const reverted = oldTx
-        ? adjustAccountBalance(previous, oldTarget, oldTx.type === 'credit' ? -oldTx.amount : oldTx.amount)
-        : previous;
-      return adjustAccountBalance(reverted, newTarget, tx.type === 'credit' ? tx.amount : -tx.amount);
+      const reverted = oldTx ? applyTransactionToAccounts(previous, oldTx, -1) : previous;
+      return applyTransactionToAccounts(reverted, tx, 1);
     });
     setTransactions(previous => previous.some(t => t.id === tx.id)
       ? previous.map(t => t.id === tx.id ? tx : t)
@@ -1725,10 +1768,7 @@ export default function App() {
     setAccounts((previous) =>
       idsToDelete.reduce((accs, txId) => {
         const tx = transactions.find((t) => t.id === txId);
-        if (!tx) return accs;
-        const revertDelta = tx.type === 'credit' ? -tx.amount : tx.amount;
-        const target = resolveAccountId(accs, tx.accountId || tx.paymentMethod) || tx.paymentMethod;
-        return adjustAccountBalance(accs, target, revertDelta);
+        return tx ? applyTransactionToAccounts(accs, tx, -1) : accs;
       }, previous)
     );
     setTransactions(previous => previous.filter(t => !idsToDelete.includes(t.id)));
@@ -2002,12 +2042,14 @@ export default function App() {
   // "transfer to card" naturally reduces the card's outstanding balance.
   const handleAddTransfer = ({ fromAccountId, toAccountId, amount, date, time, note }: TransferRequest) => {
     const from = accounts.find((a) => a.id === fromAccountId);
-    const to = accounts.find((a) => a.id === toAccountId);
+    const cashSetup = toAccountId === NEW_CASH_ACCOUNT_OPTION ? ensureCashAccount(accounts) : null;
+    const to = cashSetup ? cashSetup.cashAccount : accounts.find((a) => a.id === toAccountId);
     if (!from || !to || from.id === to.id || !(amount > 0)) return;
 
     const transferId = newId('xfer');
     const isCardPayment = to.type === 'Credit Card';
-    const title = isCardPayment ? `Card payment: ${to.name}` : `Transfer to ${to.name}`;
+    const isCashWithdrawal = to.type === 'Cash' && from.type !== 'Cash';
+    const title = isCardPayment ? `Card payment: ${to.name}` : isCashWithdrawal ? `Cash withdrawal from ${from.name}` : `Transfer to ${to.name}`;
     const baseNote = note || `${from.name} → ${to.name}`;
 
     const outLeg: Transaction = {
@@ -2048,7 +2090,11 @@ export default function App() {
     };
 
     setTransactions((previous) => [outLeg, inLeg, ...previous]);
-    setAccounts((previous) => adjustAccountBalance(adjustAccountBalance(previous, from.id, -amount), to.id, amount));
+    setAccounts((previous) => {
+      // A newly created Cash in Hand account is added before the balance moves into it.
+      const withTarget = cashSetup && !previous.some((a) => a.id === to.id) ? [...previous, to] : previous;
+      return adjustAccountBalance(adjustAccountBalance(withTarget, from.id, -amount), to.id, amount);
+    });
     showToast(
       `${formatMoney(amount, { symbol: settings.currencySymbol, locale: settings.locale })} moved ${from.name} → ${to.name}.`,
       'success'

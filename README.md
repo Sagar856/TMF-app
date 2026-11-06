@@ -676,6 +676,45 @@ cryptographic proof of a bank message; keep reviewing payments before adding.
 On the web build (and iOS, not yet supported), this gracefully falls back to
 manual entry / the SMS Simulator — no crashes, no native calls attempted.
 
+### Cash withdrawals
+
+ATM / cash withdrawals are recorded as a **transfer** from the bank account to
+a **Cash in Hand** account (type *Cash*, created automatically on first use)
+instead of being counted as spending. Cash counts towards net worth and liquid
+balance; spending it later is a normal expense from the Cash account. Captured
+notifications such as *"withdrawn at ATM"*, *"Cash withdrawal"* or *"NFS CASH WDL"*
+are detected automatically. For a manual entry, use **Add → Transfer between
+accounts** with **Cash in Hand** as the destination (offered even before a Cash
+account exists). Re-run [`supabase_background_payments.sql`](supabase_background_payments.sql)
+so the background **Add** action also credits the Cash account.
+
+## Daily market prices
+
+Holdings are revalued once a day, at no running cost:
+
+- The [`Update market data`](.github/workflows/market-data.yml) workflow runs on
+  weekdays after the Indian market close (and again the next morning as a
+  retry). [`scripts/fetch-market-data.mjs`](scripts/fetch-market-data.mjs)
+  collects daily closes for the built-in stock catalog and USD/INR from Yahoo
+  Finance, and physical gold/silver rates per gram from the
+  [IBJA](https://ibjarates.com/) benchmark (gold per purity: 999/995/916/750/585).
+- The JSON is force-pushed to the orphan **`market-data`** branch (separate from
+  the GitHub Pages artifact) and read by the app from
+  `raw.githubusercontent.com`. Anything a run fails to fetch keeps its last
+  known value; a run that fetches nothing leaves the file unchanged.
+- Mutual fund NAVs come directly from AMFI via [mfapi.in](https://www.mfapi.in/)
+  for the schemes you hold; the scheme picker searches the full AMFI list.
+- Stocks, mutual funds and physical gold/silver are repriced on app start and
+  when it returns to the foreground, but only when the published price is newer
+  than the stored one. US stocks are converted to rupees at the published USD/INR
+  rate. Metal values are weight × purity rate and exclude making charges.
+
+Run the workflow once manually (**Actions → Update market data → Run workflow**)
+to create the branch. Set `VITE_MARKET_DATA_URL` at build time to use a different
+JSON URL, or `off` to disable the feed. GitHub pauses scheduled workflows after
+60 days without repository activity; re-enable them from the Actions tab.
+Tickers outside the built-in catalog are not in the daily feed.
+
 ## Settings navigation
 
 Preferences opens a searchable menu. Account contains profile, cloud sync,

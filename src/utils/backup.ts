@@ -58,7 +58,7 @@ export function isFinancialAccount(value: unknown): value is FinancialAccount {
   return typeof value.id === 'string'
     && typeof value.name === 'string'
     && typeof value.bankName === 'string'
-    && ['Bank', 'Credit Card', 'Debit Card', 'Wallet/UPI'].includes(String(value.type))
+    && ['Bank', 'Credit Card', 'Debit Card', 'Wallet/UPI', 'Cash'].includes(String(value.type))
     && typeof value.accountNumberLast4 === 'string'
     && typeof value.balance === 'number'
     && Number.isFinite(value.balance);
