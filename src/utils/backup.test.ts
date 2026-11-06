@@ -54,6 +54,12 @@ const backup = {
   }],
 };
 
+test('system theme survives backups and invalid themes are rejected', () => {
+  const restored = parseBackupJson(JSON.stringify({ ...backup, settings: { ...settings, theme: 'system' } }));
+  assert.equal(restored.settings.theme, 'system');
+  assert.throws(() => parseBackupJson(JSON.stringify({ ...backup, settings: { ...settings, theme: 'invalid' } })), /settings/);
+});
+
 test('parses a complete backup including financial accounts', () => {
   assert.deepEqual(parseBackupJson(JSON.stringify(backup)), backup);
 });

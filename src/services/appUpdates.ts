@@ -24,11 +24,21 @@ export interface ApkUpdate {
 
 interface AppUpdatePlugin {
   getInfo(): Promise<InstalledApp>;
+  startAutomaticChecks(): Promise<{ notificationsEnabled: boolean }>;
   downloadAndInstall(update: ApkUpdate): Promise<{ status: 'installer-opened' | 'permission-required' }>;
 }
 
 const nativeUpdater = registerPlugin<AppUpdatePlugin>('AppUpdate');
 export const canCheckApkUpdates = () => Capacitor.getPlatform() === 'android';
+
+export async function startAutomaticUpdateChecks() {
+  const installed = await nativeUpdater.getInfo();
+  if (!installed.supported) return;
+  const result = await nativeUpdater.startAutomaticChecks();
+  if (!result.notificationsEnabled) {
+    console.warn('Automatic update checks are enabled, but Android notifications are disabled. Enable App updates notifications in Android Settings.');
+  }
+}
 
 export function parseApkUpdate(value: unknown): ApkUpdate {
   if (!value || typeof value !== 'object') throw new Error('The update server returned invalid metadata.');

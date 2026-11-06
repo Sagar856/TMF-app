@@ -56,6 +56,35 @@ test('Payment interception preserves API 22 compatibility without suppressing li
   }
 });
 
+test('Background update notifications are scheduled, bounded, permission-aware and deduplicated', () => {
+  const worker = readFileSync(new URL('../../native/app-update-plugin/AppUpdateWorker.java', import.meta.url), 'utf8');
+  const plugin = readFileSync(new URL('../../native/app-update-plugin/AppUpdatePlugin.java', import.meta.url), 'utf8');
+  const prompt = readFileSync(new URL('../components/AppUpdatePrompt.tsx', import.meta.url), 'utf8');
+  assert.match(worker, /PeriodicWorkRequest\.Builder\(AppUpdateWorker\.class, 12, TimeUnit\.HOURS\)/);
+  assert.match(worker, /ExistingPeriodicWorkPolicy\.KEEP/);
+  assert.match(worker, /ExistingWorkPolicy\.KEEP/);
+  assert.match(worker, /NetworkType\.CONNECTED/);
+  assert.match(worker, /synchronized \(AppUpdateWorker\.class\)/);
+  assert.match(worker, /if \(!supported\(context\)\) return Result\.success\(\)/);
+  assert.match(worker, /"com\.android\.vending"/);
+  assert.match(worker, /code <= installedCode/);
+  assert.match(worker, /getLong\("notifiedVersion", 0\) >= code/);
+  assert.match(worker, /putLong\("notifiedVersion", code\)/);
+  assert.match(worker, /ContextCompat\.checkSelfPermission\(context, Manifest\.permission\.POST_NOTIFICATIONS\)/);
+  assert.match(worker, /areNotificationsEnabled\(\)/);
+  assert.match(worker, /getNotificationChannel\(CHANNEL\)\.getImportance\(\)/);
+  assert.match(worker, /setVisibility\(NotificationCompat\.VISIBILITY_PRIVATE\)/);
+  assert.match(worker, /setContentIntent\(open\)/);
+  assert.match(worker, /setInstanceFollowRedirects\(false\)/);
+  assert.match(worker, /output\.size\(\) \+ count > 32768/);
+  assert.match(worker, /getRunAttemptCount\(\) < 3/);
+  assert.match(worker, /rawCode instanceof Integer \|\| rawCode instanceof Long/);
+  assert.match(plugin, /getBoolean\("permissionAsked", false\)/);
+  assert.match(plugin, /requestPermissionForAlias\("notifications"/);
+  assert.match(prompt, /CapacitorApp\.addListener\('appStateChange'/);
+  assert.match(prompt, /startAutomaticUpdateChecks\(\)/);
+});
+
 test('Android patch installs background queue and non-exported actions idempotently', () => {
   const baseEnv = { ...process.env, ANDROID_DISTRIBUTION: 'play', ANDROID_VERSION_CODE: undefined };
   const root = mkdtempSync(join(tmpdir(), 'tmf-android-patch-'));
@@ -116,6 +145,9 @@ test('Android patch installs background queue and non-exported actions idempoten
     assert.match(readFileSync(join(root, 'android', 'build.gradle'), 'utf8'), /gradle:8.13.2/);
     assert.match(readFileSync(join(root, 'android', 'gradle', 'wrapper', 'gradle-wrapper.properties'), 'utf8'), /gradle-8\.13-bin\.zip/);
     assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/apply from: 'minarth-release.gradle'/g)?.length, 1);
+    assert.equal(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8').match(/androidx\.work:work-runtime:2\.9\.1/g)?.length, 1);
+    assert.equal(readFileSync(join(java, 'AppUpdateWorker.java'), 'utf8'),
+      readFileSync(new URL('../../native/app-update-plugin/AppUpdateWorker.java', import.meta.url), 'utf8'));
     assert.match(readFileSync(join(root, 'android', 'app', 'build.gradle'), 'utf8'), /versionCode 7/);
     const explicitVersion = spawnSync(process.execPath, [script], { encoding: 'utf8', env: { ...baseEnv, ANDROID_VERSION_CODE: '42' } });
     assert.equal(explicitVersion.status, 0, explicitVersion.stderr);

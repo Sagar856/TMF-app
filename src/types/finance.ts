@@ -303,7 +303,7 @@ export interface UserSettings {
   currencySymbol: string;
   currencyCode: string;
   locale?: string;
-  theme?: 'dark' | 'light';
+  theme?: 'dark' | 'light' | 'system';
   colorPalette?: import('../utils/uiPalette').UiPalette;
   passcodeEnabled: boolean;
   passcodeHash?: string;

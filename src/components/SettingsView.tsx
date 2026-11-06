@@ -649,16 +649,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <SettingRow
                 id="settings-theme"
                 label="Theme"
-                description="Obsidian dark or Ceramic light across every screen."
+                description="Use dark, light, or follow your device's current theme."
                 badge={<StatusPill tone="red">{theme}</StatusPill>}
               >
-                <SegmentedControl<'light' | 'dark'>
+                <SegmentedControl<'light' | 'dark' | 'system'>
                   ariaLabel="Interface theme"
                   value={theme}
                   onChange={(t) => update({ theme: t })}
                   options={[
                     { value: 'light', label: (<><Sun className="w-3.5 h-3.5" /><span>Light</span></>) },
                     { value: 'dark', label: (<><Moon className="w-3.5 h-3.5" /><span>Dark</span></>) },
+                    { value: 'system', label: <span>System</span> },
                   ]}
                 />
               </SettingRow>

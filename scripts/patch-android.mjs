@@ -79,6 +79,9 @@ if (!Number.isSafeInteger(versionCode) || versionCode < 1 || versionCode > 21000
 appGradle = appGradle.replace(/versionCode\s+\d+/, `versionCode ${versionCode}`)
   .replace(/versionName\s+"[^"]+"/, `versionName "${version}"`);
 if (!appGradle.includes("apply from: 'minarth-release.gradle'")) appGradle += "\napply from: 'minarth-release.gradle'\n";
+if (!appGradle.includes('androidx.work:work-runtime:2.9.1')) {
+  appGradle += "\ndependencies { implementation 'androidx.work:work-runtime:2.9.1' }\n";
+}
 writeFileSync(appGradlePath, appGradle);
 copyFileSync(join(repoRoot, 'scripts', 'android-release.gradle'), join(androidAppDir, 'minarth-release.gradle'));
 
@@ -91,6 +94,7 @@ for (const file of ['NotificationInterceptPlugin.java', 'TmfNotificationListener
 
 // 2. Copy notification icon drawable
 copyFileSync(join(updateSrcDir, 'AppUpdatePlugin.java'), join(javaPackageDir, 'AppUpdatePlugin.java'));
+copyFileSync(join(updateSrcDir, 'AppUpdateWorker.java'), join(javaPackageDir, 'AppUpdateWorker.java'));
 copyFileSync(join(updateSrcDir, 'AppUpdateFileProvider.java'), join(javaPackageDir, 'AppUpdateFileProvider.java'));
 const xmlDir = join(resDir, 'xml');
 mkdirSync(xmlDir, { recursive: true });

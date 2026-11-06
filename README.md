@@ -120,7 +120,19 @@ The initial branded launch loader stays visible while restoring sign-in and
 loading private account data, without a separate account-loading screen.
 If account loading fails, the same loader shows the error, Retry and Sign out;
 private data remains gated until loading succeeds.
-After the first successful sign-in on a device, an account-specific glass
+After the first successful sign-in on a device, optional glass pop-ups offer
+notification alerts, foreground location tagging and biometric setup, followed
+by Dark, Light or Same as system theme selection. Each permission has Not now;
+device prompts run only after Continue. Biometric unlock first requires an app
+PIN fallback, then device verification. Denial or unavailable hardware leaves
+the option disabled and offers retry or skip. These prompts precede the
+walkthrough and are remembered locally per account/device; existing users who
+already completed the walkthrough are not reprompted.
+Same as system follows Android/WebView's `prefers-color-scheme`, updates while
+the app is open or resumes, and also updates the native status bar. The theme
+choice is available in Settings > Appearance, backups and account preference
+sync; permissions and biometric enrollment remain device-local.
+After setup, an account-specific glass
 walkthrough introduces Home, Accounts, Transactions, Investments, Loans and
 Settings. Next, Previous, Skip and Get started controls are available; completing
 or skipping it is remembered locally for that account. It never adds sample
@@ -513,6 +525,29 @@ site artifact. Pages publishes the APK and metadata together, so the two
 cannot come from unrelated builds. Older queued deployments cannot roll back
 the advertised update version. GitHub release creation can succeed before
 Pages deployment; mobile availability starts only after Pages succeeds.
+
+### Automatic update notifications
+
+Signed sideload builds check on launch and resume, and schedule native Android
+WorkManager checks roughly every 12 hours with an available network, even when
+the app is closed. The schedule survives normal process termination and reboot;
+Android battery restrictions may delay it. Force-stopping the app prevents
+background checks until it is opened again.
+
+Android 13+ asks for notification permission once. Enable MINARTH notifications
+and the **App updates** channel in Android Settings to receive alerts. Denying
+permission does not disable in-app update checks. One notification is posted
+per newer build; tapping it opens the app, where the update prompt appears
+after any required sign-in/unlock. Checks only fetch small, bounded metadata:
+they never download or install an APK in the background. Installation retains
+the existing checksum/package/signature verification and Android approval.
+Google Play-managed installations do not schedule sideload checks.
+
+Device validation: install this signed build, allow notifications, close the
+app, publish a higher versionCode, and confirm a single update notification.
+Tap it and verify the update prompt and installer approval. Repeat with
+notification permission/channel disabled, offline/recovery, reboot, and a
+Play-managed install. Android controls background execution timing.
 
 ### One-time signing setup (required)
 

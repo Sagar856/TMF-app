@@ -1,5 +1,6 @@
 import { UserSettings } from '../types/finance';
 import { isUiPalette } from './uiPalette';
+import { isThemePreference } from './theme';
 
 const STRING_KEYS = ['userName', 'userEmail', 'userPhoto', 'currencySymbol', 'currencyCode', 'locale'] as const;
 const BOOLEAN_KEYS = [
@@ -33,7 +34,7 @@ export function portableSettings(value: unknown): Partial<UserSettings> {
     }
   }
   if (value.theme !== undefined) {
-    if (value.theme !== 'light' && value.theme !== 'dark') throw new TypeError('Invalid theme.');
+    if (!isThemePreference(value.theme)) throw new TypeError('Invalid theme.');
     result.theme = value.theme;
   }
   if (value.colorPalette !== undefined) {

@@ -1,7 +1,6 @@
 package com.trackmoneyflow.app;
 
 import android.content.Intent;
-import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
@@ -13,7 +12,10 @@ import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -25,18 +27,63 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.net.ssl.HttpsURLConnection;
 
-@CapacitorPlugin(name = "AppUpdate")
+@CapacitorPlugin(name = "AppUpdate", permissions = {
+    @Permission(alias = "notifications", strings = { android.Manifest.permission.POST_NOTIFICATIONS })
+})
 public class AppUpdatePlugin extends Plugin {
     private static final String APK_URL = "https://sagar856.github.io/TMF-app/downloads/TMF-app.apk";
     private static final long MAX_SIZE = 150L * 1024 * 1024;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     private boolean supported() throws PackageManager.NameNotFoundException {
-        PackageManager manager = getContext().getPackageManager();
-        ApplicationInfo info = manager.getApplicationInfo(getContext().getPackageName(), PackageManager.GET_META_DATA);
-        String installer = manager.getInstallerPackageName(getContext().getPackageName());
-        return info.metaData != null && info.metaData.getBoolean("minarth.sideloadUpdates", false)
-            && !"com.android.vending".equals(installer);
+        return AppUpdateWorker.supported(getContext());
+    }
+
+    @Override
+    public void load() {
+        try {
+            AppUpdateWorker.schedule(getContext());
+        } catch (PackageManager.NameNotFoundException | IllegalStateException error) {
+            android.util.Log.e("MinarthUpdate", "Could not schedule background updates.", error);
+        }
+    }
+
+    @PluginMethod
+    public void startAutomaticChecks(PluginCall call) {
+        try {
+            if (!supported()) {
+                AppUpdateWorker.schedule(getContext());
+                JSObject result = new JSObject();
+                result.put("notificationsEnabled", false);
+                call.resolve(result);
+                return;
+            }
+            android.content.SharedPreferences preferences = getContext().getSharedPreferences("minarth_app_updates", 0);
+            if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED
+                && !preferences.getBoolean("permissionAsked", false)) {
+                if (!preferences.edit().putBoolean("permissionAsked", true).commit()) {
+                    throw new IllegalStateException("Could not save notification permission preference.");
+                }
+                requestPermissionForAlias("notifications", call, "notificationPermissionResult");
+                return;
+            }
+            notificationPermissionResult(call);
+        } catch (PackageManager.NameNotFoundException | IllegalStateException error) {
+            call.reject("Could not enable automatic update checks.", error);
+        }
+    }
+
+    @PermissionCallback
+    private void notificationPermissionResult(PluginCall call) {
+        try {
+            AppUpdateWorker.schedule(getContext());
+            JSObject result = new JSObject();
+            result.put("notificationsEnabled", androidx.core.app.NotificationManagerCompat.from(getContext()).areNotificationsEnabled()
+                && (Build.VERSION.SDK_INT < 33 || getPermissionState("notifications") == PermissionState.GRANTED));
+            call.resolve(result);
+        } catch (PackageManager.NameNotFoundException | IllegalStateException error) {
+            call.reject("Could not schedule automatic update checks.", error);
+        }
     }
 
     private long versionCode(PackageInfo info) {

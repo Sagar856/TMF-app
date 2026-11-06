@@ -7,6 +7,7 @@ export type PermissionDisclosure = 'location' | 'notifications' | 'biometrics';
 interface PermissionDisclosureModalProps {
   permission: PermissionDisclosure;
   busy?: boolean;
+  error?: string;
   onAllow: () => void;
   onCancel: () => void;
 }
@@ -35,6 +36,7 @@ const DISCLOSURES: Record<PermissionDisclosure, { title: string; description: st
 export const PermissionDisclosureModal: React.FC<PermissionDisclosureModalProps> = ({
   permission,
   busy = false,
+  error,
   onAllow,
   onCancel,
 }) => {
@@ -65,6 +67,7 @@ export const PermissionDisclosureModal: React.FC<PermissionDisclosureModalProps>
             <X className="h-4 w-4" />
           </button>
         </div>
+        {error && <p role="alert" className="mb-4 text-xs text-content-1">{error}</p>}
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} disabled={busy} className="flex-1 rounded-xl border border-line bg-surface-2 px-3 py-2.5 text-xs font-semibold text-content-2 hover:text-content-1 disabled:opacity-50">
             Not now

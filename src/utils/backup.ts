@@ -9,6 +9,7 @@ import {
 } from '../types/finance';
 import { isSavingsGoal } from './savingsGoals';
 import { isUiPalette } from './uiPalette';
+import { isThemePreference } from './theme';
 
 export interface BackupRestoreData {
   formatVersion?: number;
@@ -100,6 +101,7 @@ function isUserSettings(value: unknown): value is UserSettings {
     && typeof value.currencySymbol === 'string'
     && typeof value.currencyCode === 'string'
     && (value.colorPalette === undefined || isUiPalette(value.colorPalette))
+    && (value.theme === undefined || isThemePreference(value.theme))
     && typeof value.passcodeEnabled === 'boolean'
     && typeof value.locationTracking === 'boolean'
     && typeof value.autoExtractSms === 'boolean'

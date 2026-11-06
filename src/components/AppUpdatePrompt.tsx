@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Download, X } from 'lucide-react';
+import { App as CapacitorApp } from '@capacitor/app';
 import { useDialog } from '../hooks/useDialog';
-import { canCheckApkUpdates, checkForApkUpdate, CHECK_APP_UPDATE_EVENT, downloadAndInstallApk, type ApkUpdate } from '../services/appUpdates';
+import { canCheckApkUpdates, checkForApkUpdate, CHECK_APP_UPDATE_EVENT, downloadAndInstallApk, startAutomaticUpdateChecks, type ApkUpdate } from '../services/appUpdates';
 
 export function AppUpdatePrompt() {
   const [open, setOpen] = useState(false);
@@ -50,12 +51,21 @@ export function AppUpdatePrompt() {
       }
     };
     const manualCheck = () => { void check(true); };
+    const automaticCheck = () => {
+      void startAutomaticUpdateChecks().catch(reason => console.warn('Could not enable background update notifications:', reason));
+      void check(false);
+    };
     window.addEventListener(CHECK_APP_UPDATE_EVENT, manualCheck);
-    const timer = setTimeout(() => { void check(false); }, 2000);
+    const listener = CapacitorApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive && active.current) automaticCheck();
+    });
+    void listener.catch(reason => console.warn('Could not listen for app resume update checks:', reason));
+    const timer = setTimeout(automaticCheck, 2000);
     return () => {
       active.current = false;
       clearTimeout(timer);
       window.removeEventListener(CHECK_APP_UPDATE_EVENT, manualCheck);
+      void listener.then(handle => handle.remove()).catch(reason => console.warn('Could not remove app update resume listener:', reason));
     };
   }, []);
 

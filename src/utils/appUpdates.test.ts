@@ -33,6 +33,7 @@ test('APK checks compare build numbers, skip store-managed installs and surface 
   const originalFetch = globalThis.fetch;
   let installed = { appId: 'com.trackmoneyflow.app', versionName: '1.0.4', versionCode: 100101, supported: true };
   let fetches = 0;
+  let backgroundChecks = 0;
   const bundle = buildSync({
     entryPoints: [fileURLToPath(new URL('../services/appUpdates.ts', import.meta.url))],
     bundle: true, platform: 'node', format: 'cjs', packages: 'external', write: false,
@@ -40,14 +41,20 @@ test('APK checks compare build numbers, skip store-managed installs and surface 
   const module: { exports: Partial<typeof UpdateService> } = { exports: {} };
   const require = createRequire(import.meta.url);
   runInNewContext(bundle.outputFiles[0].text, {
-    module, exports: module.exports, Date, setTimeout, clearTimeout, AbortController,
+    module, exports: module.exports, Date, setTimeout, clearTimeout, AbortController, console,
     fetch: (...args: Parameters<typeof fetch>) => globalThis.fetch(...args),
     require: (name: string) => name === '@capacitor/core'
-      ? { Capacitor: { getPlatform: () => 'android' }, registerPlugin: () => ({ getInfo: async () => installed }) }
+      ? { Capacitor: { getPlatform: () => 'android' }, registerPlugin: () => ({
+        getInfo: async () => installed,
+        startAutomaticChecks: async () => { backgroundChecks++; return { notificationsEnabled: true }; },
+      }) }
       : require(name),
   });
-  const { checkForApkUpdate } = module.exports;
+  const { checkForApkUpdate, startAutomaticUpdateChecks } = module.exports;
   assert.ok(checkForApkUpdate);
+  assert.ok(startAutomaticUpdateChecks);
+  await startAutomaticUpdateChecks();
+  assert.equal(backgroundChecks, 1);
   globalThis.fetch = async () => { fetches++; return new Response(JSON.stringify(metadata), { status: 200 }); };
   context.after(() => { globalThis.fetch = originalFetch; });
   assert.equal((await checkForApkUpdate()).update?.versionCode, 100201);
@@ -56,6 +63,8 @@ test('APK checks compare build numbers, skip store-managed installs and surface 
   installed = { ...installed, versionCode: 100301 };
   assert.equal((await checkForApkUpdate()).update, null);
   installed = { ...installed, supported: false };
+  await startAutomaticUpdateChecks();
+  assert.equal(backgroundChecks, 1);
   const before = fetches;
   assert.equal((await checkForApkUpdate()).update, null);
   assert.equal(fetches, before);

@@ -24,7 +24,8 @@ import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AppLaunchLoader } from './components/AppLaunchLoader';
 import { AppUpdatePrompt } from './components/AppUpdatePrompt';
-import { AppWalkthrough } from './components/AppWalkthrough';
+import { FirstLoginSetup } from './components/FirstLoginSetup';
+import { useResolvedTheme } from './hooks/useResolvedTheme';
 import { useActivityState } from './hooks/useActivityState';
 import { activityHistory, attachActivityHistory, resetActivityHistory } from './utils/activityHistory';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
@@ -230,7 +231,7 @@ export default function App() {
       passcodeEnabled: false,
       locationTracking: false,
       autoExtractSms: false,
-      notificationsEnabled: true,
+      notificationsEnabled: false,
       budgetAlertsEnabled: true,
       sampleDataLoaded: true,
       skipDeleteConfirmation: false,
@@ -239,6 +240,8 @@ export default function App() {
       autoCollapseExpandOnScroll: true,
     };
   });
+
+  const resolvedTheme = useResolvedTheme(settings.theme);
 
   const [categories, setCategories] = useState<Category[]>(() => {
     const parsed = safeGetJson<Category[]>('tmf_categories', INITIAL_CATEGORIES, Array.isArray);
@@ -525,10 +528,10 @@ export default function App() {
     if (!Capacitor.isNativePlatform()) return;
     void Promise.all([
       StatusBar.setOverlaysWebView({ overlay: false }),
-      StatusBar.setBackgroundColor({ color: settings.theme === 'light' ? '#f4f4f6' : '#09090c' }),
-      StatusBar.setStyle({ style: settings.theme === 'light' ? StatusBarStyle.Dark : StatusBarStyle.Light }),
+      StatusBar.setBackgroundColor({ color: resolvedTheme === 'light' ? '#f4f4f6' : '#09090c' }),
+      StatusBar.setStyle({ style: resolvedTheme === 'light' ? StatusBarStyle.Dark : StatusBarStyle.Light }),
     ]).catch((error) => console.warn('Could not configure the native status bar:', error));
-  }, [settings.theme]);
+  }, [resolvedTheme]);
 
   useEffect(() => {
     if (Capacitor.getPlatform() !== 'android') return;
@@ -591,14 +594,14 @@ export default function App() {
   // Theme sync to HTML element
   useEffect(() => {
     const root = document.documentElement;
-    if (settings.theme === 'light') {
+    if (resolvedTheme === 'light') {
       root.classList.add('light');
       root.classList.remove('dark');
     } else {
       root.classList.add('dark');
       root.classList.remove('light');
     }
-  }, [settings.theme]);
+  }, [resolvedTheme]);
 
   useEffect(() => {
     applyUiPalette(document.documentElement, settings.colorPalette);
@@ -607,7 +610,7 @@ export default function App() {
   const handleToggleTheme = () => {
     setSettings((prev) => ({
       ...prev,
-      theme: prev.theme === 'light' ? 'dark' : 'light',
+      theme: resolvedTheme === 'light' ? 'dark' : 'light',
     }));
   };
 
@@ -1113,7 +1116,7 @@ export default function App() {
       userName: '', userEmail: '', userPhoto: '',
       currencySymbol: '₹', currencyCode: 'INR', locale: 'en-IN', theme: 'dark',
       passcodeEnabled: false, biometricUnlockEnabled: false, locationTracking: false,
-      autoExtractSms: false, notificationsEnabled: true, budgetAlertsEnabled: true,
+      autoExtractSms: false, notificationsEnabled: false, budgetAlertsEnabled: true,
       connectedDematAccounts: [], sampleDataLoaded: false,
     });
     setLastSettingsSyncAt(null);
@@ -2816,7 +2819,8 @@ export default function App() {
     <MoneyLocaleContext.Provider value={settings.locale}>
     <MotionConfig reducedMotion="user">
     <div className="app-viewport flex bg-obsidian text-[#f0f0f0] font-sans overflow-hidden">
-      <AppWalkthrough key={authUser.id} userId={authUser.id} onNavigate={setActiveTab} />
+      <FirstLoginSetup key={authUser.id} userId={authUser.id} settings={settings}
+        onUpdate={patch => setSettings(prev => ({ ...prev, ...patch }))} onNavigate={setActiveTab} />
       <a className="skip-link" href="#main-content">Skip to main content</a>
       {/* Nothing Desktop Navigation Sidebar */}
       <div className="hidden lg:block h-full shrink-0">
@@ -2876,7 +2880,7 @@ export default function App() {
           currencySymbol={settings.currencySymbol}
           currencyCode={settings.currencyCode}
           locationTracking={settings.locationTracking}
-          theme={settings.theme || 'dark'}
+          theme={resolvedTheme}
           onToggleTheme={handleToggleTheme}
         />
 

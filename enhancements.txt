@@ -28,8 +28,3 @@ A R T H I M N
 *5. location co-ordinate extraction in redable format
 
 
-1. Use the simplified purple M-growth icon as the notification icon
-2. Currently, I'm getting the extracted sms notification at it is in attached iamge1, but can we make it something like it is in attached image4, and allow user to input the description in notification itself.
-3. Mobile biometrics still not working, ask user to permit biometric and app should be unlocked using biometrics.
-4. When I downloaded  the app its app icon I can see is like it is in attached image 5, but it should be the app logo.
-5. Now location tagging in new traction form is working, but it is not working for sms extracted transactions, and extracted location shows only co-ordinates, It should show readable location.   
