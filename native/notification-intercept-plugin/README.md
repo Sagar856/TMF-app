@@ -57,6 +57,14 @@ replays captures on startup/resume and forwards live events. JavaScript
 persists its pending queue before handling actions or resolving native entries.
 Original notification timestamps are preserved; transaction details stay
 private on the lock screen.
+Opening the body does not auto-cancel the alert. Session recovery preserves
+the owner-scoped queue; explicit sign-out/account deletion clear it. Bridge
+configuration waits for authentication and cloud settings hydration.
+
+Detected category type/category are displayed using
+`res/raw/payment_category_rules.json`, also consumed by the JavaScript
+classifier. **Edit category / transaction in app** opens the editor after
+unlock; Android does not show an inline category selector.
 
 The notification-only Java summary is not the authoritative transaction parser.
 Missing details show "Review in app"; JavaScript still parses the original
@@ -80,6 +88,11 @@ continuous tracking. Native geocoding enriches saved coordinates asynchronously;
 the bridge forwards that update along with descriptions. Foreground replay
 may locate recent payments, but never tags old payments with current position.
 Android background restrictions can leave payments without a location.
+Captured coordinates are retained even if tagging is later disabled, and the
+editor never substitutes save-time GPS for an SMS capture. The `captureLocation`
+bridge persists recent foreground fallback coordinates into the native queue,
+without overwriting an earlier fix. Missing historical positions cannot be
+recreated.
 
 Native configuration follows the interceptor and push-notification switches.
 Notification Access and Android 13+ display permission must both be granted.

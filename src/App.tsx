@@ -20,6 +20,7 @@ import {
 } from './utils/storage';
 import { motion, AnimatePresence, MotionConfig } from 'motion/react';
 import { useReducedMotion } from './hooks/useReducedMotion';
+import { updateNotificationHistory, isNotificationHistory, type NotificationHistoryEntry } from './utils/notificationHistory';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { AppLaunchLoader } from './components/AppLaunchLoader';
@@ -99,7 +100,7 @@ import {
 } from './services/supabaseClient';
 import { checkIsAdmin, recordActivity } from './services/adminService';
 
-import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, type InterceptedPayment } from './services/notificationListener';
+import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, persistInterceptedLocation, type InterceptedPayment } from './services/notificationListener';
 import { adjustPaymentAccountBalance, applyTransactionToAccounts, createPaymentTransaction } from './utils/paymentTransaction';
 import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount';
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
@@ -306,6 +307,10 @@ export default function App() {
   // Daily market valuations: stock closes + IBJA metal rates (published snapshot) and AMFI NAVs.
   const marketSnapshot = useMarketSnapshot();
   const [mutualFundNavs, setMutualFundNavs] = useState<Record<string, MutualFundNavEntry>>({});
+  const [marketRefreshing, setMarketRefreshing] = useState(false);
+  const [marketRefreshMessage, setMarketRefreshMessage] = useState<string | null>(null);
+  const manualMarketRefresh = useRef(false);
+  const [nextMarketRefreshAt, setNextMarketRefreshAt] = useState(() => Date.now() + 60 * 60 * 1000);
   const mutualFundSchemeKey = useMemo(
     () =>
       Array.from(
@@ -333,9 +338,44 @@ export default function App() {
     [investments]
   );
 
+  const refreshMarketData = async () => {
+    if (manualMarketRefresh.current) return;
+    manualMarketRefresh.current = true;
+    setMarketRefreshing(true);
+    setMarketRefreshMessage(null);
+    const unavailable: string[] = [];
+    try {
+      const results = await Promise.allSettled([
+        loadMarketSnapshot({ force: true }),
+        loadStockDirectory({ force: true }),
+        refreshIntradayQuotes(stockHoldingKey ? stockHoldingKey.split(',').map((entry) => {
+          const [symbol, exchange] = entry.split('|');
+          return { symbol, exchange };
+        }) : [], { force: true }),
+        refreshMutualFundNavs(mutualFundSchemeKey ? mutualFundSchemeKey.split(',') : [], {
+          force: true,
+          onUnavailable: (code) => unavailable.push(code),
+        }).then(setMutualFundNavs),
+      ]);
+      const failed = results.some((result) => result.status === 'rejected') || unavailable.length > 0;
+      setMarketRefreshMessage(failed
+        ? 'Some sources could not be refreshed. Last known prices are retained; try again later.'
+        : 'Refresh finished. Showing the latest available published prices; intraday quotes are best effort.');
+    } finally {
+      manualMarketRefresh.current = false;
+      setMarketRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
     const refresh = () => {
+      clearTimeout(timer);
+      setNextMarketRefreshAt(Date.now() + 60 * 60 * 1000);
+      timer = setTimeout(() => {
+        if (document.visibilityState === 'visible') refresh();
+      }, 60 * 60 * 1000);
       void loadMarketSnapshot();
       // Full stock list and daily closes: used for stock search and to value holdings.
       void loadStockDirectory();
@@ -361,6 +401,7 @@ export default function App() {
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
+      clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisible);
     };
   }, [mutualFundSchemeKey, stockHoldingKey]);
@@ -393,6 +434,22 @@ export default function App() {
   const [pendingNotifications, setPendingNotifications] = useState<ParsedNotification[]>(() => {
     return safeGetJson<ParsedNotification[]>('tmf_pending_notifications', [], Array.isArray);
   });
+  const [notificationHistory, setNotificationHistory] = useState(() =>
+    safeGetJson<NotificationHistoryEntry[]>('tmf_notification_history', [], isNotificationHistory));
+  const notificationHistoryRef = useRef(notificationHistory);
+  const recordNotificationHistory = (entry: NotificationHistoryEntry) => {
+    const next = updateNotificationHistory(notificationHistoryRef.current, entry);
+    if (!safeSetItem('tmf_notification_history', JSON.stringify(next))) return;
+    notificationHistoryRef.current = next;
+    setNotificationHistory(next);
+  };
+  const recordExtractedHistory = (notification: ParsedNotification, status: 'pending' | 'added' | 'ignored' = 'pending') => {
+    recordNotificationHistory({
+      id: notification.id, kind: 'extracted', title: notification.payeeOrPayer,
+      message: `${notification.type === 'credit' ? 'Credit' : 'Debit'} ${notification.amount} · ${notification.category} · ${notification.date} ${notification.time}`,
+      timestamp: Date.parse(`${notification.date}T${notification.time}`) || Date.now(), status,
+    });
+  };
   const interceptorState = useRef({ transactions, pendingNotifications, settings });
   interceptorState.current = { transactions, pendingNotifications, settings };
   const [paymentActions, setPaymentActions] = useState<InterceptedPayment[]>([]);
@@ -1201,7 +1258,7 @@ export default function App() {
   // Clears all locally-cached financial data. Used on sign-out so the next
   // person to use this device/browser never sees the previous account's data
   // before their own cloud data has loaded.
-  const clearLocalDataOnSignOut = () => {
+  const clearLocalDataOnSignOut = (preserveNativePayments = false) => {
     cloudGenerationRef.current++;
     cloudLoadInFlightRef.current = false;
     setCloudHydrated(false);
@@ -1212,6 +1269,8 @@ export default function App() {
     setLoans([]);
     setCategories(INITIAL_CATEGORIES);
     setPendingNotifications([]);
+    notificationHistoryRef.current = [];
+    setNotificationHistory([]);
     setSavingsGoals([]);
     setSettings({
       userName: '', userEmail: '', userPhoto: '',
@@ -1240,13 +1299,15 @@ export default function App() {
     setIsAddModalOpen(false);
     setIsNotificationModalOpen(false);
     setEditingTransaction(null);
-    void clearInterceptedPayments().catch(error => console.warn('Could not clear native payment queue:', error));
+    if (!preserveNativePayments) {
+      void clearInterceptedPayments().catch(error => console.warn('Could not clear native payment queue:', error));
+    }
   };
 
   const prepareUserCache = (userId: string) => {
     const owner = safeGetItem('tmf_cache_owner');
     // Unknown legacy caches must never be assigned to whichever user signs in next.
-    if (owner !== userId) clearLocalDataOnSignOut();
+    if (owner !== userId) clearLocalDataOnSignOut(true);
     safeSetItem('tmf_cache_owner', userId);
   };
 
@@ -1270,7 +1331,7 @@ export default function App() {
         });
       } else {
         setAuthUser(null);
-        clearLocalDataOnSignOut();
+        clearLocalDataOnSignOut(true);
       }
       setAuthLoading(false);
     }).catch(error => {
@@ -1296,7 +1357,7 @@ export default function App() {
         passwordRecoveryRef.current = false;
         setAuthUser(null);
         setIsPasswordRecovery(false);
-        clearLocalDataOnSignOut();
+        clearLocalDataOnSignOut(true);
         return;
       }
       if (passwordRecoveryRef.current) return;
@@ -1310,7 +1371,7 @@ export default function App() {
         });
       } else {
         setAuthUser(null);
-        clearLocalDataOnSignOut();
+        clearLocalDataOnSignOut(true);
       }
     });
     return () => { active = false; unsubscribe(); };
@@ -1318,12 +1379,13 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (authLoading || (isCloudBackendConfigured() && (!isAuthenticated || !cloudHydrated))) return;
     void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '')
       .catch(error => {
         console.warn('Could not configure background payment tracking:', error);
         showToast('Could not configure background payment tracking. Please retry.', 'error');
       });
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, authUser?.id, isAuthenticated]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, authUser?.id, isAuthenticated, authLoading, cloudHydrated]);
 
   useEffect(() => {
     if (isCloudBackendConfigured() && !isAuthenticated) return;
@@ -1370,12 +1432,23 @@ export default function App() {
           setPaymentActions(previous => previous.filter(action => !ids.has(`native_${action.id}`)));
           for (const receipt of receipts) {
             if (!isActive() || generation !== cloudGenerationRef.current) return;
+            recordNotificationHistory({
+              id: `native_${receipt.id}`, kind: 'extracted', title: receipt.transaction?.title || receipt.title,
+              message: receipt.transaction ? `${receipt.transaction.type} ${receipt.transaction.amount} · ${receipt.transaction.category}` : receipt.text,
+              timestamp: receipt.postedAt, status: 'added',
+            });
             await acknowledgeSavedPayment(receipt.id);
           }
         });
       }
       const current = interceptorState.current;
       if (payment.action === 'ignore' || current.transactions.some(tx => tx.id === `tx_${id}`)) {
+        const notification = current.pendingNotifications.find((item) => item.id === id);
+        if (notification) recordExtractedHistory(notification, payment.action === 'ignore' ? 'ignored' : 'added');
+        else recordNotificationHistory({
+          id, kind: 'extracted', title: payment.title, message: payment.text,
+          timestamp: payment.postedAt, status: payment.action === 'ignore' ? 'ignored' : 'added',
+        });
         const remaining = current.pendingNotifications.filter(n => n.id !== id);
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
         interceptorState.current.pendingNotifications = remaining;
@@ -1390,6 +1463,10 @@ export default function App() {
       const { resolvePaymentLocation } = await import('./services/paymentLocation');
       const detectedLocation = await resolvePaymentLocation(payment, Boolean(interceptorState.current.settings.locationTracking), pendingBeforeLookup?.location);
       if (!isActive()) return;
+      if (detectedLocation && !payment.location) {
+        await persistInterceptedLocation(payment, detectedLocation).catch(error =>
+          console.warn('Could not retain payment location in the native queue; local review still retains it:', error));
+      }
       const latest = interceptorState.current;
       if (latest.transactions.some(tx => tx.id === `tx_${id}`)) {
         await resolveInterceptedPayment(id);
@@ -1400,7 +1477,7 @@ export default function App() {
         await resolveInterceptedPayment(id);
         return;
       }
-      const locationTag = latest.settings.locationTracking ? detectedLocation : existing?.location;
+      const locationTag = detectedLocation || existing?.location;
       if (!existing) {
         const result = parseNotification(`${payment.title} ${payment.text}`, locationTag || null, latest.transactions, latest.pendingNotifications, false);
         if (!result || result.isDuplicate) {
@@ -1418,6 +1495,7 @@ export default function App() {
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
         interceptorState.current.pendingNotifications = next;
         setPendingNotifications(next);
+        recordExtractedHistory(parsed);
       } else if (existing && (payment.description !== undefined || locationTag)) {
         const next = latest.pendingNotifications.map(n => n.id === id ? {
           ...n, description: payment.description ?? n.description, location: locationTag ?? n.location,
@@ -1523,6 +1601,7 @@ export default function App() {
 
   useEffect(() => {
     safeSetItem('tmf_pending_notifications', JSON.stringify(pendingNotifications));
+    pendingNotifications.forEach((notification) => recordExtractedHistory(notification));
   }, [pendingNotifications]);
 
   // Real-time Push-Style Budget Notification Monitor (80% and 100% Thresholds)
@@ -1530,6 +1609,11 @@ export default function App() {
     if (!settings.notificationsEnabled || settings.budgetAlertsEnabled === false) return;
     const newAlerts = checkBudgetThresholds(transactions, categories, settings.currencySymbol, undefined, settings.locale);
     if (newAlerts && newAlerts.length > 0) {
+      newAlerts.forEach((alert) => recordNotificationHistory({
+        id: alert.id, kind: 'alert', title: `${alert.categoryName} budget alert`,
+        message: `${Math.round(alert.percent)}% of budget used · ${alert.monthLabel}`,
+        timestamp: alert.timestamp, status: 'alert',
+      }));
       setActiveBudgetPushAlert(newAlerts[0]);
     }
   }, [transactions, categories, settings.currencySymbol, settings.locale, settings.notificationsEnabled, settings.budgetAlertsEnabled]);
@@ -1652,6 +1736,7 @@ export default function App() {
     const { transaction: newTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(notif, accounts, categories);
     const nextTransactions = [newTx, ...transactions];
     if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+    recordExtractedHistory(notif, 'added');
     if (nextCategories !== categories) setCategories(nextCategories);
     setAccounts(nextAccounts);
     setTransactions(nextTransactions);
@@ -1705,15 +1790,16 @@ export default function App() {
       refNumber: notif.refNumber,
     });
 
-    // Keep native captures pending until the edited transaction is saved.
-    if (notif.id.startsWith('native_')) setEditingPaymentId(notif.id);
-    else setPendingNotifications((prev) => prev.filter((n) => n.id !== notif.id));
+    // Keep captures pending until the edited transaction is saved.
+    setEditingPaymentId(notif.id);
     setIsNotificationModalOpen(false);
   };
 
   const handleIgnoreNotification = (notifId: string) => {
     const remaining = pendingNotifications.filter(n => n.id !== notifId);
     if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
+    const ignored = pendingNotifications.find((item) => item.id === notifId);
+    if (ignored) recordExtractedHistory(ignored, 'ignored');
     void resolveInterceptedPayment(notifId).catch(error => console.warn('Could not dismiss ignored payment:', error));
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notifId);
@@ -1739,6 +1825,7 @@ export default function App() {
   }, [paymentActions, pendingNotifications, isUnlocked, isAppLoading, editingTransaction, cloudReady, cloudHydrated]);
 
   const handleInterceptedFromSimulator = (notif: ParsedNotification) => {
+    recordExtractedHistory(notif);
     setPendingNotifications((prev) => [notif, ...prev]);
     setIsNotificationModalOpen(true);
   };
@@ -1759,6 +1846,8 @@ export default function App() {
       const nextAccounts = applyTransactionToAccounts(accounts, tx, 1);
       const nextTransactions = [tx, ...transactions];
       if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+      const reviewed = pendingNotifications.find((notification) => notification.id === editingPaymentId);
+      if (reviewed) recordExtractedHistory({ ...reviewed, category: tx.category, subcategory: tx.subcategory, type: tx.type }, 'added');
       setAccounts(nextAccounts);
       setTransactions(nextTransactions);
       setPendingNotifications(previous => previous.filter(n => n.id !== editingPaymentId));
@@ -2510,6 +2599,14 @@ export default function App() {
       await signOutUser();
     } catch (error) {
       showToast(error instanceof Error ? error.message : 'Sign out failed. Please retry.', 'error');
+      return;
+    }
+    try {
+      await configureNotificationInterceptor(false, false, false, '');
+      await clearInterceptedPayments();
+    } catch (error) {
+      console.error('Signed out, but device payment notification cleanup failed:', error);
+      showToast('Signed out, but device payment notifications could not be cleared.', 'error');
     }
     // clearLocalDataOnSignOut() + setAuthUser(null) happen automatically via
     // the SIGNED_OUT event from subscribeToAuthChanges above.
@@ -2522,10 +2619,20 @@ export default function App() {
       confirmLabel: 'Delete my account',
       intent: 'danger',
       icon: 'trash',
-      onConfirm: () => {
-        void deleteUserAccount().catch(error => {
+      onConfirm: async () => {
+        try {
+          await deleteUserAccount();
+        } catch (error) {
           showToast(error instanceof Error ? error.message : 'Account deletion failed. Please retry.', 'error', 8000);
-        });
+          return;
+        }
+        try {
+          await configureNotificationInterceptor(false, false, false, '');
+          await clearInterceptedPayments();
+        } catch (error) {
+          console.error('Account deleted, but device payment notification cleanup failed:', error);
+          showToast('Account deleted, but device payment notifications could not be cleared.', 'error', 8000);
+        }
       },
     });
   };
@@ -2752,6 +2859,7 @@ export default function App() {
         safeSetItem('tmf_loans', '[]');
         safeSetItem('tmf_savings_goals', '[]');
         safeSetItem('tmf_pending_notifications', '[]');
+        safeSetItem('tmf_notification_history', '[]');
 
         setTransactions([]);
         setAccounts([]);
@@ -2759,6 +2867,8 @@ export default function App() {
         setLoans([]);
         setSavingsGoals([]);
         setPendingNotifications([]);
+        notificationHistoryRef.current = [];
+        setNotificationHistory([]);
         resetDuplicateMemory();
         setPaymentActions([]);
         setEditingPaymentId(null);
@@ -3071,6 +3181,10 @@ export default function App() {
 
           {activeTab === 'investments' && (
             <InvestmentsView
+              nextMarketRefreshAt={nextMarketRefreshAt}
+              onRefreshMarketData={refreshMarketData}
+              marketRefreshing={marketRefreshing}
+              marketRefreshMessage={marketRefreshMessage}
               openAddAssetRequest={openAssetRequest}
               investments={investments}
               transactions={transactions}
@@ -3232,6 +3346,7 @@ export default function App() {
       {isNotificationModalOpen && (
         <Suspense fallback={null}>
           <NotificationPromptModal
+            history={notificationHistory}
             notifications={pendingNotifications}
             onConfirmAdd={handleConfirmAddNotification}
             onConfirmEdit={handleConfirmEditNotification}

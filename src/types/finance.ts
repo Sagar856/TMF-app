@@ -281,6 +281,7 @@ export interface ParsedNotification {
   date: string;
   time: string;
   category: string;
+  categoryType?: 'Expense' | 'Income' | 'Investment';
   subcategory: string;
   location?: LocationTag;
   appSource: string; // e.g., "Paytm", "PhonePe", "Google Pay", "HDFC SMS", "Apple Pay"

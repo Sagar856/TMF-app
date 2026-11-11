@@ -31,6 +31,7 @@ interface NotificationInterceptPlugin {
   acknowledgeAction(options: { id: string }): Promise<void>;
   acknowledgeSaved(options: { id: string }): Promise<void>;
   clearPayments(): Promise<void>;
+  captureLocation(options: { id: string; lat: number; lng: number; name: string; capturedAt: number }): Promise<void>;
   addListener(event: 'notificationReceived', callback: (data: InterceptedPayment) => void): Promise<PluginListenerHandle>;
 }
 
@@ -83,6 +84,12 @@ export async function acknowledgePaymentAction(id: string): Promise<void> {
 
 export async function clearInterceptedPayments(): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.clearPayments();
+}
+
+export async function persistInterceptedLocation(payment: InterceptedPayment, location: LocationTag): Promise<void> {
+  if (isNativeAndroid() && !payment.location) {
+    await NotificationIntercept.captureLocation({ id: payment.id, ...location, capturedAt: Date.now() });
+  }
 }
 
 export function startNotificationListener(onPayment: (payment: InterceptedPayment, isActive: () => boolean) => Promise<void>): () => void {

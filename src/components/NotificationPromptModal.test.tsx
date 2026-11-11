@@ -18,6 +18,8 @@ test('payment review displays inline descriptions and honest missing-location la
   const missing = render(payment);
   assert.match(missing, /Lunch &amp; snacks &lt;test&gt;/);
   assert.match(missing, /Test merchant/);
+  assert.match(missing, /aria-label="Notification history"/);
+  assert.match(missing, /Change category/);
   assert.match(missing, /Location not captured/);
   assert.doesNotMatch(missing, /undefined/);
   const unnamed = render({ ...payment, location: { lat: 19, lng: 72, name: '' } });
@@ -25,4 +27,13 @@ test('payment review displays inline descriptions and honest missing-location la
   assert.doesNotMatch(unnamed, /19\.0000/);
   assert.match(render({ ...payment, location: { lat: 19, lng: 72, name: 'Bandra West, Mumbai' } }),
     /Bandra West, Mumbai/);
+});
+
+test('notification history is accessible from the empty notifications screen', () => {
+  const markup = renderToStaticMarkup(
+    <NotificationPromptModal notifications={[]} currencySymbol="INR"
+      onConfirmAdd={() => {}} onConfirmEdit={() => {}} onIgnore={() => {}} onClose={() => {}} />
+  );
+  assert.equal(markup.split('aria-label="Notification history"').length - 1, 1);
+  assert.match(markup, /No Pending Notifications/);
 });

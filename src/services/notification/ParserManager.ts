@@ -103,6 +103,7 @@ export function parseNotification(
     date: dateStr,
     time: timeStr,
     category: categoryMatch.category,
+    categoryType: categoryMatch.categoryType,
     subcategory: categoryMatch.subcategory,
     location: userLocation ?? undefined,
     appSource,

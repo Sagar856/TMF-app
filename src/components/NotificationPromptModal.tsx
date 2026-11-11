@@ -1,7 +1,8 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { ParsedNotification } from '../types/finance';
-import { Check, Edit3, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio } from 'lucide-react';
+import { Check, Edit3, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History } from 'lucide-react';
+import type { NotificationHistoryEntry } from '../utils/notificationHistory';
 
 interface NotificationPromptModalProps {
   notifications: ParsedNotification[];
@@ -10,6 +11,7 @@ interface NotificationPromptModalProps {
   onIgnore: (notifId: string) => void;
   onClose: () => void;
   currencySymbol: string;
+  history?: NotificationHistoryEntry[];
 }
 
 export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = ({
@@ -19,16 +21,49 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   onIgnore,
   onClose,
   currencySymbol,
+  history = [],
 }) => {
   const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [showRawText, setShowRawText] = useState<boolean>(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const historyButton = (
+    <button type="button" onClick={() => setShowHistory(!showHistory)}
+      aria-label={showHistory ? 'Back to pending notifications' : 'Notification history'}
+      className="flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs">
+      <History className="h-3.5 w-3.5" />{showHistory ? 'Pending' : 'History'}
+    </button>
+  );
+
+  if (showHistory) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-xs" onClick={onClose} />
+      <section role="dialog" aria-modal="true" aria-label="Notification history"
+        className="relative w-full max-w-md rounded-3xl border border-line bg-surface-1 p-4 text-content-1 shadow-2xl">
+        <header className="mb-3 flex items-center justify-between gap-2">
+          <h3 className="min-w-0 text-sm font-bold">History · Last 20 notifications</h3>
+          <div className="flex shrink-0 items-center gap-2">{historyButton}<button type="button" aria-label="Close notification history" onClick={onClose}><X className="h-4 w-4" /></button></div>
+        </header>
+        <div className="max-h-[65vh] overflow-y-auto space-y-2">
+          {history.length === 0 ? <p className="text-xs text-content-3">No notification history yet.</p>
+            : history.slice(0, 20).map((entry) => (
+              <article key={entry.id} className="rounded-xl border border-line p-3 text-xs">
+                <p className="font-bold">{entry.title}</p>
+                <p className="text-content-3 break-words">{entry.message}</p>
+                <p className="mt-1 text-[10px] text-content-3">{entry.kind === 'alert' ? 'Alert' : 'Extracted'} · {entry.status} · {new Date(entry.timestamp).toLocaleString()}</p>
+              </article>
+            ))}
+        </div>
+      </section>
+    </div>
+  );
 
   if (notifications.length === 0) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
         <div className="fixed inset-0 bg-black/30 backdrop-blur-xs transition-opacity" onClick={onClose} />
         <div className="relative z-10 bg-surface-1/85 border border-white/20 backdrop-blur-xl p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl text-white my-auto animate-in zoom-in-95 duration-150">
+          <div className="mb-3 flex justify-end">{historyButton}</div>
           <div className="w-12 h-12 bg-black/50 border border-white/15 rounded-full flex items-center justify-center mx-auto mb-3 text-red-400">
             <Smartphone className="w-6 h-6" />
           </div>
@@ -36,6 +71,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           <p className="text-xs text-[#aaa] mb-4">You have reviewed all detected UPI & Bank SMS transactions.</p>
           <button
             onClick={onClose}
+            aria-label="Close notifications"
             className="w-full py-2 bg-white text-black text-xs font-bold uppercase rounded-xl hover:bg-neutral-200 transition-colors cursor-pointer"
           >
             Close
@@ -64,12 +100,13 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
               UPI / SMS Detected ({safeIndex + 1}/{notifications.length})
             </span>
           </div>
-          <button
+          <div className="flex items-center gap-2">{historyButton}<button
             onClick={onClose}
+            aria-label="Close notifications"
             className="text-[#aaa] hover:text-white p-1 rounded-lg bg-black/40 border border-white/10 transition-colors cursor-pointer"
           >
             <X className="w-4 h-4" />
-          </button>
+          </button></div>
         </div>
 
         {/* Transaction Summary Card */}
@@ -105,12 +142,17 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
 
           {/* Extracted Category & Subcategory Tag */}
           <div className="mt-3 flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] text-content-3">
+              {activeNotif.categoryType || (activeNotif.type === 'credit' ? 'Income' : 'Expense')} / {activeNotif.type === 'credit' ? 'Credit' : 'Debit'}
+            </span>
             <span className="px-2.5 py-0.5 bg-[#181818] border border-[#333] text-[10px] font-mono rounded text-red-400 font-medium">
               #{activeNotif.category.toUpperCase().replace(/\s+/g, '_')}
             </span>
             <span className="px-2.5 py-0.5 bg-[#181818] border border-[#333] text-[10px] font-mono rounded text-[#aaa]">
               {activeNotif.subcategory}
             </span>
+            <button type="button" className="text-[10px] underline text-cyan-400"
+              onClick={() => onConfirmEdit(activeNotif)}>Change category</button>
           </div>
         </div>
 

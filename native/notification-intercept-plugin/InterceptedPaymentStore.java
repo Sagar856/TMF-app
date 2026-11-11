@@ -127,6 +127,7 @@ public final class InterceptedPaymentStore {
         JSONObject record = new JSONObject().put("id", id).put("packageName", pkg)
             .put("title", title).put("text", text).put("postedAt", time).put("action", "review")
             .put("owner", context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("owner", ""));
+        record.put("classification", classify(context, title + " " + text));
         Location location = captureLocation(context, time);
         if (location != null) record.put("location", new JSONObject()
             .put("lat", location.getLatitude()).put("lng", location.getLongitude()).put("capturedAt", location.getTime()));
@@ -150,11 +151,47 @@ public final class InterceptedPaymentStore {
                 if (candidate != null && Math.abs(candidate.getTime() - postedAt) <= 120000L
                     && (best == null || candidate.getTime() > best.getTime())) best = candidate;
             }
+
             return best;
         } catch (SecurityException error) {
             Log.w("TMFInterceptor", "Capture-time location is unavailable; background location is not requested", error);
             return null;
         }
+    }
+
+    private static String normalizeCategoryText(String text) {
+        return text.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9\\s]", " ").replaceAll("\\s+", " ").trim();
+    }
+
+    private static JSONObject classify(Context context, String text) throws JSONException {
+        JSONArray rules;
+        try (java.io.InputStream input = context.getResources().openRawResource(R.raw.payment_category_rules)) {
+            java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+            rules = new JSONArray(output.toString("UTF-8"));
+        } catch (java.io.IOException error) {
+            throw new IllegalStateException("Could not read payment category rules", error);
+        }
+        String normalized = " " + normalizeCategoryText(text) + " ";
+        for (int pass = 0; pass < 2; pass++) {
+            for (int i = 0; i < rules.length(); i++) {
+                JSONObject rule = rules.getJSONObject(i);
+                JSONArray keywords = rule.getJSONArray("keywords");
+                for (int k = 0; k < keywords.length(); k++) {
+                    String keyword = keywords.getString(k);
+                    boolean matches = pass == 0 ? normalized.contains(" " + normalizeCategoryText(keyword) + " ")
+                        : keyword.length() >= 4 && normalized.contains(keyword.toLowerCase(java.util.Locale.ROOT));
+                    if (matches) return new JSONObject().put("category", rule.getString("category"))
+                        .put("subcategory", rule.getString("subcategory")).put("categoryType", rule.getString("categoryType"));
+                }
+            }
+        }
+        boolean credit = java.util.regex.Pattern.compile("\\b(?:credited|received|deposited|refunded)\\b",
+            java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text).find();
+        return new JSONObject().put("category", credit ? "Salary" : "Food & Dining")
+            .put("subcategory", credit ? "Primary Job" : "General").put("categoryType", credit ? "Income" : "Expense");
     }
 
     private static void resolveLocationName(Context context, String id, Location location) {
@@ -190,6 +227,23 @@ public final class InterceptedPaymentStore {
         String city = address.getLocality();
         return local != null && city != null && !local.equalsIgnoreCase(city) ? local + ", " + city
             : city != null ? city : address.getAdminArea();
+    }
+
+    public static synchronized void captureLocation(Context context, String id, double lat, double lng,
+        String name, long capturedAt) throws JSONException {
+        JSONArray records = read(context);
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject record = records.getJSONObject(i);
+            if (!id.equals(record.getString("id")) || record.has("location")) continue;
+            if (Math.abs(capturedAt - record.getLong("postedAt")) > 120000L
+                || Math.abs(System.currentTimeMillis() - capturedAt) > 120000L) {
+                throw new IllegalStateException("Cannot attach today's location to a historical payment");
+            }
+            record.put("location", new JSONObject().put("lat", lat).put("lng", lng)
+                .put("name", name).put("capturedAt", capturedAt));
+            save(context, records);
+            return;
+        }
     }
 
     public static synchronized void description(Context context, String id, String description) throws JSONException {
@@ -252,9 +306,10 @@ public final class InterceptedPaymentStore {
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.getJSONObject(i);
             if (record.optString("owner").isEmpty() && enabled && !owner.isEmpty()) record.put("owner", owner);
-            if (enabled && notifications && !"ignore".equals(record.getString("action"))) show(context, record);
+            boolean ownsRecord = record.optString("owner").equals(owner);
+            if (enabled && notifications && ownsRecord && !"ignore".equals(record.getString("action"))) show(context, record);
             else ContextCompat.getSystemService(context, NotificationManager.class).cancel(record.getString("id"), 1);
-            if (enabled && "saving".equals(record.optString("action"))) PaymentSaveWorker.enqueue(context, record.getString("id"));
+            if (enabled && ownsRecord && "saving".equals(record.optString("action"))) PaymentSaveWorker.enqueue(context, record.getString("id"));
         }
         save(context, records);
     }
@@ -291,7 +346,10 @@ public final class InterceptedPaymentStore {
         String description = record.optString("description", "");
         RemoteViews card = new RemoteViews(context.getPackageName(), R.layout.payment_notification);
         card.setTextViewText(R.id.payment_amount, summary.amount);
-        card.setTextViewText(R.id.payment_details, summary.details);
+        JSONObject classification = record.optJSONObject("classification");
+        if (classification == null) classification = classify(context, record.getString("title") + " " + record.getString("text"));
+        String category = classification.getString("categoryType") + " · " + classification.getString("category");
+        card.setTextViewText(R.id.payment_details, summary.details + "\nDetected  " + category);
         card.setTextViewText(R.id.payment_description, failed ? "Not saved: " + record.getString("saveError")
             : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Description below to add what this payment was for." : description);
         if (!saving || failed) card.setOnClickPendingIntent(R.id.payment_edit, open(context, id, "edit"));
@@ -305,9 +363,9 @@ public final class InterceptedPaymentStore {
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle(failed ? "Payment save needs attention" : saving ? "Saving payment" : "New transaction detected")
             .setLargeIcon(BitmapFactory.decodeResource(context.getResources(), R.drawable.ic_minarth_purple))
-            .setColor(Color.rgb(126, 58, 210)).setContentText(summary.amount)
+            .setColor(Color.rgb(126, 58, 210)).setContentText(summary.amount + " · " + category)
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle()).setCustomBigContentView(card)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true).setAutoCancel(false)
             .setContentIntent(open(context, id, "open"));
         if (!saving || failed) {
             builder.addAction(new NotificationCompat.Action.Builder(0, "Add", addIntent).setShowsUserInterface(false).build());

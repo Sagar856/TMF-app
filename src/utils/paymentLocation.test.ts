@@ -54,7 +54,9 @@ test('SMS location resolves captured coordinates, respects consent and never tag
     assert.equal(gpsRequests, 0);
     const named = { ...captured, name: 'Bandra West, Mumbai' };
     assert.deepEqual(await resolvePaymentLocation(payment, false, named), named);
-    assert.equal(await resolvePaymentLocation({ ...payment, location: named }, false), undefined);
+    assert.deepEqual(await resolvePaymentLocation({ ...payment, location: named }, false), named,
+      'Coordinates captured with consent survive delayed saving after tracking is turned off');
+    assert.equal(await resolvePaymentLocation({ ...payment, location: captured }, false).then((value) => value?.name), 'Location name unavailable');
     lookupAvailable = false;
     const unresolved = { lat: 19.07, lng: 72.84, name: '19.0700, 72.8400' };
     assert.deepEqual(await resolvePaymentLocation({ ...payment, location: unresolved }, true), {

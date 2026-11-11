@@ -193,7 +193,8 @@ export async function loadMarketSnapshot(options: { force?: boolean } = {}): Pro
       dailySnapshot = snapshot;
       notifySnapshotListeners();
       return snapshot;
-    } catch {
+    } catch (error) {
+      if (options.force) throw error;
       return cached?.snapshot ?? null;
     } finally {
       inflightSnapshot = null;
@@ -309,11 +310,13 @@ function readNavCache(): Record<string, CachedNav> {
  * Returns the latest AMFI NAV for each scheme code, fetching from mfapi.in at most twice a day
  * per scheme and falling back to the last cached NAV when the network is unavailable.
  */
-export async function refreshMutualFundNavs(schemeCodes: string[]): Promise<Record<string, MutualFundNavEntry>> {
+export async function refreshMutualFundNavs(schemeCodes: string[], options: { force?: boolean; onUnavailable?: (code: string) => void } = {}): Promise<Record<string, MutualFundNavEntry>> {
   const cache = readNavCache();
   const now = Date.now();
   const codes = Array.from(new Set(schemeCodes.map((c) => c.trim()).filter((c) => /^\d{5,6}$/.test(c))));
-  const stale = codes.filter((code) => !cache[code] || now - cache[code].fetchedAt > MF_NAV_MAX_AGE_MS);
+  const stale = codes.filter((code) => options.force || !cache[code]
+    || now - cache[code].fetchedAt > MF_NAV_MAX_AGE_MS
+    || (cache[code].date < new Date(now).toISOString().slice(0, 10) && now - cache[code].fetchedAt > 60 * 60 * 1000));
 
   let updated = false;
   for (let i = 0; i < stale.length; i += 4) {
@@ -321,7 +324,8 @@ export async function refreshMutualFundNavs(schemeCodes: string[]): Promise<Reco
     const quotes = await Promise.all(batch.map((code) => fetchMutualFundNav(code)));
     quotes.forEach((quote, idx) => {
       const date = quote ? normalizeNavDate(quote.lastUpdated) : null;
-      if (quote && date) {
+      if (!quote || !date) options.onUnavailable?.(batch[idx]);
+      if (quote && date && (!cache[batch[idx]] || date >= cache[batch[idx]].date)) {
         cache[batch[idx]] = { nav: quote.currentPrice, date, schemeName: quote.name, fetchedAt: now };
         updated = true;
       }
@@ -366,10 +370,7 @@ export async function fetchMutualFundNav(schemeCodeOrQuery: string): Promise<Mar
   }
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch(`https://api.mfapi.in/mf/${clean}`, { signal: controller.signal });
-    clearTimeout(timeoutId);
+    const res = await fetchWithTimeout(`https://api.mfapi.in/mf/${clean}/latest`, 15_000);
 
     if (res.ok) {
       const json = await res.json();
@@ -377,7 +378,12 @@ export async function fetchMutualFundNav(schemeCodeOrQuery: string): Promise<Mar
         const latest = json.data[0];
         const prev = json.data[1] || latest;
         const currentNav = parseFloat(latest.nav);
-        const prevNav = parseFloat(prev.nav);
+        const parsedPrevious = parseFloat(prev.nav);
+        const prevNav = Number.isFinite(parsedPrevious) && parsedPrevious > 0 ? parsedPrevious : currentNav;
+        const navDate = normalizeNavDate(latest.date);
+        if (!Number.isFinite(currentNav) || currentNav <= 0 || !navDate) {
+          throw new Error('Invalid NAV or publication date');
+        }
         const diff = currentNav - prevNav;
         const diffPct = prevNav > 0 ? (diff / prevNav) * 100 : 0;
         return {
@@ -387,14 +393,15 @@ export async function fetchMutualFundNav(schemeCodeOrQuery: string): Promise<Mar
           previousClose: prevNav,
           change: Math.round(diff * 100) / 100,
           changePercent: Math.round(diffPct * 100) / 100,
-          lastUpdated: latest.date || new Date().toISOString(),
+          lastUpdated: navDate,
           source: 'AMFI',
           status: 'live',
         };
       }
     }
-  } catch {
-    // Network or parse failure
+    throw new Error(`NAV unavailable (HTTP ${res.status})`);
+  } catch (error) {
+    console.warn(`Mutual fund NAV refresh failed for scheme ${clean}; keeping the last known NAV.`, error);
   }
 
   return null;

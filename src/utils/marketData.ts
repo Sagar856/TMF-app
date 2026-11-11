@@ -416,7 +416,10 @@ export function revalueInvestments(
     if (inv.type === 'Mutual Funds' && inv.schemeCode && isPositiveNumber(inv.units)) {
       const nav = mfNavs[inv.schemeCode.trim()];
       if (!nav || !isPositiveNumber(nav.nav)) return inv;
-      if (!isNewer(nav.date, inv.priceSource === 'AMFI' ? inv.navDate || inv.priceTimestamp : inv.priceTimestamp)) return inv;
+      const previousNavDate = normalizeNavDate(inv.navDate || inv.priceTimestamp);
+      // NAVs have day precision; an edit timestamp later on the same day must not block that day's NAV.
+      if (previousNavDate && (nav.date < previousNavDate
+        || (nav.date === previousNavDate && inv.priceSource === 'AMFI' && inv.currentNav === nav.nav))) return inv;
       const currentValue = round2(inv.units * nav.nav);
       changed = true;
       return {

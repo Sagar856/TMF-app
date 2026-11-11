@@ -156,6 +156,10 @@ place-name lookup. If all lookups fail, SMS coordinates are retained with
 "Location name unavailable" and retried on pending-payment replay. Background
 location permission is not requested; payments may remain untagged when
 Android cannot supply a recent location.
+Captured coordinates survive delayed review and later disabling of tagging;
+the SMS editor never replaces them with the save-time position. Recent
+foreground fallback coordinates are also saved into the native pending queue.
+If no position was captured, historical location cannot be recovered.
 To enable biometric app lock, set an app PIN, then enable biometric unlock in
 Privacy & Security. An app disclosure is followed by Android's biometric
 verification prompt. Biometric permissions are install-time permissions, not
@@ -646,12 +650,14 @@ are queued; promotions, OTPs, requests, scheduled and failed payments are reject
 The Android service persists captures before forwarding them to the WebView,
 so ordinary backgrounding, screen-off and Activity closure do not discard them.
 Native payment notifications show a structured lavender expanded card with
-amount, direction, account, date/time, payment mode, merchant and bank.
+amount, direction, account, date/time, payment mode, merchant, bank and detected
+category type/category. Android and the app share the ordered category rules.
 The three system actions are **Add**, **Description**, and **Ignore**.
 Description opens Android's inline reply field and saves up to 200 characters
 without adding the transaction. The description becomes its title when added;
-the original merchant, amount and SMS remain intact. **Edit transaction in app**
-is available inside the expanded card. Android/OEM notification layouts and
+the original merchant, amount and SMS remain intact. **Edit category / transaction
+in app** opens the prefilled editor to change the category before saving;
+it is not an inline Android category dropdown. Android/OEM notification layouts and
 collapsed presentation may differ from the reference image.
 Add saves the transaction and account balance through an authenticated background
 worker without opening the app, even after its process is terminated. Apply
@@ -662,6 +668,16 @@ duplicate balance changes and older foreground uploads overwriting the save.
 Edit opens a prefilled editor after unlocking; Ignore is saved natively without
 opening the app. Cancelling Edit keeps the
 payment pending. Replay uses the original notification date/time.
+Opening a notification does not auto-dismiss it. Pending native captures survive
+session expiry and sign-in; actions wait for authentication, unlock and cloud
+settings hydration, and only the capture's owner can review them. Explicit
+sign-out and account deletion clear native captures.
+
+The in-app Notifications panel has a top-right **History** button, including
+when no payments are pending. It keeps the last 20 extracted-payment and budget
+alert summaries locally, with original timestamps and pending/added/ignored
+status. History is read-only and cleared on sign-out, account cleanup or a
+financial-data reset.
 
 Enable both **SMS / UPI Auto-Interceptor** and **Push Notifications**, grant
 Android Notification Access and notification display permission, and install
@@ -763,6 +779,29 @@ Setup (one time, all in the browser):
 
 **Mutual funds** use AMFI NAVs via [mfapi.in](https://www.mfapi.in/) for the
 schemes you hold; the scheme picker searches the full AMFI list.
+The app requests the compact latest-NAV endpoint on startup, foregrounding and
+hourly while visible. Older publication dates are retried hourly rather than
+cached for twelve hours. The investment page's **Market data → Refresh** button
+bypasses the daily file, directory and NAV cache timers (intraday provider
+backoff still applies). Failed requests retain saved prices and manual refresh
+reports partial failures. The displayed update time is the latest actual quote
+timestamp, not the time the refresh button was clicked; individual funds and
+exchanges can have older prices.
+Refresh stays to the right of the Market data heading. **Potential next refresh**
+estimates the next hourly app check, not the provider's publication time; checks
+resume on foregrounding. The info button contains refresh results, source
+details and mutual-fund warnings instead of an always-visible success paragraph.
+
+Mutual funds need an AMFI scheme code and units held for automatic valuation.
+The market-data section flags missing links/units and NAVs over four days old.
+Expand the holding and use **Edit** to select the exact scheme/plan. A closed,
+merged or discontinued scheme may only have historical NAVs: do not substitute
+another plan automatically. Same-day NAV corrections can update valuations.
+
+Holding cards start collapsed, showing their type, broker, status, name, value
+and return. Click the header to reveal valuation details and edit/redeem/delete
+actions. The old Demat/Coming soon/Add Asset toolbar is removed; adding assets
+remains available from the main add action and broker portfolios from Settings.
 
 Holdings are repriced only when the new price is newer than the stored one. US
 stocks are converted to rupees at the latest USD/INR rate. Metal values are
@@ -773,6 +812,13 @@ Run **Actions → Update market data → Run workflow** once to create the branc
 To use different URLs, set `VITE_MARKET_DATA_URL` / `VITE_STOCK_DIRECTORY_URL`
 at build time; set either to `off` to disable it. GitHub pauses scheduled workflows after 60 days
 without repository activity; re-enable them from the Actions tab.
+
+**Vercel:** the `market-data` branch is data-only and must not be built as a
+Vite application. The root `vercel.json` disables deployments for that branch,
+and the publishing workflow copies that configuration into every orphan data
+commit. After pushing this fix, run **Update market data** from `main` once to
+publish it. Previous failed Vercel previews are historical; other branches
+continue deploying normally.
 
 ## Settings navigation
 

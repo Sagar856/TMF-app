@@ -112,6 +112,9 @@ copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'payment_card_background.xml'
 const layoutDir = join(resDir, 'layout');
 mkdirSync(layoutDir, { recursive: true });
 copyFileSync(join(pluginSrcDir, 'res', 'layout', 'payment_notification.xml'), join(layoutDir, 'payment_notification.xml'));
+const rawDir = join(resDir, 'raw');
+mkdirSync(rawDir, { recursive: true });
+copyFileSync(join(pluginSrcDir, 'res', 'raw', 'payment_category_rules.json'), join(rawDir, 'payment_category_rules.json'));
 console.log('[patch-android] Copied ic_stat_tmf.xml notification icon');
 
 // Keep the package identity stable while updating existing and fresh installs.

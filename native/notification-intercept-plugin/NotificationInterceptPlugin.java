@@ -112,6 +112,25 @@ public class NotificationInterceptPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void captureLocation(PluginCall call) {
+        String id = call.getString("id");
+        Double lat = call.getDouble("lat");
+        Double lng = call.getDouble("lng");
+        Long capturedAt = call.getLong("capturedAt");
+        if (id == null || lat == null || lng == null || capturedAt == null
+            || !Double.isFinite(lat) || !Double.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+            call.reject("Valid capture-time coordinates required");
+            return;
+        }
+        try {
+            InterceptedPaymentStore.captureLocation(getContext(), id, lat, lng, call.getString("name", ""), capturedAt);
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not retain capture-time payment location", error);
+        }
+    }
+
+    @PluginMethod
     public void getPending(PluginCall call) {
         try {
             JSObject result = new JSObject();

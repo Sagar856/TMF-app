@@ -49,6 +49,8 @@ jobs:
             echo "Nothing fetched; nothing to publish."
             exit 0
           fi
+          # This orphan branch has data, not a Vite app. Vercel reads config from the pushed branch.
+          cp vercel.json publish/vercel.json
           if diff -rq publish previous >/dev/null 2>&1; then
             echo "Market data unchanged; nothing to publish."
             exit 0

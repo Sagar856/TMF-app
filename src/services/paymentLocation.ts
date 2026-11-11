@@ -16,7 +16,6 @@ export async function resolvePaymentLocation(
   enabled: boolean,
   existing?: LocationTag,
 ): Promise<LocationTag | undefined> {
-  if (!enabled) return existing;
   const location = payment.location || existing;
   if (location) {
     if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)
@@ -24,10 +23,12 @@ export async function resolvePaymentLocation(
       throw new Error('Invalid captured payment coordinates');
     }
     if (isReadableLocation(location.name)) return { ...location, name: location.name };
+    if (!enabled) return { lat: location.lat, lng: location.lng, name: 'Location name unavailable' };
     const name = await reverseGeocodeCoordinates(location.lat, location.lng);
     if (!name) console.warn('Payment coordinates retained; readable location is unavailable and will be retried.');
     return { lat: location.lat, lng: location.lng, name: name || 'Location name unavailable' };
   }
+  if (!enabled) return existing;
   if (document.visibilityState !== 'visible' || !canLocatePaymentNow(payment.postedAt)
     || !(await isDeviceLocationPermissionGranted())) return undefined;
   if (!canLocatePaymentNow(payment.postedAt)) return undefined;

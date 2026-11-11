@@ -122,6 +122,7 @@ export async function loadStockDirectory(options: { force?: boolean } = {}): Pro
       const result = await fetchDirectory(url);
       if (!result) {
         if (!state.directory) setState({ status: 'unavailable' });
+        if (options.force) throw new Error('Stock directory could not be refreshed; keeping cached prices.');
         return state.directory;
       }
       // Never replace a newer copy with an older one (e.g. a stale CDN response).

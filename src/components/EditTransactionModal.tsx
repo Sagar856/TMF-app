@@ -242,7 +242,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   // Retrieve current user location on modal open for new transaction only if locationTracking is enabled
   useEffect(() => {
-    if (!isEditingExisting && !place && locationTracking) {
+    if (!isEditingExisting && !transaction?.rawText && !coordinates && !place && locationTracking) {
       let isMounted = true;
       setIsLocating(true);
       isDeviceLocationPermissionGranted()
@@ -277,7 +277,7 @@ export const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         isMounted = false;
       };
     }
-  }, [isEditingExisting, place, locationTracking]);
+  }, [isEditingExisting, place, coordinates, locationTracking, transaction?.rawText]);
 
   const handleFetchCurrentLocation = async () => {
     setLocationError('');

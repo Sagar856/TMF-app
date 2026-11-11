@@ -162,6 +162,21 @@ test('revalueInvestments keeps newer or redeemed holdings and returns the same a
   assert.equal(result.investments, input);
 });
 
+test('daily NAV is not blocked by a same-day edit timestamp and corrections settle after one update', () => {
+  const inv = holding({
+    type: 'Mutual Funds', schemeCode: '120503', units: 10,
+    currentNav: 100, priceSource: 'Manual', priceTimestamp: '2025-06-01T18:00:00Z',
+  });
+  const navs = { '120503': { nav: 150, date: '2025-06-01' } };
+  const updated = revalueInvestments([inv], null, navs);
+  assert.equal(updated.investments[0].currentValue, 1500);
+  assert.equal(updated.investments[0].priceSource, 'AMFI');
+  assert.equal(revalueInvestments(updated.investments, null, navs).changed, false);
+  const corrected = revalueInvestments(updated.investments, null, { '120503': { nav: 151, date: '2025-06-01' } });
+  assert.equal(corrected.investments[0].currentValue, 1510);
+  assert.equal(revalueInvestments(corrected.investments, null, { '120503': { nav: 99, date: '2025-05-30' } }).changed, false);
+});
+
 test('mergeMarketSnapshots never replaces a newer quote with an older one', () => {
   const previous = snapshot();
   const merged = mergeMarketSnapshots(previous, snapshot({

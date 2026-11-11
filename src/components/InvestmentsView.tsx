@@ -44,7 +44,6 @@ import {
 } from 'recharts';
 import { InvestmentRedemptionModal } from './InvestmentRedemptionModal';
 import { InvestmentRedemption, FinancialAccount } from '../types/finance';
-import { PremiumComingSoon } from './PremiumComingSoon';
 import { calculateFixedDeposit, roundCurrency, type FdCalculationResult } from '../services/financialCalculations';
 import { parseNumberInput, parsePositiveAmount } from '../utils/numberInput';
 import { RefreshCw, CheckCircle2, History, ShieldAlert, Building2, Sparkles } from 'lucide-react';
@@ -77,6 +76,10 @@ interface InvestmentsViewProps {
   settings: UserSettings;
   onUpdateSettings: (newSettings: UserSettings) => void;
   openAddAssetRequest?: number;
+  onRefreshMarketData?: () => Promise<void>;
+  marketRefreshing?: boolean;
+  marketRefreshMessage?: string | null;
+  nextMarketRefreshAt?: number;
 }
 
 interface InvestmentTxn {
@@ -127,6 +130,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   settings,
   onUpdateSettings,
   openAddAssetRequest = 0,
+  onRefreshMarketData,
+  marketRefreshing = false,
+  marketRefreshMessage,
+  nextMarketRefreshAt,
 }) => {
   const formatAmount = useMoneyFormatter();
   const reduceMotion = useReducedMotion();
@@ -241,6 +248,25 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const [metalWeightGrams, setMetalWeightGrams] = useState<string>('');
   const [metalPurity, setMetalPurity] = useState<number>(999);
   const marketSnapshot = useMarketSnapshot();
+  const [expandedHoldings, setExpandedHoldings] = useState<Set<string>>(() => new Set());
+  const marketUpdatedAt = useMemo(() => {
+    const dates = [
+      ...Object.values(marketSnapshot?.stocks || {}).map((quote) => quote.asOf),
+      ...Object.values(marketSnapshot?.metals || {}).map((quote) => quote?.asOf),
+      ...investments.filter((inv) => inv.priceSource === 'AMFI').map((inv) => inv.navDate || inv.priceTimestamp),
+    ].filter((date): date is string => Boolean(date) && Number.isFinite(Date.parse(date!)));
+    return dates.length ? new Date(Math.max(...dates.map(Date.parse))).toISOString() : undefined;
+  }, [marketSnapshot, investments]);
+  const fundWarnings = investments.filter((inv) => inv.type === 'Mutual Funds' && inv.status !== 'redeemed')
+    .map((inv) => {
+      if (!/^\d{5,6}$/.test(inv.schemeCode?.trim() || '')) return `${inv.name}: select an AMFI scheme using Edit to enable daily NAV updates.`;
+      if (!inv.units || inv.units <= 0) return `${inv.name}: add units held using Edit to enable NAV valuation.`;
+      const date = inv.navDate || inv.priceTimestamp;
+      if (!date || !Number.isFinite(Date.parse(date)) || Date.now() - Date.parse(date) > 4 * 86_400_000) {
+        return `${inv.name}: NAV is missing or over 4 days old. Refresh, then verify the exact scheme/plan if it stays old; discontinued schemes may no longer publish NAVs.`;
+      }
+      return null;
+    }).filter((warning): warning is string => warning !== null);
   const lastAddAssetRequestRef = useRef(0);
 
   const formMetal = metalKindForType(type);
@@ -1678,34 +1704,32 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           </button>
         </div>
 
-        {/* Demat Accounts, Live Quotes Refresh & Add Asset Button */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowDematManager(true)}
-            className="px-3 py-1.5 bg-purple-950/40 hover:bg-purple-900/50 border border-purple-700/60 rounded-xl text-xs font-mono text-purple-300 hover:text-white transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-            title="Manage Demat Accounts & Import from Zerodha/Dhan"
-          >
-            <Building2 className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden sm:inline">Demat Accounts</span>
-            <span className="text-[10px] px-1.5 py-0.2 bg-purple-900/60 text-purple-200 rounded font-bold">Sync</span>
-          </button>
+      </div>
 
-          <PremiumComingSoon />
-
-          <button
-            type="button"
-            onClick={() => {
-              resetForm();
-              setShowAddModal(true);
-            }}
-            className="px-3.5 py-1.5 bg-red-600 hover:bg-red-500 text-white font-mono font-bold text-xs uppercase rounded-xl transition-all flex items-center gap-1 cursor-pointer shadow-md"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add Asset</span>
+      <section aria-label="Market data" className="rounded-2xl border border-line bg-surface-1 px-3 py-2 text-xs">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="font-bold">Market data</span>
+            <InfoButton title="Market data information" content={
+              <div className="space-y-2">
+                <p>Latest quote time; individual markets and funds may have older prices. Intraday quotes are best effort.</p>
+                <p>Automatic checks run hourly while the app is open and when it returns to the foreground. This is an estimated check time, not a guarantee of new prices. Daily file publication can be delayed.</p>
+                {marketRefreshMessage && <p role="status">{marketRefreshMessage}</p>}
+                {fundWarnings.length > 0 && <ul className="space-y-1">{fundWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>}
+              </div>
+            } />
+          </div>
+          <button type="button" disabled={marketRefreshing || !onRefreshMarketData}
+            onClick={() => void onRefreshMarketData?.()}
+            className="flex shrink-0 items-center gap-1.5 rounded-xl border border-line px-3 py-2 disabled:opacity-50">
+            <RefreshCw className={`h-3.5 w-3.5 ${marketRefreshing ? 'animate-spin' : ''}`} />
+            {marketRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
-      </div>
+        <p className="mt-1 text-content-3">Last data updated: {formatQuoteDateTime(marketUpdatedAt) || 'Not available yet'}</p>
+        <p className="text-content-3">Potential next refresh: {nextMarketRefreshAt ? formatQuoteDateTime(new Date(nextMarketRefreshAt).toISOString()) : 'When the app is next active'}</p>
+        {marketRefreshMessage?.startsWith('Some sources') && <p role="alert" className="mt-1 text-amber-500">Some sources could not be refreshed. See info.</p>}
+      </section>
 
       {/* ==================== TAB CONTENT: HOLDINGS VIEW ==================== */}
       {activeViewTab === 'HOLDINGS' && (
@@ -1713,7 +1737,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {investments.length === 0 ? (
               <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
-                No individual investment holdings logged. Tap "Add Asset" or "Demat Accounts" to log mutual funds, stocks, fixed deposits, or gold.
+                No individual investment holdings logged. Use the add button to log an asset, or manage broker portfolios in Settings.
               </div>
             ) : filteredInvestments.length === 0 ? (
               <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-3xl">
@@ -1727,6 +1751,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                 const isMetal = Boolean(metalKindForType(inv.type));
                 const quoteDate = formatQuoteDate(inv.priceTimestamp || inv.navDate);
                 const isRedeemed = inv.status === 'redeemed' || inv.currentValue === 0;
+                const expanded = expandedHoldings.has(inv.id);
 
                 return (
                   <div
@@ -1735,8 +1760,15 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       isRedeemed ? 'border-[#222] opacity-75' : 'border-line hover:border-line-strong'
                     }`}
                   >
-                    <div className="flex justify-between items-start">
-                      <div>
+                    <button type="button" className="flex w-full justify-between items-start gap-3 text-left"
+                      aria-expanded={expanded} aria-controls={`holding-details-${inv.id}`}
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${inv.name}`}
+                      onClick={() => setExpandedHoldings((previous) => {
+                        const next = new Set(previous);
+                        if (next.has(inv.id)) next.delete(inv.id); else next.add(inv.id);
+                        return next;
+                      })}>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="px-2.5 py-0.5 bg-[#181822] border border-[#333] text-[9px] font-mono text-red-400 font-bold uppercase rounded-lg">
                             {inv.type}
@@ -1762,10 +1794,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                           )}
                         </div>
                         <h3 className="text-base font-bold font-mono text-white mt-2">{inv.name}</h3>
-                        {inv.notes && <p className="text-xs text-[#777] font-mono mt-0.5">{inv.notes}</p>}
+                        {expanded && inv.notes && <p className="text-xs text-[#777] font-mono mt-0.5">{inv.notes}</p>}
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right shrink-0">
                         <div className="text-lg font-bold font-mono text-white">
                           {currencySymbol}{formatAmount(inv.currentValue)}
                         </div>
@@ -1777,9 +1809,11 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                           {inv.returnsPercent >= 0 ? '+' : ''}
                           {inv.returnsPercent}% Returns
                         </div>
+                        {expanded ? <ChevronUp className="ml-auto mt-1 h-3.5 w-3.5 text-content-3" /> : <ChevronDown className="ml-auto mt-1 h-3.5 w-3.5 text-content-3" />}
                       </div>
-                    </div>
+                    </button>
 
+                    {expanded && <div id={`holding-details-${inv.id}`} className="space-y-4">
                     {/* Asset-Specific Financial Telemetry */}
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 bg-[#16161e] border border-line rounded-2xl text-[11px] font-mono">
                       <div>
@@ -1940,6 +1974,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                         )}
                       </div>
                     </div>
+                    </div>}
                   </div>
                 );
               })
