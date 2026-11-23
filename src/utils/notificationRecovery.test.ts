@@ -31,8 +31,18 @@ test('Android category preview and JS classification share the same ordered rule
   assert.match(store, /summary\.details \+ "\\nDetected  " \+ category/);
   assert.match(store, /setAutoCancel\(false\)/);
   assert.match(store, /boolean ownsRecord = record\.optString\("owner"\)\.equals\(owner\)/);
+  assert.match(store, /Category \/ Description/);
+  assert.match(store, /record\.put\("categoryOverride", category\)/);
   const patch = read('scripts/patch-android.mjs');
   assert.match(patch, /copyFileSync\(join\(pluginSrcDir, 'res', 'raw', 'payment_category_rules.json'\)/);
+});
+
+test('Gmail previews are opt-in and statements are separate from payment capture', () => {
+  const listener = read('native/notification-intercept-plugin/TmfNotificationListenerService.java');
+  assert.match(listener, /emailNotificationsEnabled\(this\)\) return/);
+  assert.match(listener, /TransactionEligibility\.isStatement[\s\S]*showStatementAlert[\s\S]*return;[\s\S]*TransactionEligibility\.accepts/);
+  const settings = read('src/components/SettingsView.tsx');
+  assert.match(settings, /checked=\{Boolean\(settings\.autoExtractEmailNotifications\)\}/);
 });
 
 test('session recovery preserves native queue and notification launch waits for unlock and hydration', () => {

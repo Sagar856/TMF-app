@@ -52,10 +52,10 @@ export function parseNotification(
 
   // Determine Payee / Merchant Name
   let payeeOrPayer = 'Unknown Merchant';
-  if (upiResult.payeeOrPayer) {
-    payeeOrPayer = upiResult.payeeOrPayer;
-  } else if (bankResult.payeeOrPayer) {
+  if (bankResult.payeeOrPayer) {
     payeeOrPayer = bankResult.payeeOrPayer;
+  } else if (upiResult.payeeOrPayer) {
+    payeeOrPayer = upiResult.payeeOrPayer;
   } else if (walletResult.payeeOrPayer) {
     payeeOrPayer = walletResult.payeeOrPayer;
   }

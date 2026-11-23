@@ -72,7 +72,7 @@ export function parseUPIFormat(text: string): UPIParseResult {
   const lower = text.toLowerCase();
 
   for (const app of UPI_APPS) {
-    const isMatch = app.keywords.some((kw) => lower.includes(kw));
+    const isMatch = app.keywords.some((kw) => kw === 'cred' ? /\bcred\b/i.test(text) : lower.includes(kw));
     if (isMatch) {
       let payeeOrPayer: string | undefined;
 
@@ -102,10 +102,12 @@ export function parseUPIFormat(text: string): UPIParseResult {
 
   // Generic fallback if text has "upi" or VPA address
   if (lower.includes('upi') || lower.includes('@')) {
+    const bankUpi = text.match(/\bUPI[\/-](?:P2[AP][\/-])?(\d{8,22})[\/-]([A-Za-z][A-Za-z0-9\s&_.-]{1,60}?)(?:\.\s|[;\n]|$)/i);
     const genericPayee = text.match(/(?:to|sent to|paid to)\s+([A-Za-z0-9\s&_.-]{2,30}?)(?:\s+vpa|\s+via|\.|$)/i);
     return {
       appSource: 'UPI Transaction',
-      payeeOrPayer: sanitizeMerchantCandidate(genericPayee && genericPayee[1] ? genericPayee[1] : undefined),
+      payeeOrPayer: sanitizeMerchantCandidate(bankUpi?.[2] || genericPayee?.[1]),
+      upiRefNumber: bankUpi?.[1],
       matched: true,
     };
   }

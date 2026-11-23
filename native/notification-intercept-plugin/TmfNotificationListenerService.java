@@ -64,6 +64,15 @@ public class TmfNotificationListenerService extends NotificationListenerService 
 
         if (title.isEmpty() && text.isEmpty()) return;
 
+        if ("com.google.android.gm".equals(packageName) && !InterceptedPaymentStore.emailNotificationsEnabled(this)) return;
+        if (TransactionEligibility.isStatement(packageName, title, text)) {
+            try {
+                InterceptedPaymentStore.showStatementAlert(this, sbn.getKey());
+            } catch (IllegalStateException | SecurityException error) {
+                Log.e("TMFInterceptor", "Could not show statement alert", error);
+            }
+            return;
+        }
         if (!TransactionEligibility.accepts(packageName, title, text)) return;
         try {
             org.json.JSONObject record = InterceptedPaymentStore.capture(this, packageName, title, text, sbn.getPostTime());

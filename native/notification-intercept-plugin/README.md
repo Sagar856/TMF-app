@@ -22,13 +22,19 @@ and completed-payment wording with a positive amount. Promotional messages,
 OTPs, payment requests, scheduled and failed payments are rejected. Group
 summaries are ignored to avoid re-importing aggregated notifications.
 `TransactionEligibility.java` mirrors the TypeScript eligibility policy;
-shared regression fixtures cover both.
+shared regression fixtures cover both. Gmail bank-payment notification previews
+are processed only after enabling the separate Settings switch; the listener
+cannot read the full mailbox or text omitted by Android's notification.
+Recognized bank statement or payment-due previews raise a separate statement
+alert instead of creating a payment. Statement-file import is not provided.
 
 Accepted alerts are committed to private SharedPreferences independently of
 the Activity/WebView. `InterceptedPaymentStore` posts Android notifications
-with a lavender structured expanded card and Add, Description and Ignore actions.
-Description uses Android RemoteInput and persists a trimmed, 200-character
-description without adding the payment or changing the raw bank notification.
+with a lavender structured expanded card and Add, Category / Description and
+Ignore actions. The inline reply accepts `category name | description`, or a
+description alone, and persists at most 200 characters without adding the
+payment or changing the raw bank notification. An entered category must match
+the user's category for the payment direction; invalid names make Add retryable.
 Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
 without launching an Activity or bypassing the app's PIN/biometric screen.
 A separate application-context WebView loads only the bundled background entry
@@ -64,7 +70,7 @@ configuration waits for authentication and cloud settings hydration.
 Detected category type/category are displayed using
 `res/raw/payment_category_rules.json`, also consumed by the JavaScript
 classifier. **Edit category / transaction in app** opens the editor after
-unlock; Android does not show an inline category selector.
+unlock; Android uses inline text input rather than a category dropdown.
 
 The notification-only Java summary is not the authoritative transaction parser.
 Missing details show "Review in app"; JavaScript still parses the original

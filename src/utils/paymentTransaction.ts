@@ -4,6 +4,21 @@ import { inferTransactionKind } from './transactionKind';
 import { newId } from './ids';
 import { CASH_WITHDRAWAL_SUBCATEGORY, applyCashWithdrawalLeg, ensureCashAccount, isCashWithdrawalText } from './cashAccount';
 
+export function applyNotificationCategoryOverride(notification: ParsedNotification, categories: Category[]): ParsedNotification {
+  const name = notification.categoryOverride?.trim();
+  if (!name) return notification;
+  const type = notification.type === 'credit' ? 'income' : 'expense';
+  const matches = categories.filter(category => category.type === type && category.name.toLowerCase() === name.toLowerCase());
+  if (matches.length !== 1) throw new Error(`Category "${name}" was not found for this payment. Edit it in the app.`);
+  const category = matches[0];
+  return { ...notification, category: category.name, subcategory: category.subcategories[0] || 'General' };
+}
+
+export function hasUnmatchedPaymentAccount(notification: ParsedNotification, accounts: FinancialAccount[]): boolean {
+  if (!notification.accountLast4) return false;
+  return accounts.filter(account => account.accountNumberLast4 === notification.accountLast4).length !== 1;
+}
+
 export function adjustPaymentAccountBalance(accounts: FinancialAccount[], method: string | undefined, delta: number): FinancialAccount[] {
   if (!method) return accounts;
   const isCash = method.trim().toLowerCase() === 'cash';
@@ -32,7 +47,8 @@ export function isCashWithdrawalNotification(notification: Pick<ParsedNotificati
 export function createPaymentTransaction(notification: ParsedNotification, accounts: FinancialAccount[], categories: Category[]) {
   if (isCashWithdrawalNotification(notification)) return createCashWithdrawal(notification, accounts, categories);
   const targetType = notification.type === 'credit' ? 'income' : 'expense';
-  const matched = categories.find(category => category.name.toLowerCase() === notification.category.toLowerCase());
+  const matched = categories.find(category => category.name.toLowerCase() === notification.category.toLowerCase()
+    && (!notification.categoryOverride || category.type === targetType));
   const category = matched || categories.find(value => value.type === targetType);
   const nextCategories = category ? categories : [...categories, {
     id: `cat_uncategorized_${targetType}`, name: 'Uncategorized', type: targetType,

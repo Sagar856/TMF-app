@@ -7,15 +7,15 @@ const entry = (id: number, status: NotificationHistoryEntry['status'] = 'pending
   kind: 'extracted', timestamp: id, status,
 });
 
-test('notification history retains only the latest twenty extracted notifications and alerts', () => {
+test('notification history retains only the latest fifty extracted notifications and alerts', () => {
   let history: NotificationHistoryEntry[] = [];
-  for (let i = 1; i <= 25; i++) history = updateNotificationHistory(history, entry(i));
-  assert.equal(history.length, 20);
-  assert.equal(history[0].id, 'notification-25');
-  assert.equal(history[19].id, 'notification-6');
-  history = updateNotificationHistory(history, { ...entry(26), kind: 'alert', status: 'alert' });
+  for (let i = 1; i <= 55; i++) history = updateNotificationHistory(history, entry(i));
+  assert.equal(history.length, 50);
+  assert.equal(history[0].id, 'notification-55');
+  assert.equal(history[49].id, 'notification-6');
+  history = updateNotificationHistory(history, { ...entry(56), kind: 'alert', status: 'alert' });
   assert.equal(history[0].kind, 'alert');
-  assert.equal(history.length, 20);
+  assert.equal(history.length, 50);
   assert.equal(isNotificationHistory(JSON.parse(JSON.stringify(history))), true);
 });
 

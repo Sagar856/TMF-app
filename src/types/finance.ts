@@ -277,6 +277,7 @@ export interface ParsedNotification {
   amount: number;
   payeeOrPayer: string;
   description?: string;
+  categoryOverride?: string;
   type: TransactionType;
   date: string;
   time: string;
@@ -328,6 +329,7 @@ export interface UserSettings {
   autoLockMinutes?: number;
   locationTracking: boolean;
   autoExtractSms: boolean;
+  autoExtractEmailNotifications?: boolean;
   notificationsEnabled: boolean;
   budgetAlertsEnabled?: boolean;
   defaultNetWorthMasked?: boolean;

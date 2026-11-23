@@ -55,6 +55,7 @@ import { DematManagerModal } from './DematManagerModal';
 import type { StockItem } from '../utils/stockDirectory';
 import { newId } from '../utils/ids';
 import { todayLocalISO, currentMonthLocal, addMonthsClamped, parseLocalDate } from '../utils/dates';
+import { resolveAccountId } from '../utils/accountResolver';
 
 interface InvestmentsViewProps {
   investments: InvestmentRecord[];
@@ -86,6 +87,7 @@ interface InvestmentTxn {
   id: string;
   date: string;
   category: string;
+  categoryType: string;
   account: string;
   type: 'DEBIT' | 'CREDIT';
   amount: number;
@@ -333,6 +335,34 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
 
   // Derive investment transaction history dynamically from real transactions & investment records
   const investmentTransactions: InvestmentTxn[] = useMemo(() => {
+    const accountLabel = (accountId?: string, paymentMethod?: string) => {
+      const resolvedId = accountId
+        ? accounts.find(item => item.id === accountId)?.id
+        : resolveAccountId(accounts, paymentMethod);
+      const account = accounts.find(item => item.id === resolvedId);
+      if (account) return account.name;
+      if (accountId) return 'Account unavailable';
+      if (paymentMethod && !/^acc_/i.test(paymentMethod)) return paymentMethod;
+      if (paymentMethod) return 'Account unavailable';
+      return 'Account unavailable';
+    };
+    const investmentType = (transaction: Transaction): string => {
+      const linked = investments.filter(inv =>
+        inv.redemptions?.some(redemption => redemption.transactionId === transaction.id)
+      );
+      if (linked.length === 1) return linked[0].type;
+      if (linked.length > 1) return 'Unavailable';
+      const title = (transaction.title || '').trim().toLowerCase();
+      const redemptionName = title.match(/^redemption: (.+) \((?:full|[\d.]+ units)\)$/)?.[1];
+      const matches = investments.filter(inv => {
+        const name = inv.name.trim().toLowerCase();
+        return name.length > 0 && (
+          title === name || title === `investment: ${name}` ||
+          redemptionName === name
+        );
+      });
+      return matches.length === 1 ? matches[0].type : 'Unavailable';
+    };
     const fromTx: InvestmentTxn[] = transactions
       .filter((t) => {
         const cat = (t.category || '').toLowerCase();
@@ -358,7 +388,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         id: t.id,
         date: t.date,
         category: t.category || 'Investment',
-        account: t.paymentMethod || t.source || 'Account',
+        categoryType: investmentType(t),
+        account: accountLabel(t.accountId, t.paymentMethod),
         type: (t.type === 'credit' ? 'CREDIT' : 'DEBIT') as 'DEBIT' | 'CREDIT',
         amount: t.amount,
       }));
@@ -381,7 +412,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           id: `tx_${inv.id}_initial`,
           date: inv.date || todayLocalISO(),
           category: inv.name,
-          account: inv.type,
+          categoryType: inv.type,
+          account: accountLabel(inv.linkedAccountId),
           type: 'DEBIT',
           amount: contributions.length === 0 ? inv.amountInvested : initialRemainder,
         });
@@ -392,7 +424,8 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
           id: `tx_${inv.id}_mc_${idx}`,
           date: `${mc.month}-01`,
           category: contributions.length > 1 || inv.investmentPlan === 'sip' ? `${inv.name} (SIP)` : inv.name,
-          account: inv.type,
+          categoryType: inv.type,
+          account: accountLabel(inv.linkedAccountId),
           type: 'DEBIT',
           amount: mc.amount,
         });
@@ -400,7 +433,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
     });
 
     return fromInv.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [transactions, investments]);
+  }, [transactions, investments, accounts]);
 
   // Unique categories and accounts for filter dropdowns
   const availableCategories = useMemo(() => {
@@ -420,13 +453,14 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
   const filteredTxns = useMemo(() => {
     return investmentTransactions.filter((tx) => {
       if (selectedMonth !== 'All' && !tx.date.startsWith(selectedMonth)) return false;
-      if (selectedCategory !== 'All Categories' && tx.category !== selectedCategory) return false;
+      if (selectedCategory !== 'All Categories' && tx.category !== selectedCategory && tx.categoryType !== selectedCategory) return false;
       if (selectedAccount !== 'All Accounts' && tx.account !== selectedAccount) return false;
       if (selectedType !== 'All' && tx.type !== selectedType) return false;
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         if (
           !tx.category.toLowerCase().includes(q) &&
+          !tx.categoryType.toLowerCase().includes(q) &&
           !tx.account.toLowerCase().includes(q)
         )
           return false;
@@ -1487,184 +1521,6 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
         </div>
       </div>
 
-      {/* ==================== TRANSACTIONS TABLE & CARD VIEW ==================== */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-mono font-bold text-[#888] uppercase tracking-wider flex items-center gap-2">
-            <span>INVESTMENT LEDGER TRANSACTIONS</span>
-            <InfoButton
-              id="inv-ledger-info"
-              title="Investment Ledger"
-              content="Chronological ledger of buy, sell, dividend, and contribution transactions with table and detail view options."
-              align="left"
-            />
-          </div>
-
-          <div role="group" aria-label="Investment ledger layout" className="flex items-center bg-[#111111] p-0.5 border border-[#222] rounded-lg">
-            <button
-              type="button"
-              onClick={() => setViewMode('table')}
-              aria-pressed={viewMode === 'table'}
-              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
-                viewMode === 'table' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
-              }`}
-              title="Table View"
-            >
-              <TableIcon className="w-3.5 h-3.5" />
-              <span className="text-[10px]">Table</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode('detail')}
-              aria-pressed={viewMode === 'detail'}
-              className={`p-1 px-2 rounded text-xs font-mono flex items-center gap-1 transition-all nav-lift cursor-pointer ${
-                viewMode === 'detail' ? 'bg-[#222] text-white font-bold shadow-sm' : 'text-[#777] hover:text-white'
-              }`}
-              title="Card Detail View"
-            >
-              <LayoutList className="w-3.5 h-3.5" />
-              <span className="text-[10px]">Detail</span>
-            </button>
-          </div>
-        </div>
-
-        {viewMode === 'table' ? (
-          <div
-            role="region"
-            aria-label="Investment ledger transactions table"
-            tabIndex={0}
-            className="finance-data-table bg-[#111111] border border-[#222] rounded-2xl overflow-x-auto shadow-sm focus-visible:outline"
-          >
-            <p className="px-3 pt-2 text-[10px] text-[#888] sm:hidden">
-              Scroll horizontally to view all table columns.
-            </p>
-            <div className="min-w-[860px]">
-              {/* Table Header */}
-              <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
-                <div className="col-span-2">DATE</div>
-                <div className="col-span-3">CATEGORY / ASSET</div>
-                <div className="col-span-2">ACCOUNT</div>
-                <div className="col-span-1">TYPE</div>
-                <div className="col-span-2 text-right">AMOUNT</div>
-                <div className="col-span-2 text-right">ACTIONS</div>
-              </div>
-
-              {/* Rows */}
-              {filteredTxns.length === 0 ? (
-                <div className="p-8 text-center text-xs text-[#666]">
-                  No investment transactions recorded yet.
-                </div>
-              ) : (
-                filteredTxns.map((tx) => (
-                  <div
-                    key={tx.id}
-                    className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5"
-                  >
-                    <div className="col-span-2 text-[#aaa] truncate">
-                      {formatDateDisplay(tx.date)}
-                    </div>
-                    <div className="col-span-3 font-bold text-white truncate pr-2">
-                      {tx.category}
-                    </div>
-                    <div className="col-span-2 text-[#aaa] truncate">
-                      {tx.account}
-                    </div>
-                    <div className="col-span-1 font-bold text-cyan-400">
-                      {tx.type}
-                    </div>
-                    <div className="col-span-2 text-right font-bold text-cyan-400">
-                      {currencySymbol}{formatAmount(tx.amount)}
-                    </div>
-                    <div className="col-span-2 flex items-center justify-end gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditTxn(tx);
-                        }}
-                        className="px-2 py-1 bg-[#181818] hover:bg-surface-3 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
-                        title="Edit Transaction"
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTxn(tx);
-                        }}
-                        className="px-2 py-1 bg-[#181818] hover:bg-red-950/60 border border-red-900/60 hover:border-red-500 text-red-400 hover:text-red-300 text-[10px] uppercase font-bold rounded-lg transition-all cursor-pointer shrink-0"
-                        title="Delete Transaction"
-                      >
-                        DEL
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {filteredTxns.length === 0 ? (
-              <div className="col-span-2 p-8 text-center text-xs text-[#666] bg-[#111] border border-[#222] rounded-2xl">
-                No investment transactions recorded yet.
-              </div>
-            ) : (
-              filteredTxns.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="p-3 bg-[#111111] border border-[#222] hover:border-[#333] hover:bg-surface-3 rounded-2xl flex items-center justify-between gap-3 font-mono transition-all tactile-lift"
-                >
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="text-xs font-bold text-white truncate">{tx.category}</div>
-                    <div className="text-[10px] text-[#777] flex items-center gap-2">
-                      <span>{formatDateDisplay(tx.date)}</span>
-                      <span>•</span>
-                      <span>{tx.account}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
-                    <div className="flex items-center gap-2">
-                      <div className="text-xs font-bold text-cyan-400">
-                        {currencySymbol}{formatAmount(tx.amount)}
-                      </div>
-                      <span className="text-[9px] bg-cyan-950/80 text-cyan-400 font-bold px-1.5 py-0.5 rounded uppercase">
-                        {tx.type}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditTxn(tx);
-                        }}
-                        className="px-2 py-0.5 bg-[#181818] hover:bg-surface-3 border border-[#333] hover:border-white text-[#aaa] hover:text-white text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
-                        title="Edit Transaction"
-                      >
-                        EDIT
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteTxn(tx);
-                        }}
-                        className="px-2 py-0.5 bg-[#181818] hover:bg-red-950/60 border border-red-900/60 hover:border-red-500 text-red-400 hover:text-red-300 text-[9px] uppercase font-bold rounded-md transition-all cursor-pointer"
-                        title="Delete Transaction"
-                      >
-                        DEL
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-
       {/* ==================== PORTFOLIO NAVIGATION TABS & MARKET REFRESH BAR ==================== */}
       <div className="pt-2 border-t border-[#222] flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-1.5 p-1 bg-[#121217] border border-[#222] rounded-2xl">
@@ -2087,7 +1943,7 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
               <div className="min-w-[860px]">
                 <div className="finance-table-head grid grid-cols-12 px-4 py-3 border-b border-[#222] text-[#666] text-[10px] font-bold uppercase tracking-wider bg-[#0a0a0a]">
                   <div className="col-span-2">DATE</div>
-                  <div className="col-span-3">CATEGORY / ASSET</div>
+                  <div className="col-span-3">INVESTMENT TYPE</div>
                   <div className="col-span-2">ACCOUNT</div>
                   <div className="col-span-1">TYPE</div>
                   <div className="col-span-2 text-right">AMOUNT</div>
@@ -2107,10 +1963,10 @@ export const InvestmentsView: React.FC<InvestmentsViewProps> = ({
                       <div className="col-span-2 text-[#aaa] truncate">
                         {formatDateDisplay(tx.date)}
                       </div>
-                      <div className="col-span-3 font-bold text-white truncate pr-2">
-                        {tx.category}
+                      <div className="col-span-3 font-bold text-white truncate pr-2" title={tx.categoryType}>
+                        {tx.categoryType}
                       </div>
-                      <div className="col-span-2 text-[#aaa] truncate">
+                      <div className="col-span-2 text-[#aaa] truncate" title={tx.account}>
                         {tx.account}
                       </div>
                       <div className="col-span-1 font-bold text-cyan-400">

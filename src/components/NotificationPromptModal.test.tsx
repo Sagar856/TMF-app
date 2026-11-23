@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { NotificationPromptModal } from './NotificationPromptModal';
+import { NotificationHistoryList, NotificationPromptModal } from './NotificationPromptModal';
 import type { ParsedNotification } from '../types/finance';
 
 test('payment review displays inline descriptions and honest missing-location labels', () => {
@@ -36,4 +36,19 @@ test('notification history is accessible from the empty notifications screen', (
   );
   assert.equal(markup.split('aria-label="Notification history"').length - 1, 1);
   assert.match(markup, /No Pending Notifications/);
+});
+
+test('history displays at most 50 entries and only available transactions are editable', () => {
+  const history = Array.from({ length: 51 }, (_, index) => ({
+    id: `entry-${index}`, title: `Entry ${index}`, message: 'Payment',
+    kind: 'extracted' as const, timestamp: 1000, status: 'added' as const,
+  }));
+  const markup = renderToStaticMarkup(<NotificationHistoryList history={history}
+    canEditHistory={entry => entry.id === 'entry-0'} onEditHistory={() => {}} />);
+  assert.equal((markup.match(/<article/g) || []).length, 50);
+  assert.match(markup, /Entry 0/);
+  assert.doesNotMatch(markup, /Entry 50/);
+  assert.equal((markup.match(/Edit transaction/g) || []).length, 1);
+  assert.equal((markup.match(/disabled=""/g) || []).length, 49);
+  assert.match(markup, /added/);
 });

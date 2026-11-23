@@ -645,16 +645,23 @@ See [`native/notification-intercept-plugin/README.md`](native/notification-inter
 for full details. In short: on Android, once the user grants "Notification
 Access" (Settings → UPI & SMS Interceptor → Grant Access), the app listens to
 notifications from explicitly supported banking/UPI packages, or known bank
-sender IDs in supported SMS apps. Only completed payments with an amount
+sender IDs in supported SMS apps. An optional, separate Settings switch enables
+bank-payment previews posted by Gmail; it does not grant mailbox access, and
+previews lacking the bank name, amount or transaction text cannot be parsed.
+Bank statement and payment-due previews can produce a separate statement
+alert rather than a transaction. These alerts do not import statement files.
+Only completed payments with an amount
 are queued; promotions, OTPs, requests, scheduled and failed payments are rejected.
 The Android service persists captures before forwarding them to the WebView,
 so ordinary backgrounding, screen-off and Activity closure do not discard them.
 Native payment notifications show a structured lavender expanded card with
 amount, direction, account, date/time, payment mode, merchant, bank and detected
 category type/category. Android and the app share the ordered category rules.
-The three system actions are **Add**, **Description**, and **Ignore**.
-Description opens Android's inline reply field and saves up to 200 characters
-without adding the transaction. The description becomes its title when added;
+The three system actions are **Add**, **Category / Description**, and **Ignore**.
+The inline reply accepts `category name | description`, or a description alone,
+and saves up to 200 characters without adding the transaction. Category names
+must match a category of the payment's debit/credit type; an invalid category
+keeps background Add retryable and asks for review. The description becomes its title when added;
 the original merchant, amount and SMS remain intact. **Edit category / transaction
 in app** opens the prefilled editor to change the category before saving;
 it is not an inline Android category dropdown. Android/OEM notification layouts and
@@ -674,10 +681,16 @@ settings hydration, and only the capture's owner can review them. Explicit
 sign-out and account deletion clear native captures.
 
 The in-app Notifications panel has a top-right **History** button, including
-when no payments are pending. It keeps the last 20 extracted-payment and budget
+when no payments are pending. It keeps the last 50 extracted-payment and budget
 alert summaries locally, with original timestamps and pending/added/ignored
-status. History is read-only and cleared on sign-out, account cleanup or a
-financial-data reset.
+status. Available pending and ignored captures can be edited; added entries
+open their existing transaction. Older history entries without retained details,
+deleted transactions and alerts are not editable. History is cleared on
+sign-out, account cleanup or a financial-data reset.
+
+An unrecognized or ambiguous account suffix is flagged for review. Add the
+account through Accounts or select an existing account in the editor; background
+Add will not debit the default account for that payment.
 
 Enable both **SMS / UPI Auto-Interceptor** and **Push Notifications**, grant
 Android Notification Access and notification display permission, and install

@@ -101,7 +101,7 @@ import {
 import { checkIsAdmin, recordActivity } from './services/adminService';
 
 import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, persistInterceptedLocation, type InterceptedPayment } from './services/notificationListener';
-import { adjustPaymentAccountBalance, applyTransactionToAccounts, createPaymentTransaction } from './utils/paymentTransaction';
+import { adjustPaymentAccountBalance, applyNotificationCategoryOverride, applyTransactionToAccounts, createPaymentTransaction, hasUnmatchedPaymentAccount } from './utils/paymentTransaction';
 import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount';
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
 import { useMarketSnapshot } from './hooks/useMarketSnapshot';
@@ -443,11 +443,12 @@ export default function App() {
     notificationHistoryRef.current = next;
     setNotificationHistory(next);
   };
-  const recordExtractedHistory = (notification: ParsedNotification, status: 'pending' | 'added' | 'ignored' = 'pending') => {
+  const recordExtractedHistory = (notification: ParsedNotification, status: 'pending' | 'added' | 'ignored' = 'pending', transactionId?: string) => {
     recordNotificationHistory({
       id: notification.id, kind: 'extracted', title: notification.payeeOrPayer,
       message: `${notification.type === 'credit' ? 'Credit' : 'Debit'} ${notification.amount} · ${notification.category} · ${notification.date} ${notification.time}`,
       timestamp: Date.parse(`${notification.date}T${notification.time}`) || Date.now(), status,
+      notification, ...(transactionId ? { transactionId } : {}),
     });
   };
   const interceptorState = useRef({ transactions, pendingNotifications, settings });
@@ -1380,12 +1381,12 @@ export default function App() {
 
   useEffect(() => {
     if (authLoading || (isCloudBackendConfigured() && (!isAuthenticated || !cloudHydrated))) return;
-    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '')
+    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '', Boolean(settings.autoExtractEmailNotifications))
       .catch(error => {
         console.warn('Could not configure background payment tracking:', error);
         showToast('Could not configure background payment tracking. Please retry.', 'error');
       });
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, authUser?.id, isAuthenticated, authLoading, cloudHydrated]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.autoExtractEmailNotifications, authUser?.id, isAuthenticated, authLoading, cloudHydrated]);
 
   useEffect(() => {
     if (isCloudBackendConfigured() && !isAuthenticated) return;
@@ -1435,7 +1436,7 @@ export default function App() {
             recordNotificationHistory({
               id: `native_${receipt.id}`, kind: 'extracted', title: receipt.transaction?.title || receipt.title,
               message: receipt.transaction ? `${receipt.transaction.type} ${receipt.transaction.amount} · ${receipt.transaction.category}` : receipt.text,
-              timestamp: receipt.postedAt, status: 'added',
+              timestamp: receipt.postedAt, status: 'added', transactionId: receipt.transaction?.id || `tx_native_${receipt.id}`,
             });
             await acknowledgeSavedPayment(receipt.id);
           }
@@ -1487,7 +1488,7 @@ export default function App() {
         const posted = new Date(payment.postedAt);
         const parsed = {
           ...result.parsed, id,
-          description: payment.description,
+          description: payment.description, categoryOverride: payment.categoryOverride,
           date: toLocalISODate(posted),
           time: `${String(posted.getHours()).padStart(2, '0')}:${String(posted.getMinutes()).padStart(2, '0')}`,
         };
@@ -1498,7 +1499,7 @@ export default function App() {
         recordExtractedHistory(parsed);
       } else if (existing && (payment.description !== undefined || locationTag)) {
         const next = latest.pendingNotifications.map(n => n.id === id ? {
-          ...n, description: payment.description ?? n.description, location: locationTag ?? n.location,
+          ...n, description: payment.description ?? n.description, categoryOverride: payment.categoryOverride, location: locationTag ?? n.location,
         } : n);
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
         interceptorState.current.pendingNotifications = next;
@@ -1729,14 +1730,28 @@ export default function App() {
   };
 
   const handleConfirmAddNotification = (notif: ParsedNotification) => {
-    if (transactions.some(tx => tx.id === `tx_${notif.id}`)) {
-      handleIgnoreNotification(notif.id);
+    const alreadyAdded = transactions.find(tx => tx.id === `tx_${notif.id}`);
+    if (alreadyAdded) {
+      recordExtractedHistory(notif, 'added', alreadyAdded.id);
+      void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
+      setPendingNotifications(previous => previous.filter(item => item.id !== notif.id));
       return;
     }
-    const { transaction: newTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(notif, accounts, categories);
+    if (hasUnmatchedPaymentAccount(notif, accounts)) {
+      showToast('Account not found or ambiguous. Add it in Accounts or use Edit to choose an account.', 'error');
+      return;
+    }
+    let categorized: ParsedNotification;
+    try {
+      categorized = applyNotificationCategoryOverride(notif, categories);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Invalid category. Edit the payment in the app.', 'error');
+      return;
+    }
+    const { transaction: newTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, accounts, categories);
     const nextTransactions = [newTx, ...transactions];
     if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
-    recordExtractedHistory(notif, 'added');
+    recordExtractedHistory(categorized, 'added', newTx.id);
     if (nextCategories !== categories) setCategories(nextCategories);
     setAccounts(nextAccounts);
     setTransactions(nextTransactions);
@@ -1751,29 +1766,36 @@ export default function App() {
   const handleConfirmEditNotification = (notif: ParsedNotification) => {
     // 3. Resolve account by notif.accountLast4 first, then appSource/paymentMethod, then default
     let resolvedAccId: string | null = null;
-    if (notif.accountLast4) {
+    if (notif.accountLast4 && !hasUnmatchedPaymentAccount(notif, accounts)) {
       const byLast4 = accounts.find((a) => a.accountNumberLast4 === notif.accountLast4);
       if (byLast4) resolvedAccId = byLast4.id;
     }
-    if (!resolvedAccId && notif.appSource) {
+    if (!notif.accountLast4 && !resolvedAccId && notif.appSource) {
       resolvedAccId = resolveAccountId(accounts, notif.appSource);
     }
-    if (!resolvedAccId && notif.paymentMethod) {
+    if (!notif.accountLast4 && !resolvedAccId && notif.paymentMethod) {
       resolvedAccId = resolveAccountId(accounts, notif.paymentMethod);
     }
-    if (!resolvedAccId) {
+    if (!notif.accountLast4 && !resolvedAccId) {
       const defaultAcc = accounts.find((a) => a.isDefault);
       if (defaultAcc) resolvedAccId = defaultAcc.id;
     }
 
-    const finalPaymentMethod = resolvedAccId || notif.appSource || notif.paymentMethod || 'Other UPI';
+    const finalPaymentMethod = resolvedAccId || (notif.accountLast4 ? 'Other UPI' : notif.appSource || notif.paymentMethod || 'Other UPI');
+    let categorized = notif;
+    try {
+      categorized = applyNotificationCategoryOverride(notif, categories);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Select a category in the editor.', 'warning');
+    }
     const { category: resolvedCat, subcategory: resolvedSubcat } = resolveNotificationCategory(
-      notif.category,
-      notif.subcategory,
+      categorized.category,
+      categorized.subcategory,
       notif.type
     );
 
     // Open transaction editor with pre-filled details from notification
+    setModalInitialCategoryType(notif.type === 'credit' ? 'Income' : 'Expense');
     setEditingTransaction({
       title: notif.description?.trim() || notif.payeeOrPayer,
       amount: notif.amount,
@@ -1806,6 +1828,32 @@ export default function App() {
       if (remaining.length === 0) setIsNotificationModalOpen(false);
       return remaining;
     });
+  };
+
+  const historyTransaction = (entry: NotificationHistoryEntry) =>
+    transactions.find(tx => tx.id === (entry.transactionId || `tx_${entry.id}`));
+
+  const canEditHistory = (entry: NotificationHistoryEntry) => entry.kind === 'extracted'
+    && (entry.status === 'added' ? Boolean(historyTransaction(entry))
+      : Boolean(pendingNotifications.find(item => item.id === entry.id) || entry.notification));
+
+  const handleEditHistory = (entry: NotificationHistoryEntry) => {
+    if (entry.status === 'added') {
+      const transaction = historyTransaction(entry);
+      if (!transaction) return;
+      setIsNotificationModalOpen(false);
+      handleEditTransaction(transaction);
+      return;
+    }
+    const notification = pendingNotifications.find(item => item.id === entry.id) || entry.notification;
+    if (!notification) return;
+    if (!pendingNotifications.some(item => item.id === entry.id)) {
+      const next = [notification, ...pendingNotifications];
+      if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
+      interceptorState.current.pendingNotifications = next;
+      setPendingNotifications(next);
+    }
+    handleConfirmEditNotification(notification);
   };
 
   useEffect(() => {
@@ -1842,12 +1890,16 @@ export default function App() {
       kind: incoming.kind ?? inferTransactionKind(incoming),
     };
     if (editingPaymentId) {
+      const reviewed = pendingNotifications.find((notification) => notification.id === editingPaymentId);
+      if (reviewed && hasUnmatchedPaymentAccount(reviewed, accounts) && !resolvedAccountId) {
+        showToast('Select an account before saving this payment.', 'error');
+        return;
+      }
       tx.id = `tx_${editingPaymentId}`;
       const nextAccounts = applyTransactionToAccounts(accounts, tx, 1);
       const nextTransactions = [tx, ...transactions];
       if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
-      const reviewed = pendingNotifications.find((notification) => notification.id === editingPaymentId);
-      if (reviewed) recordExtractedHistory({ ...reviewed, category: tx.category, subcategory: tx.subcategory, type: tx.type }, 'added');
+      if (reviewed) recordExtractedHistory({ ...reviewed, category: tx.category, subcategory: tx.subcategory, type: tx.type }, 'added', tx.id);
       setAccounts(nextAccounts);
       setTransactions(nextTransactions);
       setPendingNotifications(previous => previous.filter(n => n.id !== editingPaymentId));
@@ -3346,7 +3398,11 @@ export default function App() {
       {isNotificationModalOpen && (
         <Suspense fallback={null}>
           <NotificationPromptModal
-            history={notificationHistory}
+            history={notificationHistory.map(entry => historyTransaction(entry) ? { ...entry, status: 'added' as const } : entry)}
+            canEditHistory={canEditHistory}
+            onEditHistory={handleEditHistory}
+            hasUnmatchedAccount={(notification) => hasUnmatchedPaymentAccount(notification, accounts)}
+            onManageAccounts={() => { setIsNotificationModalOpen(false); setActiveTab('accounts'); }}
             notifications={pendingNotifications}
             onConfirmAdd={handleConfirmAddNotification}
             onConfirmEdit={handleConfirmEditNotification}

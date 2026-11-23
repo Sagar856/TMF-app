@@ -18,13 +18,14 @@ export interface InterceptedPayment {
   localCashBalance?: number;
   savedRevision?: number;
   description?: string;
+  categoryOverride?: string;
   location?: Omit<LocationTag, 'name'> & { name?: string; capturedAt?: number };
 }
 
 interface NotificationInterceptPlugin {
   isPermissionGranted(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<void>;
-  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string }): Promise<void>;
+  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string; emailNotifications: boolean }): Promise<void>;
   reverseGeocode(options: { lat: number; lng: number }): Promise<{ name: string }>;
   getPending(): Promise<{ notifications: InterceptedPayment[] }>;
   resolvePayment(options: { id: string }): Promise<void>;
@@ -59,8 +60,8 @@ export async function requestNotificationAccess(): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.requestPermission();
 }
 
-export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false, owner = ''): Promise<void> {
-  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking, owner });
+export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false, owner = '', emailNotifications = false): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking, owner, emailNotifications });
 }
 
 export async function acknowledgeSavedPayment(id: string): Promise<void> {

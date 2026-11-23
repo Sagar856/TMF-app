@@ -5,6 +5,7 @@ import { extractWithRegex } from '../services/notification/RegexParser';
 import { parseUPIFormat } from '../services/notification/UPIParser';
 import { parseBankTemplate } from '../services/notification/BankTemplateParser';
 import { sanitizeMerchantCandidate } from '../services/notification/merchantSanitizer';
+import { parseNotification } from '../services/notification/ParserManager';
 
 test('direction: refunds, reversals and cashback are credits even when "paid"/"debited" appears', () => {
   assert.equal(extractWithKeywords('Refund of Rs 499 for your payment to Amazon has been processed').type, 'credit');
@@ -64,4 +65,25 @@ test('UPI and bank parsers use the sanitiser', () => {
   const bank = parseBankTemplate('HDFC Bank: Rs 1,500 debited from a/c XX4411 to Big Bazaar ref 12345678');
   assert.equal(bank.payeeOrPayer, 'Big Bazaar');
   assert.equal(bank.accountLast4, '4411');
+});
+
+test('bank alerts extract account suffixes, merchant and transaction amount from varied formats', () => {
+  const fee = parseNotification('IDBI Bank A/C NN12345 debited INR. 183.00 Det:ANNUAL_CARD_FEE', null, [], [], false);
+  assert.equal(fee?.parsed.amount, 183);
+  assert.equal(fee?.parsed.accountLast4, '2345');
+  const incoming = parseNotification('Received Rs.6300.00 in your Kotak Bank AC 1234 from TEST PERSON on 07-11-26. UPI Ref:123456789012', null, [], [], false);
+  assert.equal(incoming?.parsed.type, 'credit');
+  assert.equal(incoming?.parsed.accountLast4, '1234');
+  assert.equal(incoming?.parsed.payeeOrPayer, 'TEST PERSON');
+  const outgoing = parseNotification('A/c X1234 debited INR 60.00 to SAMPLE STORE thru UPI:123456789012. Bal INR 3464.45 -PNB', null, [], [], false);
+  assert.equal(outgoing?.parsed.payeeOrPayer, 'SAMPLE STORE');
+  assert.equal(outgoing?.parsed.refNumber, '123456789012');
+  assert.equal(outgoing?.parsed.amount, 60);
+  const card = parseNotification('ICICI Bank Credit Card XX1234 debited for INR 595.00 on 22-Nov-26 for UPI-123456789012-TEST SHOP. To dispute call 1800000000', null, [], [], false);
+  assert.equal(card?.parsed.accountLast4, '1234');
+  assert.equal(card?.parsed.payeeOrPayer, 'TEST SHOP');
+  assert.equal(card?.parsed.refNumber, '123456789012');
+  const axis = parseNotification('INR 20050.00 debited A/c no. XX1234 09-11-26 UPI/P2A/123456789012/TEST PERSON. Not you? Axis Bank', null, [], [], false);
+  assert.equal(axis?.parsed.payeeOrPayer, 'TEST PERSON');
+  assert.equal(axis?.parsed.refNumber, '123456789012');
 });

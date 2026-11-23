@@ -12,12 +12,13 @@ export const SMS_PACKAGES = [
   'com.android.mms', 'com.google.android.apps.messaging', 'com.samsung.android.messaging',
   'com.oneplus.mms', 'com.miui.smsextra', 'com.oppo.mms', 'com.vivo.mms', 'com.truecaller',
 ] as const;
+export const MAIL_PACKAGES = ['com.google.android.gm'] as const;
 
 // Mirrored in native TransactionEligibility.java; both run the same fixtures.
-const BANK_SENDER = /\b(?:[a-z]{2}-)?(?:hdfc(?:bk|bank)?|icici(?:b|bank)?|sbi(?:inb|bnk|bank)?|axis(?:bk|bank)?|kotak(?:b|bank)?|pnb(?:sms|bank)?|bob(?:txn|sms|bank)?|can(?:bnk|bank)|idfc(?:fb|bank)?|indus(?:b|ind|bank)|fed(?:bnk|bank)|union(?:b|bank)|yes(?:bnk|bank)|aubank|rbl(?:bnk|bank))\b/i;
+const BANK_SENDER = /\b(?:[a-z]{2}-)?(?:hdfc(?:bk|bank)?|icici(?:b|bank)?|sbi(?:inb|bnk|bank)?|axis(?:bk|bank)?|kotak(?:b|bank)?|pnb(?:sms|bank)?|bob(?:txn|sms|bank)?|can(?:bnk|bank)|idbi(?:bk|bank)?|idfc(?:fb|bank)?|indus(?:b|ind|bank)|fed(?:bnk|bank)|union(?:b|bank)|yes(?:bnk|bank)|aubank|rbl(?:bnk|bank))\b/i;
 const NON_PAYMENT = /\b(?:otp|one.time.password|verification.code|offer|offers|promo(?:tional)?|discount|coupon|cashback.up.to|earn.cashback|win|reward.points|pre.approved|apply.now|eligible|reminder|due.date|payment.due|collect.request|payment.request|request(?:ed)?.(?:money|payment)|mandate.(?:created|registered)|scheduled|will.be.(?:debited|credited)|to.be.(?:debited|credited)|failed|declined|unsuccessful|pending|processing)\b/i;
-const COMPLETED = /\b(?:debited|credited|paid|sent|received|spent|withdrawn|transferred|deducted|deposited|refunded|reversed)\b|\b(?:payment|transaction|refund)\s+(?:of\s+(?:rs\.?|inr|₹)\s*[\d,.]+\s+)?(?:successful|completed|processed)\b/i;
-const AMOUNT = /(?:rs\.?|inr|₹|\$|usd|€|eur|£|gbp)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:rs\.?|inr|usd|eur|gbp)/i;
+const COMPLETED = /\b(?:debited|credited|paid|sent|received|spent|withdrawn|transferred|deducted|deposited|refunded|reversed)\b|\b(?:payment|transaction|refund|reversal)\s+(?:of\s+(?:rs\.?|inr\.?|₹)\s*[\d,.]+\s+)?(?:successful|completed|processed)\b|\bcredit\s+card\b.{0,80}\b(?:has been|was) used for a transaction\b/i;
+const AMOUNT = /(?:rs\.?|inr\.?|₹|\$|usd|€|eur|£|gbp)\s*([\d,]+(?:\.\d{1,2})?)|([\d,]+(?:\.\d{1,2})?)\s*(?:rs\.?|inr|usd|eur|gbp)/i;
 
 export function isCompletedPaymentText(text: string): boolean {
   const amount = AMOUNT.exec(text);
@@ -29,5 +30,6 @@ export function isCompletedPaymentText(text: string): boolean {
 export function isEligiblePaymentNotification(packageName: string, title: string, text: string): boolean {
   if (!isCompletedPaymentText(`${title} ${text}`)) return false;
   if (PAYMENT_PACKAGES.some(pkg => pkg === packageName)) return true;
-  return SMS_PACKAGES.some(pkg => pkg === packageName) && BANK_SENDER.test(title);
+  return (SMS_PACKAGES.some(pkg => pkg === packageName) || MAIL_PACKAGES.some(pkg => pkg === packageName))
+    && BANK_SENDER.test(title);
 }

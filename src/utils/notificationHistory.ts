@@ -1,3 +1,5 @@
+import type { ParsedNotification } from '../types/finance';
+
 export interface NotificationHistoryEntry {
   id: string;
   kind: 'extracted' | 'alert';
@@ -5,9 +7,11 @@ export interface NotificationHistoryEntry {
   message: string;
   timestamp: number;
   status: 'pending' | 'added' | 'ignored' | 'alert';
+  notification?: ParsedNotification;
+  transactionId?: string;
 }
 
-export const NOTIFICATION_HISTORY_LIMIT = 20;
+export const NOTIFICATION_HISTORY_LIMIT = 50;
 
 export function updateNotificationHistory(
   history: NotificationHistoryEntry[], entry: NotificationHistoryEntry,
@@ -15,7 +19,7 @@ export function updateNotificationHistory(
   const previous = history.find((item) => item.id === entry.id);
   const next = previous && entry.status === 'pending' && previous.status !== 'pending'
     ? previous
-    : previous ? { ...entry, timestamp: previous.timestamp } : entry;
+    : previous ? { ...previous, ...entry, timestamp: previous.timestamp } : entry;
   return [next, ...history.filter((item) => item.id !== entry.id)]
     .sort((a, b) => b.timestamp - a.timestamp).slice(0, NOTIFICATION_HISTORY_LIMIT);
 }

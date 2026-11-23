@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { isCompletedPaymentText, isEligiblePaymentNotification, PAYMENT_PACKAGES, SMS_PACKAGES } from '../services/notification/transactionEligibility';
+import { isCompletedPaymentText, isEligiblePaymentNotification, PAYMENT_PACKAGES, SMS_PACKAGES, MAIL_PACKAGES } from '../services/notification/transactionEligibility';
 import { parseNotification } from '../services/notification/ParserManager';
 import { resetDuplicateMemory } from '../services/notification/DuplicateDetector';
 import fixtures from './notificationEligibility.fixtures.json';
@@ -49,6 +49,7 @@ test('Android eligibility policy matches shared fixtures and exact source allowl
   };
   assert.deepEqual(strings('PAYMENTS'), [...PAYMENT_PACKAGES]);
   assert.deepEqual(strings('SMS'), [...SMS_PACKAGES]);
+  assert.deepEqual(strings('MAIL'), [...MAIL_PACKAGES]);
   const pattern = (name: string) => {
     const value = new RegExp(`${name} = pattern\\(("(?:[^"\\\\]|\\\\.)*")\\)`).exec(source)?.[1];
     assert.ok(value);
@@ -61,7 +62,7 @@ test('Android eligibility policy matches shared fixtures and exact source allowl
     const accepted = Boolean(match && Number((match[1] || match[2]).replace(/,/g, '')) > 0
       && !reject.test(text) && completed.test(text)
       && (strings('PAYMENTS').includes(fixture.packageName)
-        || (strings('SMS').includes(fixture.packageName) && bank.test(fixture.title))));
+        || ((strings('SMS').includes(fixture.packageName) || strings('MAIL').includes(fixture.packageName)) && bank.test(fixture.title))));
     assert.equal(accepted, fixture.accepted, fixture.title);
   }
 });

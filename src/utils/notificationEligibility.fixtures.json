@@ -21,6 +21,12 @@
   {"packageName":"com.fake.com.phonepe.app","title":"Payment successful","text":"You paid Rs 500 to Rahul","accepted":false},
   {"packageName":"com.phonepe.app","title":"Balance","text":"Available balance Rs 2,500","accepted":false},
   {"packageName":"com.axis.mobile","title":"Account update","text":"Rs 0 credited to your account","accepted":false},
+  {"packageName":"com.google.android.apps.messaging","title":"VM-IDBIBK","text":"IDBI Bank A/C NN12345 debited INR. 183.00 Det:ANNUAL_CARD_FEE","accepted":true},
+  {"packageName":"com.google.android.apps.messaging","title":"VM-KOTAKB","text":"Received Rs.6300.00 in your Kotak Bank AC 1234 from TEST PERSON on 07-11-26. UPI Ref:123456789012","accepted":true},
+  {"packageName":"com.google.android.gm","title":"ICICI Bank","text":"Your ICICI Bank Credit Card XX1234 has been used for a transaction of INR 999.00","accepted":true},
+  {"packageName":"com.google.android.gm","title":"ICICI Bank","text":"Reversal processed on your credit card INR 15","accepted":true},
+  {"packageName":"com.google.android.gm","title":"Someone else","text":"INR 500 debited from your account","accepted":false},
+  {"packageName":"com.google.android.gm","title":"ICICI Bank","text":"Credit card statement payment due INR 5000","accepted":false},
   {"packageName":"com.phonepe.app","title":"New message received","text":"Rahul sent you a reminder to pay Rs 500","accepted":false},
   {"packageName":"com.google.android.apps.messaging","title":"VM-SBIINB","text":"Rs 500 withdrawn at ATM from card XX1234","accepted":true}
 ]

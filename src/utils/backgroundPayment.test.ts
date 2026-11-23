@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
-import { createPaymentTransaction, adjustPaymentAccountBalance } from './paymentTransaction';
+import { createPaymentTransaction, adjustPaymentAccountBalance, applyNotificationCategoryOverride, hasUnmatchedPaymentAccount } from './paymentTransaction';
 import { parseNotification } from '../services/notification/ParserManager';
 import { isEligiblePaymentNotification } from '../services/notification/transactionEligibility';
 import { toLocalISODate } from './dates';
@@ -61,11 +61,27 @@ function harness() {
     fetchCategoriesFromSupabase: async () => [{
       id: 'groceries', name: 'Groceries', type: 'expense', iconName: 'Tag', subcategories: ['General'],
     }],
-    parseNotification, isEligiblePaymentNotification, createPaymentTransaction, toLocalISODate, isFinancialAccount,
+    parseNotification, isEligiblePaymentNotification, createPaymentTransaction, applyNotificationCategoryOverride, hasUnmatchedPaymentAccount, toLocalISODate, isFinancialAccount,
     createCashAccount, isCashWithdrawal,
   };
   return { state, completed, accounts, transactions, calls: () => calls, run: () => runInNewContext(save, state) as Promise<void> };
 }
+
+test('background Add validates the inline category and refuses an unknown account', async () => {
+  const valid = harness();
+  valid.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'groceries' });
+  await valid.run();
+  assert.equal(valid.transactions[0].category, 'Groceries');
+  const invalid = harness();
+  invalid.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'Not a category' });
+  await assert.rejects(invalid.run(), /Category .* was not found/);
+  assert.equal(invalid.calls(), 0);
+  const unmatched = harness();
+  unmatched.state.bridge.input = () => JSON.stringify({ ...payment, text: payment.text.replace('XX4411', 'XX9876') });
+  await assert.rejects(unmatched.run(), /Account not found or ambiguous/);
+  assert.equal(unmatched.calls(), 0);
+  assert.equal(unmatched.accounts[0].balance, 5000);
+});
 
 test('cold background Add saves the actual transaction and balance with description/location, and retries do not add twice', async () => {
   const h = harness();

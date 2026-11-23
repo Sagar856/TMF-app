@@ -2,7 +2,7 @@ import type { InterceptedPayment } from './notificationListener';
 import type { FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
 import { parseNotification } from './notification/ParserManager';
 import { isEligiblePaymentNotification } from './notification/transactionEligibility';
-import { createPaymentTransaction } from '../utils/paymentTransaction';
+import { applyNotificationCategoryOverride, createPaymentTransaction, hasUnmatchedPaymentAccount } from '../utils/paymentTransaction';
 import { createCashAccount, isCashWithdrawal } from '../utils/cashAccount';
 import { toLocalISODate } from '../utils/dates';
 import { isFinancialAccount } from '../utils/backup';
@@ -72,12 +72,13 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     ? location.name?.trim() || bridge.locationName(location.lat, location.lng) : undefined;
   if (location && !locationName) console.warn('Readable captured payment location unavailable; coordinates retained');
   const parsed: ParsedNotification = {
-    ...result.parsed, id: `native_${payment.id}`, description: payment.description,
+    ...result.parsed, id: `native_${payment.id}`, description: payment.description, categoryOverride: payment.categoryOverride,
     date: toLocalISODate(posted),
     time: `${String(posted.getHours()).padStart(2, '0')}:${String(posted.getMinutes()).padStart(2, '0')}`,
     location: location ? { lat: location.lat, lng: location.lng, name: locationName || 'Location name unavailable' } : undefined,
   };
-  const { transaction } = createPaymentTransaction(parsed, accounts, categories);
+  if (hasUnmatchedPaymentAccount(parsed, accounts)) throw new Error('Account not found or ambiguous. Add or select it in the app before saving.');
+  const { transaction } = createPaymentTransaction(applyNotificationCategoryOverride(parsed, categories), accounts, categories);
   const { data: saved, error: saveError } = await client.rpc('add_notification_payment', {
     payment: transaction, expected_user: payment.owner,
   });

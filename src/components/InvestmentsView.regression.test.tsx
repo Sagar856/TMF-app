@@ -43,3 +43,12 @@ test('market refresh shows its busy and failure state without claiming newer pri
   assert.match(markup, /role="alert"[^>]*>Some sources could not be refreshed. See info./);
   assert.match(markup, /Not available yet/);
 });
+
+test('overview omits the duplicate transaction table while retaining the Cashflow Ledger tab', () => {
+  const markup = renderToStaticMarkup(
+    <InvestmentsView investments={[fund]} currencySymbol="$" settings={settings}
+      onUpdateSettings={() => {}} onAddInvestment={() => {}} />
+  );
+  assert.doesNotMatch(markup, /investment-summary-ledger|INVESTMENT LEDGER TRANSACTIONS/);
+  assert.match(markup, />Cashflow Ledger</);
+});

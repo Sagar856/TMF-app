@@ -104,7 +104,7 @@ public class NotificationInterceptPlugin extends Plugin {
         try {
             InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")),
                 Boolean.TRUE.equals(call.getBoolean("notifications")), Boolean.TRUE.equals(call.getBoolean("locationTracking")),
-                call.getString("owner", ""));
+                call.getString("owner", ""), Boolean.TRUE.equals(call.getBoolean("emailNotifications")));
             call.resolve();
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             call.reject("Could not configure interceptor", error);

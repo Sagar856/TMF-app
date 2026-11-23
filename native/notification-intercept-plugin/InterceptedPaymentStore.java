@@ -252,7 +252,16 @@ public final class InterceptedPaymentStore {
             JSONObject record = records.getJSONObject(i);
             if (!id.equals(record.getString("id"))) continue;
             if ("ignore".equals(record.getString("action")) || "saving".equals(record.getString("action"))) return;
-            record.put("description", description.substring(0, Math.min(description.length(), 200)).trim());
+            String input = description.substring(0, Math.min(description.length(), 200)).trim();
+            int separator = input.indexOf('|');
+            if (separator >= 0) {
+                String category = input.substring(0, separator).trim();
+                if (category.isEmpty()) record.remove("categoryOverride");
+                else record.put("categoryOverride", category);
+                record.put("description", input.substring(separator + 1).trim());
+            } else {
+                record.put("description", input);
+            }
             save(context, records);
             show(context, record);
             NotificationInterceptPlugin.dispatchNotification(record);
@@ -296,12 +305,13 @@ public final class InterceptedPaymentStore {
         ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
     }
 
-    public static synchronized void configure(Context context, boolean enabled, boolean notifications, boolean locationTracking, String owner) throws JSONException {
+    public static synchronized void configure(Context context, boolean enabled, boolean notifications, boolean locationTracking, String owner, boolean emailNotifications) throws JSONException {
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("enabled", enabled).putBoolean("notifications", notifications).putBoolean("locationTracking", locationTracking)
-            .putString("owner", owner).commit()) {
+            .putString("owner", owner).putBoolean("emailNotifications", emailNotifications).commit()) {
             throw new IllegalStateException("Could not persist interceptor settings");
         }
+
         JSONArray records = read(context);
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.getJSONObject(i);
@@ -312,6 +322,31 @@ public final class InterceptedPaymentStore {
             if (enabled && ownsRecord && "saving".equals(record.optString("action"))) PaymentSaveWorker.enqueue(context, record.getString("id"));
         }
         save(context, records);
+    }
+
+    public static boolean emailNotificationsEnabled(Context context) {
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("emailNotifications", false);
+    }
+
+    public static void showStatementAlert(Context context, String key) {
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("enabled", false)
+            || !context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("notifications", false)) return;
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return;
+        NotificationManager manager = ContextCompat.getSystemService(context, NotificationManager.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "Payment confirmations", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            manager.createNotificationChannel(channel);
+        }
+        Intent launch = context.getPackageManager().getLaunchIntentForPackage(context.getPackageName());
+        if (launch == null) throw new IllegalStateException("No app launch activity");
+        PendingIntent open = PendingIntent.getActivity(context, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification notification = new NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle("New statement available")
+            .setContentText("Review the statement in your banking email.")
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true)
+            .setAutoCancel(true).setContentIntent(open).build();
+        manager.notify("statement:" + key, 2, notification);
     }
 
     private static PendingIntent open(Context context, String id, String action) {
@@ -348,17 +383,19 @@ public final class InterceptedPaymentStore {
         card.setTextViewText(R.id.payment_amount, summary.amount);
         JSONObject classification = record.optJSONObject("classification");
         if (classification == null) classification = classify(context, record.getString("title") + " " + record.getString("text"));
-        String category = classification.getString("categoryType") + " · " + classification.getString("category");
+        String override = record.optString("categoryOverride", "");
+        String category = override.isEmpty() ? classification.getString("categoryType") + " · " + classification.getString("category")
+            : override + " (review)";
         card.setTextViewText(R.id.payment_details, summary.details + "\nDetected  " + category);
         card.setTextViewText(R.id.payment_description, failed ? "Not saved: " + record.getString("saveError")
-            : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Description below to add what this payment was for." : description);
+            : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Category / Description below. Enter category | description." : description);
         if (!saving || failed) card.setOnClickPendingIntent(R.id.payment_edit, open(context, id, "edit"));
         Intent reply = new Intent(context, PaymentActionReceiver.class)
             .setAction("tmf.description." + id).putExtra("tmfPaymentId", id);
         PendingIntent replyIntent = PendingIntent.getBroadcast(context, 0, reply,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-        NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(0, "Description", replyIntent)
-            .addRemoteInput(new RemoteInput.Builder("tmfDescription").setLabel("What was this payment for?").build())
+        NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(0, "Category / Description", replyIntent)
+            .addRemoteInput(new RemoteInput.Builder("tmfDescription").setLabel("Category | description (or description only)").build())
             .setAllowGeneratedReplies(false).setShowsUserInterface(false).build();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle(failed ? "Payment save needs attention" : saving ? "Saving payment" : "New transaction detected")

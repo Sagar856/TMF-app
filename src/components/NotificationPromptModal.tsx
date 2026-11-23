@@ -2,7 +2,7 @@ import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { ParsedNotification } from '../types/finance';
 import { Check, Edit3, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History } from 'lucide-react';
-import type { NotificationHistoryEntry } from '../utils/notificationHistory';
+import { NOTIFICATION_HISTORY_LIMIT, type NotificationHistoryEntry } from '../utils/notificationHistory';
 
 interface NotificationPromptModalProps {
   notifications: ParsedNotification[];
@@ -12,7 +12,33 @@ interface NotificationPromptModalProps {
   onClose: () => void;
   currencySymbol: string;
   history?: NotificationHistoryEntry[];
+  onEditHistory?: (entry: NotificationHistoryEntry) => void;
+  canEditHistory?: (entry: NotificationHistoryEntry) => boolean;
+  hasUnmatchedAccount?: (notification: ParsedNotification) => boolean;
+  onManageAccounts?: () => void;
 }
+
+export const NotificationHistoryList: React.FC<{
+  history: NotificationHistoryEntry[];
+  onEditHistory?: (entry: NotificationHistoryEntry) => void;
+  canEditHistory?: (entry: NotificationHistoryEntry) => boolean;
+}> = ({ history, onEditHistory, canEditHistory }) => (
+  <div className="max-h-[65vh] overflow-y-auto space-y-2">
+    {history.length === 0 ? <p className="text-xs text-content-3">No notification history yet.</p>
+      : history.slice(0, NOTIFICATION_HISTORY_LIMIT).map((entry) => (
+        <article key={entry.id} className="rounded-xl border border-line p-3 text-xs">
+          <button type="button" className="w-full text-left disabled:cursor-default"
+            disabled={!onEditHistory || !canEditHistory?.(entry)}
+            onClick={() => onEditHistory?.(entry)}>
+            <p className="font-bold">{entry.title}</p>
+            <p className="text-content-3 break-words">{entry.message}</p>
+            <p className="mt-1 text-[10px] text-content-3">{entry.kind === 'alert' ? 'Alert' : 'Extracted'} · {entry.status} · {new Date(entry.timestamp).toLocaleString()}</p>
+            {canEditHistory?.(entry) && <span className="mt-1 inline-block text-cyan-400 underline">Edit transaction</span>}
+          </button>
+        </article>
+      ))}
+  </div>
+);
 
 export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = ({
   notifications,
@@ -22,6 +48,10 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   onClose,
   currencySymbol,
   history = [],
+  onEditHistory,
+  canEditHistory,
+  hasUnmatchedAccount,
+  onManageAccounts,
 }) => {
   const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -41,19 +71,10 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
       <section role="dialog" aria-modal="true" aria-label="Notification history"
         className="relative w-full max-w-md rounded-3xl border border-line bg-surface-1 p-4 text-content-1 shadow-2xl">
         <header className="mb-3 flex items-center justify-between gap-2">
-          <h3 className="min-w-0 text-sm font-bold">History · Last 20 notifications</h3>
+          <h3 className="min-w-0 text-sm font-bold">History · Last {NOTIFICATION_HISTORY_LIMIT} notifications</h3>
           <div className="flex shrink-0 items-center gap-2">{historyButton}<button type="button" aria-label="Close notification history" onClick={onClose}><X className="h-4 w-4" /></button></div>
         </header>
-        <div className="max-h-[65vh] overflow-y-auto space-y-2">
-          {history.length === 0 ? <p className="text-xs text-content-3">No notification history yet.</p>
-            : history.slice(0, 20).map((entry) => (
-              <article key={entry.id} className="rounded-xl border border-line p-3 text-xs">
-                <p className="font-bold">{entry.title}</p>
-                <p className="text-content-3 break-words">{entry.message}</p>
-                <p className="mt-1 text-[10px] text-content-3">{entry.kind === 'alert' ? 'Alert' : 'Extracted'} · {entry.status} · {new Date(entry.timestamp).toLocaleString()}</p>
-              </article>
-            ))}
-        </div>
+        <NotificationHistoryList history={history} canEditHistory={canEditHistory} onEditHistory={onEditHistory} />
       </section>
     </div>
   );
@@ -138,6 +159,16 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           </div>
           {activeNotif.description && (
             <p className="mt-2 text-xs text-violet-200">{activeNotif.description}</p>
+          )}
+          {activeNotif.categoryOverride && (
+            <p className="mt-2 text-xs text-violet-200">Notification category: {activeNotif.categoryOverride} (validated when added)</p>
+          )}
+          {hasUnmatchedAccount?.(activeNotif) && (
+            <div role="alert" className="mt-2 text-xs text-amber-400">
+              Account ending {activeNotif.accountLast4} was not uniquely matched.
+              {' '}<button type="button" className="underline" onClick={onManageAccounts}>Manage accounts</button>
+              {' '}or use Edit to choose an account.
+            </div>
           )}
 
           {/* Extracted Category & Subcategory Tag */}

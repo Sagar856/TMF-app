@@ -54,13 +54,16 @@ const BANK_PATTERNS: BankPattern[] = [
   {
     name: 'Kotak Mahindra Bank',
     keywords: ['kotak', 'kotakb'],
-    payeeRegexes: [/(?:to|at)\s+([A-Za-z0-9\s&_.-]{2,30}?)(?:\s+via|\s+ref|\.|$)/i],
-    accountRegexes: [/(?:a\/c)\s*[*xX]*(\d{4})/i],
+    payeeRegexes: [
+      /(?:to|at)\s+([A-Za-z0-9\s&_.-]{2,60}?)(?:\s+on|\s+via|\s+ref|\.|$)/i,
+      /(?:bank\s+ac\s+[*xX]*\d{3,}\s+from)\s+([A-Za-z0-9\s&_.-]{2,60}?)(?:\s+on|\s+via|\s+ref|\.|$)/i,
+    ],
+    accountRegexes: [/(?:a\/c|ac)\s*[*xX]*(\d{4})/i],
   },
   {
     name: 'Punjab National Bank',
     keywords: ['pnb', 'pnbk'],
-    payeeRegexes: [/(?:to|at)\s+([A-Za-z0-9\s&_.-]{2,30}?)(?:\s+ref|\.|$)/i],
+    payeeRegexes: [/(?:to|at)\s+([A-Za-z0-9\s&_.-]{2,60}?)(?:\s+thru|\s+via|\s+ref|\.|$)/i],
     accountRegexes: [/(?:a\/c)\s*[*xX]*(\d{4})/i],
   },
   {

@@ -793,6 +793,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 />
               </SettingRow>
 
+              {isAndroid && (
+                <SettingRow
+                  label="Include Gmail payment notifications"
+                  description="Optionally process bank payment previews posted by Gmail. Only visible notification text is used; MINARTH does not access your mailbox. Saved payment text may sync with your transaction."
+                  htmlFor="sw-email-extract"
+                >
+                  <SettingSwitch id="sw-email-extract" label="Include Gmail payment notifications"
+                    checked={Boolean(settings.autoExtractEmailNotifications)}
+                    onChange={(v) => update({ autoExtractEmailNotifications: v })} />
+                </SettingRow>
+              )}
+
               <SettingRow
                 label="“Add transaction?” push alerts"
                 description="Post a notification the moment an unlogged debit or credit is detected."
