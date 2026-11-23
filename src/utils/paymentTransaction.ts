@@ -39,6 +39,21 @@ export function applyTransactionToAccounts(accounts: FinancialAccount[], tx: Tra
   return applyCashWithdrawalLeg(adjustPaymentAccountBalance(accounts, target, delta), tx, direction);
 }
 
+export function applyNotificationEditOnce(
+  notificationId: string, incoming: Transaction, transactions: Transaction[], accounts: FinancialAccount[],
+): { transaction: Transaction; transactions: Transaction[]; accounts: FinancialAccount[]; added: boolean } {
+  const id = `tx_${notificationId}`;
+  const existing = transactions.find(transaction => transaction.id === id);
+  if (existing) return { transaction: existing, transactions, accounts, added: false };
+  const transaction = { ...incoming, id };
+  return {
+    transaction,
+    transactions: [transaction, ...transactions],
+    accounts: applyTransactionToAccounts(accounts, transaction, 1),
+    added: true,
+  };
+}
+
 export function isCashWithdrawalNotification(notification: Pick<ParsedNotification, 'type' | 'rawText' | 'paymentMethod'>): boolean {
   return notification.type === 'debit'
     && (notification.paymentMethod === 'ATM Cash' || isCashWithdrawalText(notification.rawText));

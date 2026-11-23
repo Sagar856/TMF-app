@@ -100,8 +100,19 @@ import {
 } from './services/supabaseClient';
 import { checkIsAdmin, recordActivity } from './services/adminService';
 
-import { startNotificationListener, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, persistInterceptedLocation, type InterceptedPayment } from './services/notificationListener';
-import { adjustPaymentAccountBalance, applyNotificationCategoryOverride, applyTransactionToAccounts, createPaymentTransaction, hasUnmatchedPaymentAccount } from './utils/paymentTransaction';
+import { startNotificationListener, startAccountSuggestionListener, isAccountSuggestionAction, acknowledgeAccountSuggestion, configureNotificationInterceptor, resolveInterceptedPayment, acknowledgePaymentAction, acknowledgeSavedPayment, getSavedPayments, clearInterceptedPayments, persistInterceptedLocation, type InterceptedPayment, type AccountSuggestionAction } from './services/notificationListener';
+import {
+  enqueueNotificationUpsert,
+  enqueueNotificationResolution,
+  flushNotificationSync,
+  mergePendingNotifications,
+  getQueuedNotificationOps,
+  clearNotificationSyncQueue,
+  type CloudNotificationState,
+  type NotificationResolutionStatus,
+  type NotificationSyncFlushResult,
+} from './services/notificationSync';
+import { adjustPaymentAccountBalance, applyNotificationCategoryOverride, applyNotificationEditOnce, applyTransactionToAccounts, createPaymentTransaction, hasUnmatchedPaymentAccount } from './utils/paymentTransaction';
 import { NEW_CASH_ACCOUNT_OPTION, ensureCashAccount } from './utils/cashAccount';
 import { reconcileSavedPayments } from './utils/savedPaymentReconciliation';
 import { useMarketSnapshot } from './hooks/useMarketSnapshot';
@@ -455,6 +466,9 @@ export default function App() {
   interceptorState.current = { transactions, pendingNotifications, settings };
   const [paymentActions, setPaymentActions] = useState<InterceptedPayment[]>([]);
   const [editingPaymentId, setEditingPaymentId] = useState<string | null>(null);
+  const [accountSuggestion, setAccountSuggestion] = useState<{ id: string; last4: string; bankName: string; type: FinancialAccount['type'] } | null>(null);
+  const [ignoredAccountSuggestions, setIgnoredAccountSuggestions] = useState(() => safeGetStringArray('tmf_ignored_account_suggestions'));
+  const [accountActions, setAccountActions] = useState<AccountSuggestionAction[]>([]);
 
   // Modals & UI States
   const mainScrollRef = useRef<HTMLElement>(null);
@@ -866,6 +880,54 @@ export default function App() {
     setSyncStatus((prev) => (prev?.success && prev.warning ? prev : { collection, success: true, timestamp }));
   };
 
+  // Applies the authoritative cloud snapshot of SMS-parser payment reviews:
+  // entries resolved on another device disappear here (so they can never be
+  // re-added and double-apply balances), and entries parsed on another device
+  // become reviewable on this one.
+  const applyCloudNotificationState = (state: CloudNotificationState, knownTransactionIds?: ReadonlySet<string>) => {
+    const local = interceptorState.current.pendingNotifications;
+    const merge = mergePendingNotifications(local, state, getQueuedNotificationOps(), (transactionId) =>
+      (knownTransactionIds?.has(transactionId) ?? false)
+      || interceptorState.current.transactions.some((tx) => tx.id === transactionId));
+    // Payments already recorded locally: tombstone them so no device re-adds them.
+    merge.selfHealed.forEach((id) => enqueueNotificationResolution(id, 'added'));
+    if (merge.selfHealed.length > 0) void flushNotificationSync();
+    if (!merge.changed) return;
+    if (!safeSetItem('tmf_pending_notifications', JSON.stringify(merge.next))) return;
+    interceptorState.current.pendingNotifications = merge.next;
+    setPendingNotifications(merge.next);
+    merge.removed.forEach(({ notification, status }) => {
+      recordExtractedHistory(notification, status);
+      void resolveInterceptedPayment(notification.id).catch((error) =>
+        console.warn('Could not dismiss payment resolved on another device:', error));
+    });
+  };
+
+  const handleNotificationFlushResult = (result: NotificationSyncFlushResult, generation: number, knownTransactionIds?: ReadonlySet<string>) => {
+    if (generation !== cloudGenerationRef.current) return;
+    if (result.success && result.state) applyCloudNotificationState(result.state, knownTransactionIds);
+    if (result.conflicts && result.conflicts.length > 0) {
+      showToast('A payment review was already handled on another device. Check Transactions for duplicates.', 'warning');
+    }
+    if (!result.success && result.schemaOutdated) {
+      reportSyncResult('payment reviews', { success: false, error: result.error, schemaOutdated: true });
+    }
+  };
+
+  /** Queues a review resolution for the cloud and pushes it in the background. */
+  const queueNotificationResolution = (id: string, status: NotificationResolutionStatus, notification?: ParsedNotification) => {
+    enqueueNotificationResolution(id, status, notification);
+    const generation = cloudGenerationRef.current;
+    void flushNotificationSync().then((result) => handleNotificationFlushResult(result, generation));
+  };
+
+  /** Queues a new/updated pending review for the cloud and pushes it in the background. */
+  const queueNotificationUpsert = (notification: ParsedNotification) => {
+    enqueueNotificationUpsert(notification);
+    const generation = cloudGenerationRef.current;
+    void flushNotificationSync().then((result) => handleNotificationFlushResult(result, generation));
+  };
+
   useEffect(() => {
     safeSetItem('tmf_categories', JSON.stringify(categories));
     if (!cloudReady || !cloudHydrated) return;
@@ -977,6 +1039,10 @@ export default function App() {
       syncTransactionsToSupabase(transactions),
       syncInvestmentsToSupabase(investments),
       syncLoansToSupabase(loans),
+      flushNotificationSync(true).then((result): SyncResult => {
+        handleNotificationFlushResult(result, generation);
+        return { success: result.success, error: result.error, schemaOutdated: result.schemaOutdated };
+      }),
     ]);
     const failed = results.find((r) => !r.success);
     if (generation !== cloudGenerationRef.current) return { success: false, error: 'Account changed during sync. Sign in and retry.' };
@@ -1017,6 +1083,11 @@ export default function App() {
     const handleResume = () => {
       if (document.visibilityState === 'visible' && navigator.onLine) {
         setPreferencesRevision(value => value + 1);
+        if (cloudHydrated) {
+          // Pick up reviews parsed or resolved on other devices while backgrounded.
+          const generation = cloudGenerationRef.current;
+          void flushNotificationSync(true).then((result) => handleNotificationFlushResult(result, generation));
+        }
       }
     };
     document.addEventListener('visibilitychange', handleResume);
@@ -1231,6 +1302,14 @@ export default function App() {
         acknowledgeCloudDeletion(item.key, item.ids, await item.remove(item.ids))
       ));
       if (results.some(success => !success)) fetchThrewError = true;
+
+      // Cross-device SMS-parser reviews: push this device's queued operations
+      // as one atomic batch, then merge the authoritative cloud snapshot
+      // (resolutions made on other devices always win). Non-fatal: a missing
+      // migration must not block the rest of cloud sync.
+      const notificationSync = await flushNotificationSync(true);
+      handleNotificationFlushResult(notificationSync, generation, new Set(cloudTx.map((t) => t.id)));
+      if (generation !== cloudGenerationRef.current) return;
     } catch (err) {
       if (generation !== cloudGenerationRef.current) return;
       fetchThrewError = true;
@@ -1295,6 +1374,9 @@ export default function App() {
     sessionStorage.removeItem('tmf_session_unlocked');
     resetDuplicateMemory();
     setPaymentActions([]);
+    setAccountSuggestion(null);
+    setIgnoredAccountSuggestions([]);
+    setAccountActions([]);
     setEditingPaymentId(null);
     setOpenProfileRequest(0);
     setIsAddModalOpen(false);
@@ -1381,12 +1463,45 @@ export default function App() {
 
   useEffect(() => {
     if (authLoading || (isCloudBackendConfigured() && (!isAuthenticated || !cloudHydrated))) return;
-    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '', Boolean(settings.autoExtractEmailNotifications))
+    void configureNotificationInterceptor(settings.autoExtractSms && (!isCloudBackendConfigured() || isAuthenticated), settings.notificationsEnabled, Boolean(settings.locationTracking), authUser?.id || '', Boolean(settings.autoExtractEmailNotifications), accounts.map(account => account.accountNumberLast4).filter(value => /^\d{4}$/.test(value)), ignoredAccountSuggestions)
       .catch(error => {
         console.warn('Could not configure background payment tracking:', error);
         showToast('Could not configure background payment tracking. Please retry.', 'error');
       });
-  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.autoExtractEmailNotifications, authUser?.id, isAuthenticated, authLoading, cloudHydrated]);
+  }, [settings.autoExtractSms, settings.notificationsEnabled, settings.locationTracking, settings.autoExtractEmailNotifications, authUser?.id, isAuthenticated, authLoading, cloudHydrated, accounts, ignoredAccountSuggestions]);
+
+  useEffect(() => {
+    if (!authUser) return;
+    return startAccountSuggestionListener(action => {
+      if (!isAccountSuggestionAction(action) || action.owner !== authUser.id) return;
+      setAccountActions(previous => [...previous.filter(item => item.id !== action.id), action]);
+    });
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (!isUnlocked || isAppLoading || (cloudReady && !cloudHydrated) || editingTransaction || accountActions.length === 0) return;
+    const action = accountActions[0];
+    if (action.owner !== authUser?.id) {
+      setAccountActions(previous => previous.slice(1));
+      return;
+    }
+    if (action.action === 'ignored') {
+      const next = Array.from(new Set([...safeGetStringArray('tmf_ignored_account_suggestions'), action.last4]));
+      if (!safeSetItem('tmf_ignored_account_suggestions', JSON.stringify(next))) return;
+      setIgnoredAccountSuggestions(next);
+    } else {
+      if (!accounts.some(account => account.accountNumberLast4 === action.last4)) {
+        setAccountSuggestion({ id: action.id, last4: action.last4, bankName: '', type: action.type });
+      }
+      setIsNotificationModalOpen(false);
+      setActiveTab('accounts');
+    }
+    setAccountActions(previous => previous.slice(1));
+    void acknowledgeAccountSuggestion(action.id).catch(error => {
+      console.warn('Could not acknowledge account suggestion:', error);
+      showToast('Could not acknowledge account suggestion. It may be shown again.', 'error');
+    });
+  }, [accountActions, accounts, authUser?.id, cloudReady, cloudHydrated, editingTransaction, isAppLoading, isUnlocked]);
 
   useEffect(() => {
     if (isCloudBackendConfigured() && !isAuthenticated) return;
@@ -1431,6 +1546,9 @@ export default function App() {
           interceptorState.current.pendingNotifications = remaining;
           setPendingNotifications(remaining);
           setPaymentActions(previous => previous.filter(action => !ids.has(`native_${action.id}`)));
+          // Tombstone the background-saved reviews so other devices drop them too.
+          ids.forEach(reviewId => enqueueNotificationResolution(reviewId, 'added'));
+          void flushNotificationSync();
           for (const receipt of receipts) {
             if (!isActive() || generation !== cloudGenerationRef.current) return;
             recordNotificationHistory({
@@ -1455,6 +1573,7 @@ export default function App() {
         interceptorState.current.pendingNotifications = remaining;
         setPendingNotifications(remaining);
         setPaymentActions(previous => previous.filter(p => p.id !== payment.id));
+        queueNotificationResolution(id, payment.action === 'ignore' ? 'ignored' : 'added', notification);
         await resolveInterceptedPayment(id);
         return;
       }
@@ -1497,6 +1616,7 @@ export default function App() {
         interceptorState.current.pendingNotifications = next;
         setPendingNotifications(next);
         recordExtractedHistory(parsed);
+        queueNotificationUpsert(parsed);
       } else if (existing && (payment.description !== undefined || locationTag)) {
         const next = latest.pendingNotifications.map(n => n.id === id ? {
           ...n, description: payment.description ?? n.description, categoryOverride: payment.categoryOverride, location: locationTag ?? n.location,
@@ -1504,6 +1624,8 @@ export default function App() {
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
         interceptorState.current.pendingNotifications = next;
         setPendingNotifications(next);
+        const updated = next.find(n => n.id === id);
+        if (updated) queueNotificationUpsert(updated);
       }
       if (payment.action === 'add' || payment.action === 'edit' || payment.action === 'open') {
         setPaymentActions(previous => [...previous.filter(p => p.id !== payment.id), payment]);
@@ -1733,6 +1855,7 @@ export default function App() {
     const alreadyAdded = transactions.find(tx => tx.id === `tx_${notif.id}`);
     if (alreadyAdded) {
       recordExtractedHistory(notif, 'added', alreadyAdded.id);
+      queueNotificationResolution(notif.id, 'added', notif);
       void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
       setPendingNotifications(previous => previous.filter(item => item.id !== notif.id));
       return;
@@ -1755,6 +1878,7 @@ export default function App() {
     if (nextCategories !== categories) setCategories(nextCategories);
     setAccounts(nextAccounts);
     setTransactions(nextTransactions);
+    queueNotificationResolution(notif.id, 'added', categorized);
     void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notif.id);
@@ -1822,6 +1946,7 @@ export default function App() {
     if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
     const ignored = pendingNotifications.find((item) => item.id === notifId);
     if (ignored) recordExtractedHistory(ignored, 'ignored');
+    queueNotificationResolution(notifId, 'ignored', ignored);
     void resolveInterceptedPayment(notifId).catch(error => console.warn('Could not dismiss ignored payment:', error));
     setPendingNotifications((prev) => {
       const remaining = prev.filter((n) => n.id !== notifId);
@@ -1874,6 +1999,7 @@ export default function App() {
 
   const handleInterceptedFromSimulator = (notif: ParsedNotification) => {
     recordExtractedHistory(notif);
+    queueNotificationUpsert(notif);
     setPendingNotifications((prev) => [notif, ...prev]);
     setIsNotificationModalOpen(true);
   };
@@ -1891,18 +2017,21 @@ export default function App() {
     };
     if (editingPaymentId) {
       const reviewed = pendingNotifications.find((notification) => notification.id === editingPaymentId);
-      if (reviewed && hasUnmatchedPaymentAccount(reviewed, accounts) && !resolvedAccountId) {
+      const result = applyNotificationEditOnce(editingPaymentId, tx, transactions, accounts);
+      if (result.added && reviewed && hasUnmatchedPaymentAccount(reviewed, accounts) && !resolvedAccountId) {
         showToast('Select an account before saving this payment.', 'error');
         return;
       }
-      tx.id = `tx_${editingPaymentId}`;
-      const nextAccounts = applyTransactionToAccounts(accounts, tx, 1);
-      const nextTransactions = [tx, ...transactions];
-      if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
-      if (reviewed) recordExtractedHistory({ ...reviewed, category: tx.category, subcategory: tx.subcategory, type: tx.type }, 'added', tx.id);
-      setAccounts(nextAccounts);
-      setTransactions(nextTransactions);
+      if (result.added && !persistPaymentTransaction(result.transactions, result.accounts)) return;
+      if (reviewed) recordExtractedHistory({ ...reviewed, category: result.transaction.category, subcategory: result.transaction.subcategory, type: result.transaction.type }, 'added', result.transaction.id);
+      if (result.added) {
+        setAccounts(result.accounts);
+        setTransactions(result.transactions);
+      } else {
+        showToast('This payment was already added. Its existing transaction was kept.', 'warning');
+      }
       setPendingNotifications(previous => previous.filter(n => n.id !== editingPaymentId));
+      queueNotificationResolution(editingPaymentId, 'added', reviewed);
       void resolveInterceptedPayment(editingPaymentId).catch(error => console.warn('Could not dismiss edited payment:', error));
       setEditingPaymentId(null);
       setEditingTransaction(null);
@@ -2911,7 +3040,9 @@ export default function App() {
         safeSetItem('tmf_loans', '[]');
         safeSetItem('tmf_savings_goals', '[]');
         safeSetItem('tmf_pending_notifications', '[]');
+        clearNotificationSyncQueue();
         safeSetItem('tmf_notification_history', '[]');
+        safeSetItem('tmf_ignored_account_suggestions', '[]');
 
         setTransactions([]);
         setAccounts([]);
@@ -2921,6 +3052,9 @@ export default function App() {
         setPendingNotifications([]);
         notificationHistoryRef.current = [];
         setNotificationHistory([]);
+        setIgnoredAccountSuggestions([]);
+        setAccountSuggestion(null);
+        setAccountActions([]);
         resetDuplicateMemory();
         setPaymentActions([]);
         setEditingPaymentId(null);
@@ -3222,6 +3356,8 @@ export default function App() {
           {activeTab === 'accounts' && (
             <AccountsView
               accounts={accounts}
+              suggestedAccount={accountSuggestion}
+              onSuggestionOpened={() => setAccountSuggestion(null)}
               transactions={transactions}
               currencySymbol={settings.currencySymbol}
               settings={settings}
@@ -3403,6 +3539,23 @@ export default function App() {
             onEditHistory={handleEditHistory}
             hasUnmatchedAccount={(notification) => hasUnmatchedPaymentAccount(notification, accounts)}
             onManageAccounts={() => { setIsNotificationModalOpen(false); setActiveTab('accounts'); }}
+            showAccountSuggestion={(notification) => Boolean(notification.accountLast4 && /^\d{4}$/.test(notification.accountLast4)
+              && !accounts.some(account => account.accountNumberLast4 === notification.accountLast4)
+              && !ignoredAccountSuggestions.includes(notification.accountLast4))}
+            onAddDetectedAccount={(notification) => {
+              if (!notification.accountLast4) return;
+              setAccountSuggestion({
+                id: notification.id, last4: notification.accountLast4, bankName: '',
+                type: /credit card/i.test(notification.rawText) ? 'Credit Card' : 'Bank',
+              });
+              setIsNotificationModalOpen(false);
+              setActiveTab('accounts');
+            }}
+            onIgnoreDetectedAccount={(notification) => {
+              if (!notification.accountLast4) return;
+              const next = Array.from(new Set([...ignoredAccountSuggestions, notification.accountLast4]));
+              if (safeSetItem('tmf_ignored_account_suggestions', JSON.stringify(next))) setIgnoredAccountSuggestions(next);
+            }}
             notifications={pendingNotifications}
             onConfirmAdd={handleConfirmAddNotification}
             onConfirmEdit={handleConfirmEditNotification}

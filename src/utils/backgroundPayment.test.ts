@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
-import { createPaymentTransaction, adjustPaymentAccountBalance, applyNotificationCategoryOverride, hasUnmatchedPaymentAccount } from './paymentTransaction';
+import { createPaymentTransaction, adjustPaymentAccountBalance, applyNotificationCategoryOverride, applyNotificationEditOnce, hasUnmatchedPaymentAccount } from './paymentTransaction';
 import { parseNotification } from '../services/notification/ParserManager';
 import { isEligiblePaymentNotification } from '../services/notification/transactionEligibility';
 import { toLocalISODate } from './dates';
@@ -205,6 +205,22 @@ test('receipts already loaded from cloud do not apply account deltas again', asy
   const projected = reconcileSavedPayments(receipts, [first], [{ ...bank, balance: 3500 }]);
   assert.equal(projected.accounts[0].balance, 3500);
   assert.equal(projected.transactions.length, 1);
+});
+
+test('saving an open notification editor does not reapply a payment added in the background', () => {
+  const tx: Transaction = {
+    id: 'temporary', title: 'Payment', amount: 1500, type: 'debit', category: 'Food',
+    subcategory: 'General', date: '2026-11-01', time: '14:35', source: 'UPI',
+    accountId: bank.id, paymentMethod: bank.id,
+  };
+  const first = applyNotificationEditOnce('native_payment-1', tx, [], [{ ...bank }]);
+  assert.equal(first.added, true);
+  assert.equal(first.accounts[0].balance, 3500);
+  const repeated = applyNotificationEditOnce('native_payment-1', { ...tx, amount: 2000 }, first.transactions, first.accounts);
+  assert.equal(repeated.added, false);
+  assert.equal(repeated.accounts[0].balance, 3500);
+  assert.equal(repeated.transactions.length, 1);
+  assert.equal(repeated.transaction.amount, 1500);
 });
 
 const syncSource = readFileSync(new URL('../services/supabaseClient.ts', import.meta.url), 'utf8');

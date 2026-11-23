@@ -945,6 +945,12 @@ export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
         return syncError('delete-all-data', res.error);
       }
     }
+    // Cross-device payment reviews live in their own migration; a project that
+    // has not applied supabase_pending_notifications.sql has nothing to wipe.
+    const reviews = await client.from('pending_notifications').delete().eq('user_id', user.id);
+    if (reviews.error && reviews.error.code !== 'PGRST205' && reviews.error.code !== '42P01') {
+      return syncError('delete-all-data', reviews.error);
+    }
     return { success: true };
   } catch (err) {
     return syncError('delete-all-data', err);

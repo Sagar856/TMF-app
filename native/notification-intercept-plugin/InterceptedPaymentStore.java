@@ -107,6 +107,7 @@ public final class InterceptedPaymentStore {
             androidx.work.WorkManager.getInstance(context).cancelUniqueWork("minarth-save-" + records.getJSONObject(i).getString("id"));
             ContextCompat.getSystemService(context, NotificationManager.class).cancel(records.getJSONObject(i).getString("id"), 1);
         }
+        AccountSuggestionStore.clear(context);
     }
 
     private static void save(Context context, JSONArray records) {
@@ -134,6 +135,14 @@ public final class InterceptedPaymentStore {
         records.put(record);
         save(context, records);
         show(context, record);
+        try {
+            AccountSuggestionStore.capture(context, record.getString("owner"),
+                new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("knownAccounts", "[]")),
+                new JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("ignoredAccounts", "[]")),
+                title + " " + text, context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("notifications", false));
+        } catch (JSONException | IllegalStateException | SecurityException error) {
+            Log.e("TMFInterceptor", "Could not capture account suggestion", error);
+        }
         if (location != null) resolveLocationName(context, id, location);
         return record;
     }
@@ -305,10 +314,11 @@ public final class InterceptedPaymentStore {
         ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
     }
 
-    public static synchronized void configure(Context context, boolean enabled, boolean notifications, boolean locationTracking, String owner, boolean emailNotifications) throws JSONException {
+    public static synchronized void configure(Context context, boolean enabled, boolean notifications, boolean locationTracking, String owner, boolean emailNotifications, JSONArray knownAccounts, JSONArray ignoredAccounts) throws JSONException {
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean("enabled", enabled).putBoolean("notifications", notifications).putBoolean("locationTracking", locationTracking)
-            .putString("owner", owner).putBoolean("emailNotifications", emailNotifications).commit()) {
+            .putString("owner", owner).putBoolean("emailNotifications", emailNotifications)
+            .putString("knownAccounts", knownAccounts.toString()).putString("ignoredAccounts", ignoredAccounts.toString()).commit()) {
             throw new IllegalStateException("Could not persist interceptor settings");
         }
 
@@ -322,6 +332,7 @@ public final class InterceptedPaymentStore {
             if (enabled && ownsRecord && "saving".equals(record.optString("action"))) PaymentSaveWorker.enqueue(context, record.getString("id"));
         }
         save(context, records);
+        AccountSuggestionStore.configure(context, owner, knownAccounts, ignoredAccounts, enabled && notifications);
     }
 
     public static boolean emailNotificationsEnabled(Context context) {

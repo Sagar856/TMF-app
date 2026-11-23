@@ -1,7 +1,7 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState } from 'react';
 import { ParsedNotification } from '../types/finance';
-import { Check, Edit3, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History } from 'lucide-react';
+import { Check, Edit3, Pencil, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History } from 'lucide-react';
 import { NOTIFICATION_HISTORY_LIMIT, type NotificationHistoryEntry } from '../utils/notificationHistory';
 
 interface NotificationPromptModalProps {
@@ -16,6 +16,9 @@ interface NotificationPromptModalProps {
   canEditHistory?: (entry: NotificationHistoryEntry) => boolean;
   hasUnmatchedAccount?: (notification: ParsedNotification) => boolean;
   onManageAccounts?: () => void;
+  onAddDetectedAccount?: (notification: ParsedNotification) => void;
+  onIgnoreDetectedAccount?: (notification: ParsedNotification) => void;
+  showAccountSuggestion?: (notification: ParsedNotification) => boolean;
 }
 
 export const NotificationHistoryList: React.FC<{
@@ -26,15 +29,23 @@ export const NotificationHistoryList: React.FC<{
   <div className="max-h-[65vh] overflow-y-auto space-y-2">
     {history.length === 0 ? <p className="text-xs text-content-3">No notification history yet.</p>
       : history.slice(0, NOTIFICATION_HISTORY_LIMIT).map((entry) => (
-        <article key={entry.id} className="rounded-xl border border-line p-3 text-xs">
-          <button type="button" className="w-full text-left disabled:cursor-default"
-            disabled={!onEditHistory || !canEditHistory?.(entry)}
-            onClick={() => onEditHistory?.(entry)}>
+        <article key={entry.id} className="flex items-start gap-3 rounded-xl border border-line p-3 text-xs">
+          <div className="min-w-0 flex-1">
             <p className="font-bold">{entry.title}</p>
             <p className="text-content-3 break-words">{entry.message}</p>
-            <p className="mt-1 text-[10px] text-content-3">{entry.kind === 'alert' ? 'Alert' : 'Extracted'} · {entry.status} · {new Date(entry.timestamp).toLocaleString()}</p>
-            {canEditHistory?.(entry) && <span className="mt-1 inline-block text-cyan-400 underline">Edit transaction</span>}
-          </button>
+            <p className="mt-1 text-[10px] text-content-3">
+              {entry.kind === 'alert' ? 'Alert' : 'Extracted'} ·{' '}
+              <span className={entry.status === 'added' ? 'text-green-600 dark:text-green-400' : entry.status === 'ignored' ? 'text-red-600 dark:text-red-400' : ''}>{entry.status}</span>
+              {' '}· {new Date(entry.timestamp).toLocaleString()}
+            </p>
+          </div>
+          {onEditHistory && canEditHistory?.(entry) && (
+            <button type="button" aria-label={`Edit transaction: ${entry.title}`} title="Edit transaction"
+              className="shrink-0 rounded-lg border border-line p-2 text-content-2 hover:text-content-1"
+              onClick={() => onEditHistory(entry)}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
         </article>
       ))}
   </div>
@@ -52,6 +63,9 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   canEditHistory,
   hasUnmatchedAccount,
   onManageAccounts,
+  onAddDetectedAccount,
+  onIgnoreDetectedAccount,
+  showAccountSuggestion,
 }) => {
   const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -168,6 +182,12 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
               Account ending {activeNotif.accountLast4} was not uniquely matched.
               {' '}<button type="button" className="underline" onClick={onManageAccounts}>Manage accounts</button>
               {' '}or use Edit to choose an account.
+              {onAddDetectedAccount && showAccountSuggestion?.(activeNotif) && (
+                <div className="mt-2 flex gap-3">
+                  <button type="button" className="underline" onClick={() => onAddDetectedAccount(activeNotif)}>Add / edit account details</button>
+                  <button type="button" className="underline" onClick={() => onIgnoreDetectedAccount?.(activeNotif)}>Ignore account suggestion</button>
+                </div>
+              )}
             </div>
           )}
 

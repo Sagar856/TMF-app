@@ -12,6 +12,15 @@ import android.util.Log;
 public class PaymentActionReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
+        String accountId = intent.getStringExtra("tmfAccountId");
+        if (accountId != null && ("tmf.account.ignore." + accountId).equals(intent.getAction())) {
+            try {
+                AccountSuggestionStore.action(context, accountId, intent.getStringExtra("tmfAccountOwner"), "ignored");
+            } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+                Log.e("TMFInterceptor", "Could not ignore account suggestion", error);
+            }
+            return;
+        }
         String id = intent.getStringExtra("tmfPaymentId");
         if (id == null) return;
         try {

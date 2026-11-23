@@ -67,6 +67,13 @@ Opening the body does not auto-cancel the alert. Session recovery preserves
 the owner-scoped queue; explicit sign-out/account deletion clear it. Bridge
 configuration waits for authentication and cloud settings hydration.
 
+For an unknown four-digit account suffix, a separate owner-scoped notification
+offers Add, Edit and Ignore. Add and Edit open a prefilled form after unlock;
+Ignore dismisses only the account suggestion, not the payment. Detection uses
+the last hydrated local account list and is not proof that the account is new.
+The form checks the current list again before saving. Suggestions and ignored
+suffixes are stored locally and are cleared with the native queue.
+
 Detected category type/category are displayed using
 `res/raw/payment_category_rules.json`, also consumed by the JavaScript
 classifier. **Edit category / transaction in app** opens the editor after
@@ -129,6 +136,7 @@ permission denial, and rejected promotional/OTP/request/failed messages.
   `NotificationListenerService` implementation.
 - `TransactionEligibility.java` — native source and completed-payment filter.
 - `InterceptedPaymentStore.java` — durable captures, settings and system alerts.
+- `AccountSuggestionStore.java` — independent owner-scoped account prompts.
 - `PaymentNotificationDetails.java` — display-only payment summary.
 - `PaymentActionReceiver.java` — durable, non-exported Ignore/inline-description receiver.
 - `res/layout/payment_notification.xml` — expanded purple notification card.

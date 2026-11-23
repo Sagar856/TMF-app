@@ -6,7 +6,7 @@ import { classifyMerchant } from '../services/notification/CategoryClassifier';
 const read = (file: string) => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
 
 test('native payment helpers and bridge methods are declared at class scope', () => {
-  for (const file of ['InterceptedPaymentStore.java', 'NotificationInterceptPlugin.java']) {
+  for (const file of ['InterceptedPaymentStore.java', 'NotificationInterceptPlugin.java', 'AccountSuggestionStore.java']) {
     const source = read(`native/notification-intercept-plugin/${file}`)
       .replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '');
     let depth = 0;
@@ -18,6 +18,18 @@ test('native payment helpers and bridge methods are declared at class scope', ()
     }
     assert.equal(depth, 0, `${file}: unbalanced braces`);
   }
+});
+
+test('account suggestions remain separate from payment actions and scoped to the current owner', () => {
+  const store = read('native/notification-intercept-plugin/AccountSuggestionStore.java');
+  const receiver = read('native/notification-intercept-plugin/PaymentActionReceiver.java');
+  assert.match(store, /owner\.equals\(record\.optString\("owner"\)\)/);
+  assert.match(store, /getString\("owner", ""\)/);
+  assert.match(store, /known\.optString\(i\)/);
+  assert.match(store, /ignored\.optString\(i\)/);
+  assert.match(store, /manager\.notify\("account:" \+ id, 3/);
+  assert.doesNotMatch(store, /completeSave|PaymentSaveWorker|resolvePayment/);
+  assert.match(receiver, /AccountSuggestionStore\.action\(context, accountId/);
 });
 
 test('Android category preview and JS classification share the same ordered rules', () => {

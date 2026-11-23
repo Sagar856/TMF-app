@@ -52,6 +52,18 @@ public class NotificationInterceptPlugin extends Plugin {
     }
 
     private void recordLaunchAction(Intent intent) {
+        String accountId = intent.getStringExtra("tmfAccountId");
+        String accountOwner = intent.getStringExtra("tmfAccountOwner");
+        if (accountId != null && accountOwner != null) {
+            try {
+                AccountSuggestionStore.action(getContext(), accountId, accountOwner, "open");
+                intent.removeExtra("tmfAccountId");
+                intent.removeExtra("tmfAccountOwner");
+            } catch (org.json.JSONException | IllegalStateException error) {
+                android.util.Log.e("TMFInterceptor", "Could not save account suggestion action", error);
+            }
+            return;
+        }
         String id = intent.getStringExtra("tmfPaymentId");
         String action = intent.getStringExtra("tmfPaymentAction");
         if (id == null || !("add".equals(action) || "edit".equals(action) || "open".equals(action))) return;
@@ -104,10 +116,36 @@ public class NotificationInterceptPlugin extends Plugin {
         try {
             InterceptedPaymentStore.configure(getContext(), Boolean.TRUE.equals(call.getBoolean("enabled")),
                 Boolean.TRUE.equals(call.getBoolean("notifications")), Boolean.TRUE.equals(call.getBoolean("locationTracking")),
-                call.getString("owner", ""), Boolean.TRUE.equals(call.getBoolean("emailNotifications")));
+                call.getString("owner", ""), Boolean.TRUE.equals(call.getBoolean("emailNotifications")),
+                call.getArray("knownAccounts", new JSArray()), call.getArray("ignoredAccounts", new JSArray()));
             call.resolve();
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             call.reject("Could not configure interceptor", error);
+        }
+    }
+
+    @PluginMethod
+    public void getAccountActions(PluginCall call) {
+        try {
+            String owner = getContext().getSharedPreferences("tmf_intercepted_payments", Context.MODE_PRIVATE).getString("owner", "");
+            JSObject result = new JSObject();
+            result.put("actions", new JSArray(AccountSuggestionStore.actions(getContext(), owner).toString()));
+            call.resolve(result);
+        } catch (org.json.JSONException error) {
+            call.reject("Could not read account suggestion actions", error);
+        }
+    }
+
+    @PluginMethod
+    public void acknowledgeAccountAction(PluginCall call) {
+        String id = call.getString("id");
+        String owner = getContext().getSharedPreferences("tmf_intercepted_payments", Context.MODE_PRIVATE).getString("owner", "");
+        if (id == null) { call.reject("Account suggestion id required"); return; }
+        try {
+            AccountSuggestionStore.acknowledge(getContext(), id, owner);
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException error) {
+            call.reject("Could not acknowledge account suggestion", error);
         }
     }
 
@@ -201,6 +239,13 @@ public class NotificationInterceptPlugin extends Plugin {
             data.put(key, record.opt(key));
         }
         activeInstance.notifyListeners("notificationReceived", data);
+    }
+
+    public static void dispatchAccountSuggestion(org.json.JSONObject record) {
+        if (activeInstance == null) return;
+        JSObject data = new JSObject();
+        for (String key : new String[] { "id", "owner", "last4", "type", "action" }) data.put(key, record.opt(key));
+        activeInstance.notifyListeners("accountSuggestionReceived", data);
     }
 
     private static boolean isNotificationAccessGranted(Context context) {

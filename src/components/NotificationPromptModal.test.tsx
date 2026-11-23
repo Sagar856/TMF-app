@@ -48,7 +48,29 @@ test('history displays at most 50 entries and only available transactions are ed
   assert.equal((markup.match(/<article/g) || []).length, 50);
   assert.match(markup, /Entry 0/);
   assert.doesNotMatch(markup, /Entry 50/);
-  assert.equal((markup.match(/Edit transaction/g) || []).length, 1);
-  assert.equal((markup.match(/disabled=""/g) || []).length, 49);
-  assert.match(markup, /added/);
+  assert.equal((markup.match(/aria-label="Edit transaction:/g) || []).length, 1);
+  assert.match(markup, /text-green-600 dark:text-green-400">added/);
+});
+
+test('history distinguishes ignored entries in red and shows an accessible pencil', () => {
+  const history = [{ id: 'ignored', title: 'Payment', message: '', kind: 'extracted' as const, timestamp: 1000, status: 'ignored' as const }];
+  const markup = renderToStaticMarkup(<NotificationHistoryList history={history} canEditHistory={() => true} onEditHistory={() => {}} />);
+  assert.match(markup, /text-red-600 dark:text-red-400">ignored/);
+  assert.match(markup, /aria-label="Edit transaction: Payment"/);
+  assert.match(markup, /lucide-pencil|lucide-edit-3/);
+});
+
+test('unmatched account displays its separate account review actions', () => {
+  const payment: ParsedNotification = {
+    id: 'native_payment', rawText: 'A/c XX1234 debited INR 50', amount: 50, payeeOrPayer: 'Merchant',
+    type: 'debit', date: '2026-11-05', time: '12:00', category: 'Food',
+    subcategory: 'General', appSource: 'Bank', status: 'pending', accountLast4: '1234',
+  };
+  const markup = renderToStaticMarkup(<NotificationPromptModal notifications={[payment]} currencySymbol="INR"
+    onConfirmAdd={() => {}} onConfirmEdit={() => {}} onIgnore={() => {}} onClose={() => {}}
+    hasUnmatchedAccount={() => true} showAccountSuggestion={() => true}
+    onManageAccounts={() => {}} onAddDetectedAccount={() => {}} onIgnoreDetectedAccount={() => {}} />);
+  assert.match(markup, /Account ending 1234/);
+  assert.match(markup, />Add \/ edit account details</);
+  assert.match(markup, />Ignore account suggestion</);
 });

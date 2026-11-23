@@ -48,6 +48,8 @@ function harness(upload: (payload: CloudSettings) => Promise<SyncResult> = async
     syncTransactionsToSupabase: async () => ({ success: true }),
     syncInvestmentsToSupabase: async () => ({ success: true }),
     syncLoansToSupabase: async () => ({ success: true }),
+    flushNotificationSync: async () => ({ success: true }),
+    handleNotificationFlushResult: () => {},
     setSyncStatus: () => {},
     console,
     setTimeout: (run: () => void, delay: number) => {

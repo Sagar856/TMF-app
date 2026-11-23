@@ -22,10 +22,28 @@ export interface InterceptedPayment {
   location?: Omit<LocationTag, 'name'> & { name?: string; capturedAt?: number };
 }
 
+export interface AccountSuggestionAction {
+  id: string;
+  owner: string;
+  last4: string;
+  type: 'Bank' | 'Credit Card';
+  action: 'open' | 'ignored';
+}
+
+export function isAccountSuggestionAction(value: unknown): value is AccountSuggestionAction {
+  if (!value || typeof value !== 'object') return false;
+  const action = value as Partial<AccountSuggestionAction>;
+  return typeof action.id === 'string' && action.id.length > 0
+    && typeof action.owner === 'string' && action.owner.length > 0
+    && typeof action.last4 === 'string' && /^\d{4}$/.test(action.last4)
+    && (action.type === 'Bank' || action.type === 'Credit Card')
+    && (action.action === 'open' || action.action === 'ignored');
+}
+
 interface NotificationInterceptPlugin {
   isPermissionGranted(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<void>;
-  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string; emailNotifications: boolean }): Promise<void>;
+  configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string; emailNotifications: boolean; knownAccounts: string[]; ignoredAccounts: string[] }): Promise<void>;
   reverseGeocode(options: { lat: number; lng: number }): Promise<{ name: string }>;
   getPending(): Promise<{ notifications: InterceptedPayment[] }>;
   resolvePayment(options: { id: string }): Promise<void>;
@@ -34,6 +52,9 @@ interface NotificationInterceptPlugin {
   clearPayments(): Promise<void>;
   captureLocation(options: { id: string; lat: number; lng: number; name: string; capturedAt: number }): Promise<void>;
   addListener(event: 'notificationReceived', callback: (data: InterceptedPayment) => void): Promise<PluginListenerHandle>;
+  addListener(event: 'accountSuggestionReceived', callback: (data: AccountSuggestionAction) => void): Promise<PluginListenerHandle>;
+  getAccountActions(): Promise<{ actions: AccountSuggestionAction[] }>;
+  acknowledgeAccountAction(options: { id: string }): Promise<void>;
 }
 
 const NotificationIntercept = registerPlugin<NotificationInterceptPlugin>('NotificationIntercept');
@@ -60,10 +81,35 @@ export async function requestNotificationAccess(): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.requestPermission();
 }
 
-export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false, owner = '', emailNotifications = false): Promise<void> {
-  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking, owner, emailNotifications });
+export async function configureNotificationInterceptor(enabled: boolean, notifications: boolean, locationTracking = false, owner = '', emailNotifications = false, knownAccounts: string[] = [], ignoredAccounts: string[] = []): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.configure({ enabled, notifications, locationTracking, owner, emailNotifications, knownAccounts, ignoredAccounts });
 }
 
+export async function acknowledgeAccountSuggestion(id: string): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.acknowledgeAccountAction({ id });
+}
+
+export function startAccountSuggestionListener(onAction: (action: AccountSuggestionAction) => void): () => void {
+  if (!isNativeAndroid()) return () => {};
+  let removed = false;
+  let handle: PluginListenerHandle | undefined;
+  const replay = () => {
+    if (document.visibilityState === 'hidden') return;
+    void NotificationIntercept.getAccountActions().then(result => {
+      if (!removed) result.actions.forEach(onAction);
+    }).catch(error => console.warn('Could not restore account suggestion actions:', error));
+  };
+  void NotificationIntercept.addListener('accountSuggestionReceived', onAction).then(listener => {
+    if (removed) void listener.remove();
+    else { handle = listener; replay(); }
+  }).catch(error => console.warn('Could not listen for account suggestions:', error));
+  document.addEventListener('visibilitychange', replay);
+  return () => {
+    removed = true;
+    document.removeEventListener('visibilitychange', replay);
+    if (handle) void handle.remove().catch(error => console.warn('Could not remove account suggestion listener:', error));
+  };
+}
 export async function acknowledgeSavedPayment(id: string): Promise<void> {
   if (isNativeAndroid()) await NotificationIntercept.acknowledgeSaved({ id });
 }

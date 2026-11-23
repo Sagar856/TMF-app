@@ -56,6 +56,8 @@ interface AccountsViewProps {
   onAddAccount: (acc: FinancialAccount) => void;
   onUpdateAccount: (acc: FinancialAccount) => void;
   onDeleteAccount: (id: string) => void;
+  suggestedAccount?: { id: string; last4: string; bankName: string; type: AccountType } | null;
+  onSuggestionOpened?: () => void;
 }
 
 export const AccountsView: React.FC<AccountsViewProps> = ({
@@ -66,6 +68,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   onAddAccount,
   onUpdateAccount,
   onDeleteAccount,
+  suggestedAccount,
+  onSuggestionOpened,
 }) => {
   const [selectedType, setSelectedType] = useActivityState<string>('accounts.type', 'All');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -145,6 +149,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [showModal, setShowModal] = useState<boolean>(false);
   useBackActivity(showModal, () => setShowModal(false));
   const [editingAcc, setEditingAcc] = useState<FinancialAccount | null>(null);
+  const [isSuggestedAccount, setIsSuggestedAccount] = useState(false);
 
   // Form Fields
   const [accName, setAccName] = useState<string>('');
@@ -214,6 +219,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleOpenAdd = () => {
     setEditingAcc(null);
+    setIsSuggestedAccount(false);
     setFormError('');
     setAccName('');
     setBankName('');
@@ -230,9 +236,31 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setShowModal(true);
   };
 
+  React.useEffect(() => {
+    if (!suggestedAccount) return;
+    setEditingAcc(null);
+    setIsSuggestedAccount(true);
+    setFormError('');
+    setAccName('');
+    setBankName(suggestedAccount.bankName);
+    setAccType(suggestedAccount.type);
+    setLast4(suggestedAccount.last4);
+    setBalance('');
+    setCreditLimit('');
+    setApproxMonthlyBill('');
+    setDueDate('');
+    setCardHolderName('');
+    setCardNetwork('Visa');
+    setCardTheme('silver');
+    setIsDefault(false);
+    setShowModal(true);
+    onSuggestionOpened?.();
+  }, [suggestedAccount]);
+
   const handleOpenEdit = (acc: FinancialAccount, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingAcc(acc);
+    setIsSuggestedAccount(false);
     setFormError('');
     setAccName(acc.name);
     setBankName(acc.bankName);
@@ -256,6 +284,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     const cleanedLast4 = last4.trim();
     if (!(accType === 'Cash' && cleanedLast4 === '') && !/^\d{4}$/.test(cleanedLast4)) {
       setFormError('Account / Card last 4 must be exactly 4 digits');
+      return;
+    }
+    if (isSuggestedAccount && accounts.some(account => account.accountNumberLast4 === cleanedLast4)) {
+      setFormError('An account with these last 4 digits already exists. Review it in Manage Accounts.');
       return;
     }
 
@@ -1036,6 +1068,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   />
                 </div>
               </div>
+
+              {isSuggestedAccount && (
+                <p className="text-[11px] text-amber-400">
+                  Adding a pending payment will change this balance. If your balance already includes it,
+                  enter the balance before that payment or adjust the account after recording it.
+                </p>
+              )}
 
               {accType === 'Credit Card' && (
                 <>

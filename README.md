@@ -210,6 +210,15 @@ is automatically kept private from every other user via RLS.
    app. Offline/expired-session/missing-migration failures remain visible and
    retryable, not silently marked saved. WorkManager can run after process
    termination, but not while Android force-stops or otherwise restricts the app.
+   Finally run [`supabase_pending_notifications.sql`](supabase_pending_notifications.sql)
+   to enable **cross-device sync of SMS/notification-parser payment reviews**:
+   pending reviews extracted on one device become reviewable on every signed-in
+   device, and each device's queued changes are applied through one atomic RPC.
+   Resolving a review (**Add**/**Ignore**) tombstones it in the cloud with
+   first-resolution-wins conflict handling, so a stale device can never re-add
+   the same payment and double-apply account balances. Without this migration
+   the app keeps working device-locally and shows the amber schema banner; the
+   queued review operations are retained and sync once the script is applied.
 
 3. In Supabase Auth settings, enable **Email**, **Allow new users to sign up**
    and **Confirm email**. Update **both Confirm signup and Magic Link** email
@@ -688,9 +697,15 @@ open their existing transaction. Older history entries without retained details,
 deleted transactions and alerts are not editable. History is cleared on
 sign-out, account cleanup or a financial-data reset.
 
-An unrecognized or ambiguous account suffix is flagged for review. Add the
-account through Accounts or select an existing account in the editor; background
-Add will not debit the default account for that payment.
+An unrecognized or ambiguous account suffix is flagged for review. On Android,
+an unrecognized suffix also produces a separate account suggestion with Add,
+Edit and Ignore actions. Add and Edit open a prefilled account form after
+unlock; neither creates an account or saves the payment without review. The
+device compares the suffix against its last hydrated account list, so review
+the account before saving, particularly if another device changed it. Ignoring
+the suggestion does not ignore the payment. Add the account through Accounts or
+select an existing account in the editor; background Add will not debit the
+default account for that payment.
 
 Enable both **SMS / UPI Auto-Interceptor** and **Push Notifications**, grant
 Android Notification Access and notification display permission, and install
