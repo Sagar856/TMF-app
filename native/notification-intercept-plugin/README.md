@@ -29,12 +29,16 @@ Recognized bank statement or payment-due previews raise a separate statement
 alert instead of creating a payment. Statement-file import is not provided.
 
 Accepted alerts are committed to private SharedPreferences independently of
-the Activity/WebView. `InterceptedPaymentStore` posts Android notifications
-with a lavender structured expanded card and Add, Category / Description and
-Ignore actions. The inline reply accepts `category name | description`, or a
-description alone, and persists at most 200 characters without adding the
-payment or changing the raw bank notification. An entered category must match
-the user's category for the payment direction; invalid names make Add retryable.
+the Activity/WebView. `InterceptedPaymentStore` posts Android notifications with a lavender
+structured expanded card and separate Add, Category, Description and Ignore
+controls. Category and Description use separate inline replies; Android shows
+the Ignore button in the expanded card because its system action row supports
+at most three actions. Replies persist without adding the payment or changing
+the raw bank notification. Category input is limited to 100 characters and
+description to 200. An entered category must match the user's category for the
+payment direction; invalid names make Add retryable. The entered description
+becomes the transaction title, and category is saved in the transaction
+category column.
 Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
 without launching an Activity or bypassing the app's PIN/biometric screen.
 A separate application-context WebView loads only the bundled background entry
@@ -55,7 +59,7 @@ and Add can restart a failed attempt. Android scheduling, connectivity and OEM
 restrictions can delay completion; force-stop prevents workers until Android
 allows the app to run again.
 
-Description and Ignore remain broadcasts and never launch the app.
+Category, Description and Ignore remain broadcasts and never launch the app.
 Edit (inside the card) opens
 the prefilled editor after unlock and retains the capture until Save; Ignore
 is persisted by a non-exported receiver without opening the app. The bridge
@@ -120,9 +124,10 @@ Rebuild/install the APK after changes: `npm run cap:sync`, then
 The patch declares both WorkManager and AndroidX concurrent-futures, whose
 `CallbackToFutureAdapter` completes the asynchronous background save worker.
 Device verification: send real bank/UPI alerts with the app open, backgrounded, screen off and after
-swiping its Activity away; confirm a single pending capture and three system
-actions. Test inline Description while the app is closed, Description then Add,
-Ignore without opening, Edit then cancel/save, Add with the Activity absent,
+swiping its Activity away; confirm a single pending capture, three system
+actions and Ignore in the expanded card. Test inline Category and Description
+while the app is closed, then Add; test Ignore without opening, Edit then
+cancel/save, Add with the Activity absent,
 duplicate Add taps, offline failures/reconnection, expired sign-in, account
 switches and app-resume reconciliation without duplicate balance changes,
 permission denial, and rejected promotional/OTP/request/failed messages.
@@ -138,7 +143,8 @@ permission denial, and rejected promotional/OTP/request/failed messages.
 - `InterceptedPaymentStore.java` — durable captures, settings and system alerts.
 - `AccountSuggestionStore.java` — independent owner-scoped account prompts.
 - `PaymentNotificationDetails.java` — display-only payment summary.
-- `PaymentActionReceiver.java` — durable, non-exported Ignore/inline-description receiver.
+- `PaymentActionReceiver.java` — durable, non-exported Add, Category,
+Description and Ignore receiver.
 - `res/layout/payment_notification.xml` — expanded purple notification card.
 - `AndroidManifestSnippet.xml` — the exact `<uses-permission>` and `<service>`
   entries that `scripts/patch-android.mjs` inserts into the generated

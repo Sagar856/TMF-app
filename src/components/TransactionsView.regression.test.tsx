@@ -62,6 +62,7 @@ test('transaction summary renders totals and counts consistently with transactio
   assert.match(markup, /1 Debits/);
   assert.match(markup, /Paycheck/);
   assert.match(markup, /Groceries/);
+  assert.match(markup, /id="transaction-row-expense"/);
   assert.match(markup, /EDIT/);
   assert.match(markup, /Attach or view receipt for Groceries/);
   assert.match(markup, /aria-label="Transaction records table"/);

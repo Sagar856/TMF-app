@@ -31,6 +31,12 @@ public class PaymentActionReceiver extends BroadcastReceiver {
                 PaymentSaveWorker.enqueue(context, id, retryNow);
                 return;
             }
+            if (("tmf.category." + id).equals(intent.getAction())) {
+                Bundle reply = RemoteInput.getResultsFromIntent(intent);
+                CharSequence category = reply == null ? null : reply.getCharSequence("tmfCategory");
+                if (category != null) InterceptedPaymentStore.category(context, id, category.toString());
+                return;
+            }
             if (("tmf.description." + id).equals(intent.getAction())) {
                 Bundle reply = RemoteInput.getResultsFromIntent(intent);
                 CharSequence description = reply == null ? null : reply.getCharSequence("tmfDescription");

@@ -14,6 +14,8 @@ interface NotificationPromptModalProps {
   history?: NotificationHistoryEntry[];
   onEditHistory?: (entry: NotificationHistoryEntry) => void;
   canEditHistory?: (entry: NotificationHistoryEntry) => boolean;
+  onOpenHistoryTransaction?: (entry: NotificationHistoryEntry) => void;
+  canOpenHistoryTransaction?: (entry: NotificationHistoryEntry) => boolean;
   hasUnmatchedAccount?: (notification: ParsedNotification) => boolean;
   onManageAccounts?: () => void;
   onAddDetectedAccount?: (notification: ParsedNotification) => void;
@@ -25,11 +27,30 @@ export const NotificationHistoryList: React.FC<{
   history: NotificationHistoryEntry[];
   onEditHistory?: (entry: NotificationHistoryEntry) => void;
   canEditHistory?: (entry: NotificationHistoryEntry) => boolean;
-}> = ({ history, onEditHistory, canEditHistory }) => (
+  onOpenHistoryTransaction?: (entry: NotificationHistoryEntry) => void;
+  canOpenHistoryTransaction?: (entry: NotificationHistoryEntry) => boolean;
+}> = ({ history, onEditHistory, canEditHistory, onOpenHistoryTransaction, canOpenHistoryTransaction }) => (
   <div className="max-h-[65vh] overflow-y-auto space-y-2">
     {history.length === 0 ? <p className="text-xs text-content-3">No notification history yet.</p>
-      : history.slice(0, NOTIFICATION_HISTORY_LIMIT).map((entry) => (
-        <article key={entry.id} className="flex items-start gap-3 rounded-xl border border-line p-3 text-xs">
+      : history.slice(0, NOTIFICATION_HISTORY_LIMIT).map((entry) => {
+        const canOpenTransaction = entry.status === 'added'
+          && Boolean(onOpenHistoryTransaction && canOpenHistoryTransaction?.(entry));
+        const openTransaction = () => onOpenHistoryTransaction?.(entry);
+        return (
+        <article key={entry.id}
+          role={canOpenTransaction ? 'button' : undefined}
+          tabIndex={canOpenTransaction ? 0 : undefined}
+          aria-label={canOpenTransaction ? `Open transaction: ${entry.title}` : undefined}
+          onClick={canOpenTransaction ? openTransaction : undefined}
+          onKeyDown={canOpenTransaction ? (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              openTransaction();
+            }
+          } : undefined}
+          className={`flex items-start gap-3 rounded-xl border border-line p-3 text-xs ${
+            canOpenTransaction ? 'cursor-pointer hover:bg-surface-2 focus-visible:outline focus-visible:ring-2 focus-visible:ring-violet-500' : ''
+          }`}>
           <div className="min-w-0 flex-1">
             <p className="font-bold">{entry.title}</p>
             <p className="text-content-3 break-words">{entry.message}</p>
@@ -39,7 +60,7 @@ export const NotificationHistoryList: React.FC<{
               {' '}· {new Date(entry.timestamp).toLocaleString()}
             </p>
           </div>
-          {onEditHistory && canEditHistory?.(entry) && (
+          {entry.status !== 'added' && onEditHistory && canEditHistory?.(entry) && (
             <button type="button" aria-label={`Edit transaction: ${entry.title}`} title="Edit transaction"
               className="shrink-0 rounded-lg border border-line p-2 text-content-2 hover:text-content-1"
               onClick={() => onEditHistory(entry)}>
@@ -47,7 +68,8 @@ export const NotificationHistoryList: React.FC<{
             </button>
           )}
         </article>
-      ))}
+      );
+      })}
   </div>
 );
 
@@ -61,6 +83,8 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   history = [],
   onEditHistory,
   canEditHistory,
+  onOpenHistoryTransaction,
+  canOpenHistoryTransaction,
   hasUnmatchedAccount,
   onManageAccounts,
   onAddDetectedAccount,
@@ -88,7 +112,8 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           <h3 className="min-w-0 text-sm font-bold">History · Last {NOTIFICATION_HISTORY_LIMIT} notifications</h3>
           <div className="flex shrink-0 items-center gap-2">{historyButton}<button type="button" aria-label="Close notification history" onClick={onClose}><X className="h-4 w-4" /></button></div>
         </header>
-        <NotificationHistoryList history={history} canEditHistory={canEditHistory} onEditHistory={onEditHistory} />
+        <NotificationHistoryList history={history} canEditHistory={canEditHistory} onEditHistory={onEditHistory}
+          canOpenHistoryTransaction={canOpenHistoryTransaction} onOpenHistoryTransaction={onOpenHistoryTransaction} />
       </section>
     </div>
   );

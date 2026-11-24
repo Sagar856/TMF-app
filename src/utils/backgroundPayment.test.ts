@@ -85,6 +85,7 @@ test('background Add validates the inline category and refuses an unknown accoun
 
 test('cold background Add saves the actual transaction and balance with description/location, and retries do not add twice', async () => {
   const h = harness();
+  h.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'groceries' });
   await h.run();
   await h.run();
   assert.equal(h.transactions.length, 1);
@@ -93,6 +94,7 @@ test('cold background Add saves the actual transaction and balance with descript
   const saved = h.completed[0].transaction!;
   assert.equal(saved.id, 'tx_native_payment-1');
   assert.equal(saved.title, 'Weekly groceries');
+  assert.equal(saved.category, 'Groceries');
   assert.equal(saved.payeeOrPayer, 'Big Bazaar');
   assert.equal(saved.accountId, bank.id);
   assert.equal(saved.refNumber, '12345678');

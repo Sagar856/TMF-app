@@ -203,6 +203,7 @@ export default function App() {
   const reduceMotion = useReducedMotion();
   // Navigation Tab
   const [activeTab, setActiveTab] = useActivityState<string>('app.tab', () => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
+  const [transactionFocusId, setTransactionFocusId] = useState<string | null>(null);
   const [openAssetRequest, setOpenAssetRequest] = useState(0);
   const [openLoanRequest, setOpenLoanRequest] = useState(0);
   const [openProfileRequest, setOpenProfileRequest] = useState(0);
@@ -1620,9 +1621,10 @@ export default function App() {
         setPendingNotifications(next);
         recordExtractedHistory(parsed);
         queueNotificationUpsert(parsed);
-      } else if (existing && (payment.description !== undefined || locationTag)) {
+      } else if (existing && (payment.description !== undefined || payment.categoryOverride !== undefined || locationTag)) {
         const next = latest.pendingNotifications.map(n => n.id === id ? {
-          ...n, description: payment.description ?? n.description, categoryOverride: payment.categoryOverride, location: locationTag ?? n.location,
+          ...n, description: payment.description ?? n.description,
+          categoryOverride: payment.categoryOverride ?? n.categoryOverride, location: locationTag ?? n.location,
         } : n);
         if (!safeSetItem('tmf_pending_notifications', JSON.stringify(next))) return;
         interceptorState.current.pendingNotifications = next;
@@ -1962,17 +1964,19 @@ export default function App() {
     transactions.find(tx => tx.id === (entry.transactionId || `tx_${entry.id}`));
 
   const canEditHistory = (entry: NotificationHistoryEntry) => entry.kind === 'extracted'
-    && (entry.status === 'added' ? Boolean(historyTransaction(entry))
-      : Boolean(pendingNotifications.find(item => item.id === entry.id) || entry.notification));
+    && entry.status !== 'added'
+    && Boolean(pendingNotifications.find(item => item.id === entry.id) || entry.notification);
+
+  const handleOpenHistoryTransaction = (entry: NotificationHistoryEntry) => {
+    const transaction = historyTransaction(entry);
+    if (!transaction) return;
+    setTransactionFocusId(transaction.id);
+    setIsNotificationModalOpen(false);
+    setActiveTab('transactions');
+  };
 
   const handleEditHistory = (entry: NotificationHistoryEntry) => {
-    if (entry.status === 'added') {
-      const transaction = historyTransaction(entry);
-      if (!transaction) return;
-      setIsNotificationModalOpen(false);
-      handleEditTransaction(transaction);
-      return;
-    }
+    if (entry.status === 'added') return;
     const notification = pendingNotifications.find(item => item.id === entry.id) || entry.notification;
     if (!notification) return;
     if (!pendingNotifications.some(item => item.id === entry.id)) {
@@ -3346,6 +3350,8 @@ export default function App() {
               transactions={transactions}
               categories={categories}
               accounts={accounts}
+              focusTransactionId={transactionFocusId}
+              onTransactionFocusComplete={(id) => setTransactionFocusId(current => current === id ? null : current)}
               onAddTransaction={() => handleOpenAddModal('Expense')}
               onEditTransaction={handleEditTransaction}
               onDeleteTransaction={handleDeleteTransaction}
@@ -3540,6 +3546,8 @@ export default function App() {
             history={notificationHistory.map(entry => historyTransaction(entry) ? { ...entry, status: 'added' as const } : entry)}
             canEditHistory={canEditHistory}
             onEditHistory={handleEditHistory}
+            canOpenHistoryTransaction={(entry) => Boolean(historyTransaction(entry))}
+            onOpenHistoryTransaction={handleOpenHistoryTransaction}
             hasUnmatchedAccount={(notification) => hasUnmatchedPaymentAccount(notification, accounts)}
             onManageAccounts={() => { setIsNotificationModalOpen(false); setActiveTab('accounts'); }}
             showAccountSuggestion={(notification) => Boolean(notification.accountLast4 && /^\d{4}$/.test(notification.accountLast4)

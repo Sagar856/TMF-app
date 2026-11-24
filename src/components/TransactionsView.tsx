@@ -25,6 +25,8 @@ interface TransactionsViewProps {
   currencySymbol: string;
   settings: UserSettings;
   onUpdateSettings: (newSettings: UserSettings) => void;
+  focusTransactionId?: string | null;
+  onTransactionFocusComplete?: (id: string) => void;
 }
 
 const SOURCE_OPTIONS: PaymentSource[] = ['UPI', 'SMS', 'Manual', 'Bank Sync'];
@@ -40,6 +42,8 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
   currencySymbol,
   settings,
   onUpdateSettings,
+  focusTransactionId,
+  onTransactionFocusComplete,
 }) => {
   const formatAmount = useMoneyFormatter();
   // Search & Filter state
@@ -212,6 +216,33 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
       }),
     [transactions, accounts, searchQuery, fromDate, toDate, categoryFilter, accountFilter, sourceFilter, typeFilter, tagFilter]
   );
+
+  useEffect(() => {
+    if (!focusTransactionId) return;
+    setSearchQuery('');
+    setFromDate('');
+    setToDate('');
+    setCategoryFilter('All Categories');
+    setAccountFilter('All');
+    setSourceFilter('All');
+    setTypeFilter('All');
+    setTagFilter('All');
+    setViewMode('table');
+  }, [focusTransactionId]);
+
+  useEffect(() => {
+    if (!focusTransactionId || viewMode !== 'table' || searchQuery.trim() || fromDate || toDate
+      || categoryFilter !== 'All Categories' && categoryFilter !== 'All'
+      || accountFilter !== 'All' || sourceFilter !== 'All' || typeFilter !== 'All' || tagFilter !== 'All'
+      || !filteredTransactions.some(transaction => transaction.id === focusTransactionId)) return;
+    const row = document.getElementById(`transaction-row-${encodeURIComponent(focusTransactionId)}`);
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    onTransactionFocusComplete?.(focusTransactionId);
+  }, [
+    focusTransactionId, viewMode, searchQuery, fromDate, toDate, categoryFilter,
+    accountFilter, sourceFilter, typeFilter, tagFilter, filteredTransactions, onTransactionFocusComplete,
+  ]);
 
   // KPI Calculations
   const { creditCount, debitCount, totalCredit, totalDebit } = useMemo(
@@ -818,6 +849,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
               filteredTransactions.map((tx) => (
                 <div
                   key={tx.id}
+                  id={`transaction-row-${encodeURIComponent(tx.id)}`}
                   onClick={() => onEditTransaction(tx)}
                   className="finance-table-row grid grid-cols-12 px-4 py-3 border-b border-[#1a1a1a] items-center text-xs text-white hover:bg-surface-3 transition-all hover:translate-x-0.5 cursor-pointer"
                 >
@@ -905,6 +937,7 @@ export const TransactionsView: React.FC<TransactionsViewProps> = ({
             filteredTransactions.map((tx) => (
               <div
                 key={tx.id}
+                id={`transaction-row-${encodeURIComponent(tx.id)}`}
                 className="p-4 bg-[#111111] border border-[#222] hover:border-[#333] rounded-2xl hover:bg-surface-3 transition-all tactile-lift flex items-center justify-between flex-wrap gap-4 group cursor-pointer"
               >
                 {/* Left: DR/CR badge & Title */}

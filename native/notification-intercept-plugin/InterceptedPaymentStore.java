@@ -17,6 +17,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.Log;
+import android.view.View;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.RemoteInput;
 import androidx.core.content.ContextCompat;
@@ -255,22 +256,33 @@ public final class InterceptedPaymentStore {
         }
     }
 
+    public static synchronized void category(Context context, String id, String category) throws JSONException {
+        JSONArray records = read(context);
+        for (int i = 0; i < records.length(); i++) {
+            JSONObject record = records.getJSONObject(i);
+            if (!id.equals(record.getString("id"))) continue;
+            if ("ignore".equals(record.optString("action"))
+                || ("saving".equals(record.optString("action")) && !record.has("saveError"))) return;
+            String input = category.trim();
+            if (input.isEmpty()) return;
+            record.put("categoryOverride", input.substring(0, Math.min(input.length(), 100)));
+            save(context, records);
+            show(context, record);
+            NotificationInterceptPlugin.dispatchNotification(record);
+            return;
+        }
+    }
+
     public static synchronized void description(Context context, String id, String description) throws JSONException {
         JSONArray records = read(context);
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.getJSONObject(i);
             if (!id.equals(record.getString("id"))) continue;
-            if ("ignore".equals(record.getString("action")) || "saving".equals(record.getString("action"))) return;
-            String input = description.substring(0, Math.min(description.length(), 200)).trim();
-            int separator = input.indexOf('|');
-            if (separator >= 0) {
-                String category = input.substring(0, separator).trim();
-                if (category.isEmpty()) record.remove("categoryOverride");
-                else record.put("categoryOverride", category);
-                record.put("description", input.substring(separator + 1).trim());
-            } else {
-                record.put("description", input);
-            }
+            if ("ignore".equals(record.optString("action"))
+                || ("saving".equals(record.optString("action")) && !record.has("saveError"))) return;
+            String input = description.trim();
+            input = input.substring(0, Math.min(input.length(), 200));
+            record.put("description", input);
             save(context, records);
             show(context, record);
             NotificationInterceptPlugin.dispatchNotification(record);
@@ -384,6 +396,7 @@ public final class InterceptedPaymentStore {
         String id = record.getString("id");
         boolean saving = "saving".equals(record.optString("action"));
         boolean failed = record.has("saveError");
+        boolean actionable = !saving || failed;
         Intent add = new Intent(context, PaymentActionReceiver.class).setAction("tmf.add." + id).putExtra("tmfPaymentId", id);
         PendingIntent addIntent = PendingIntent.getBroadcast(context, 0, add, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent ignore = new Intent(context, PaymentActionReceiver.class).setAction("tmf.ignore." + id).putExtra("tmfPaymentId", id);
@@ -399,14 +412,25 @@ public final class InterceptedPaymentStore {
             : override + " (review)";
         card.setTextViewText(R.id.payment_details, summary.details + "\nDetected  " + category);
         card.setTextViewText(R.id.payment_description, failed ? "Not saved: " + record.getString("saveError")
-            : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Category / Description below. Enter category | description." : description);
-        if (!saving || failed) card.setOnClickPendingIntent(R.id.payment_edit, open(context, id, "edit"));
-        Intent reply = new Intent(context, PaymentActionReceiver.class)
-            .setAction("tmf.description." + id).putExtra("tmfPaymentId", id);
-        PendingIntent replyIntent = PendingIntent.getBroadcast(context, 0, reply,
+            : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Category and Description below." : description);
+        card.setViewVisibility(R.id.payment_ignore, actionable ? View.VISIBLE : View.GONE);
+        if (actionable) {
+            card.setOnClickPendingIntent(R.id.payment_edit, open(context, id, "edit"));
+            card.setOnClickPendingIntent(R.id.payment_ignore, ignoreIntent);
+        }
+        Intent categoryReply = new Intent(context, PaymentActionReceiver.class)
+            .setAction("tmf.category." + id).putExtra("tmfPaymentId", id);
+        PendingIntent categoryReplyIntent = PendingIntent.getBroadcast(context, 0, categoryReply,
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
-        NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(0, "Category / Description", replyIntent)
-            .addRemoteInput(new RemoteInput.Builder("tmfDescription").setLabel("Category | description (or description only)").build())
+        NotificationCompat.Action categoryAction = new NotificationCompat.Action.Builder(0, "Category", categoryReplyIntent)
+            .addRemoteInput(new RemoteInput.Builder("tmfCategory").setLabel("Category name").build())
+            .setAllowGeneratedReplies(false).setShowsUserInterface(false).build();
+        Intent descriptionReply = new Intent(context, PaymentActionReceiver.class)
+            .setAction("tmf.description." + id).putExtra("tmfPaymentId", id);
+        PendingIntent descriptionReplyIntent = PendingIntent.getBroadcast(context, 0, descriptionReply,
+            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE);
+        NotificationCompat.Action descriptionAction = new NotificationCompat.Action.Builder(0, "Description", descriptionReplyIntent)
+            .addRemoteInput(new RemoteInput.Builder("tmfDescription").setLabel("Transaction description").build())
             .setAllowGeneratedReplies(false).setShowsUserInterface(false).build();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle(failed ? "Payment save needs attention" : saving ? "Saving payment" : "New transaction detected")
@@ -415,12 +439,10 @@ public final class InterceptedPaymentStore {
             .setStyle(new NotificationCompat.DecoratedCustomViewStyle()).setCustomBigContentView(card)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true).setAutoCancel(false)
             .setContentIntent(open(context, id, "open"));
-        if (!saving || failed) {
-            builder.addAction(new NotificationCompat.Action.Builder(0, "Add", addIntent).setShowsUserInterface(false).build());
-        }
-        if (!saving) {
-            builder.addAction(replyAction)
-                .addAction(new NotificationCompat.Action.Builder(0, "Ignore", ignoreIntent).setShowsUserInterface(false).build());
+        if (actionable) {
+            builder.addAction(new NotificationCompat.Action.Builder(0, "Add", addIntent).setShowsUserInterface(false).build())
+                .addAction(categoryAction)
+                .addAction(descriptionAction);
         }
         manager.notify(id, 1, builder.build());
     }

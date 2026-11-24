@@ -666,12 +666,15 @@ so ordinary backgrounding, screen-off and Activity closure do not discard them.
 Native payment notifications show a structured lavender expanded card with
 amount, direction, account, date/time, payment mode, merchant, bank and detected
 category type/category. Android and the app share the ordered category rules.
-The three system actions are **Add**, **Category / Description**, and **Ignore**.
-The inline reply accepts `category name | description`, or a description alone,
-and saves up to 200 characters without adding the transaction. Category names
-must match a category of the payment's debit/credit type; an invalid category
-keeps background Add retryable and asks for review. The description becomes its title when added;
-the original merchant, amount and SMS remain intact. **Edit category / transaction
+The actions are **Add**, **Category**, **Description**, and **Ignore**. Android
+shows Add, Category and Description as system actions; Ignore is in the
+expanded card because Android supports at most three system actions. Category
+and Description have separate inline replies and save without adding the
+transaction. Category names must match a category of the payment's
+debit/credit type; an invalid category keeps background Add retryable and asks
+for review. The description becomes the transaction title when added, and the
+category is saved to the category column. The original merchant, amount and SMS
+remain intact. **Edit category / transaction
 in app** opens the prefilled editor to change the category before saving;
 it is not an inline Android category dropdown. Android/OEM notification layouts and
 collapsed presentation may differ from the reference image.

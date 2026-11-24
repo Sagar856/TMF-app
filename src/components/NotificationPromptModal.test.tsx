@@ -38,10 +38,10 @@ test('notification history is accessible from the empty notifications screen', (
   assert.match(markup, /No Pending Notifications/);
 });
 
-test('history displays at most 50 entries and only available transactions are editable', () => {
+test('history displays at most 50 entries and pending transactions can be edited', () => {
   const history = Array.from({ length: 51 }, (_, index) => ({
     id: `entry-${index}`, title: `Entry ${index}`, message: 'Payment',
-    kind: 'extracted' as const, timestamp: 1000, status: 'added' as const,
+    kind: 'extracted' as const, timestamp: 1000, status: (index === 0 ? 'pending' : 'added') as 'pending' | 'added',
   }));
   const markup = renderToStaticMarkup(<NotificationHistoryList history={history}
     canEditHistory={entry => entry.id === 'entry-0'} onEditHistory={() => {}} />);
@@ -50,6 +50,15 @@ test('history displays at most 50 entries and only available transactions are ed
   assert.doesNotMatch(markup, /Entry 50/);
   assert.equal((markup.match(/aria-label="Edit transaction:/g) || []).length, 1);
   assert.match(markup, /text-green-600 dark:text-green-400">added/);
+});
+
+test('added history entries open their transaction and never show an edit action', () => {
+  const history = [{ id: 'added', title: 'Payment', message: '', kind: 'extracted' as const, timestamp: 1000, status: 'added' as const }];
+  const markup = renderToStaticMarkup(<NotificationHistoryList history={history}
+    canEditHistory={() => true} onEditHistory={() => {}}
+    canOpenHistoryTransaction={() => true} onOpenHistoryTransaction={() => {}} />);
+  assert.match(markup, /role="button" tabindex="0" aria-label="Open transaction: Payment"/);
+  assert.doesNotMatch(markup, /aria-label="Edit transaction:/);
 });
 
 test('history distinguishes ignored entries in red and shows an accessible pencil', () => {

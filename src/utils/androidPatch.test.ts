@@ -256,7 +256,12 @@ test('Payment notification actions save without launching an Activity and retain
     assert.match(store, new RegExp(`Intent ${name} = new Intent\\(context, PaymentActionReceiver.class\\)`));
     assert.match(store, new RegExp(`PendingIntent.getBroadcast\\(context, 0, ${name}, PendingIntent.FLAG_UPDATE_CURRENT \\| PendingIntent.FLAG_IMMUTABLE\\)`));
   }
-  assert.match(store, /PendingIntent\.getBroadcast\(context, 0, reply,/);
+  for (const name of ['categoryReply', 'descriptionReply']) {
+    assert.match(store, new RegExp(`PendingIntent\\.getBroadcast\\(context, 0, ${name},\\s*PendingIntent.FLAG_UPDATE_CURRENT \\| PendingIntent.FLAG_MUTABLE\\)`));
+  }
+  assert.match(store, /"Category", categoryReplyIntent/);
+  assert.match(store, /"Description", descriptionReplyIntent/);
+  assert.match(store, /setOnClickPendingIntent\(R\.id\.payment_ignore, ignoreIntent\)/);
   assert.match(store, /"Add", addIntent/);
   assert.doesNotMatch(store, /open\(context, id, "add"\)/);
   assert.match(store, /open\(context, id, "edit"\)/);
@@ -274,6 +279,9 @@ test('Payment notification actions save without launching an Activity and retain
   assert.match(store, /"Not saved: "/);
   const sql = readFileSync(new URL('../../supabase_background_payments.sql', import.meta.url), 'utf8');
   assert.match(sql, /SECURITY INVOKER/);
+  assert.match(sql, /user_id, id, title, amount, type, category, subcategory/);
+  assert.match(sql, /payment->>'id', payment->>'title', amount, direction/);
+  assert.match(sql, /payment->>'category', payment->>'subcategory'/);
   assert.match(sql, /caller IS DISTINCT FROM expected_user/);
   assert.match(sql, /deleted_at IS NULL FOR UPDATE/);
   assert.match(sql, /ON CONFLICT \(user_id, id\) DO NOTHING/);

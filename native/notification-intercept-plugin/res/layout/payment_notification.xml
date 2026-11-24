@@ -17,4 +17,9 @@
     <TextView android:id="@+id/payment_edit" android:layout_width="match_parent" android:layout_height="40dp"
         android:gravity="center_vertical" android:text="Edit category / transaction in app"
         android:textStyle="bold" android:textColor="#662DB1" android:textSize="12sp"/>
+    <TextView android:id="@+id/payment_ignore" android:layout_width="wrap_content" android:layout_height="36dp"
+        android:layout_gravity="end" android:layout_marginTop="4dp" android:minWidth="80dp"
+        android:paddingStart="14dp" android:paddingEnd="14dp" android:background="#EBD9FF"
+        android:gravity="center" android:text="Ignore" android:contentDescription="Ignore this payment" android:textStyle="bold"
+        android:textColor="#662DB1" android:textSize="12sp"/>
 </LinearLayout>
