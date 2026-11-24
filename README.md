@@ -667,17 +667,16 @@ Native payment notifications show a structured lavender expanded card with
 amount, direction, account, date/time, payment mode, merchant, bank and detected
 category type/category. Android and the app share the ordered category rules.
 The actions are **Add**, **Category**, **Description**, and **Ignore**. Android
-shows Add, Category and Description as system actions; Ignore is in the
-expanded card because Android supports at most three system actions. Category
-and Description have separate inline replies and save without adding the
+shows Add, Category and Description as system actions; Ignore appears beside
+the description in the expanded card because Android supports at most three
+system actions. Category and Description have separate inline replies and save without adding the
 transaction. Category names must match a category of the payment's
 debit/credit type; an invalid category keeps background Add retryable and asks
 for review. The description becomes the transaction title when added, and the
 category is saved to the category column. The original merchant, amount and SMS
-remain intact. **Edit category / transaction
-in app** opens the prefilled editor to change the category before saving;
-it is not an inline Android category dropdown. Android/OEM notification layouts and
-collapsed presentation may differ from the reference image.
+remain intact. Tap the notification body to open the app for further review.
+Android/OEM notification layouts and collapsed presentation may differ from
+the reference image.
 Add saves the transaction and account balance through an authenticated background
 worker without opening the app, even after its process is terminated. Apply
 [`supabase_background_payments.sql`](supabase_background_payments.sql) before

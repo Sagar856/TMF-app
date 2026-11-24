@@ -413,11 +413,10 @@ public final class InterceptedPaymentStore {
         card.setTextViewText(R.id.payment_details, summary.details + "\nDetected  " + category);
         card.setTextViewText(R.id.payment_description, failed ? "Not saved: " + record.getString("saveError")
             : saving ? "Saving transaction and syncing account balance..." : description.isEmpty() ? "Use Category and Description below." : description);
+        card.setTextViewText(R.id.payment_ignore, "Ignore");
+        card.setTextColor(R.id.payment_ignore, Color.rgb(102, 45, 177));
         card.setViewVisibility(R.id.payment_ignore, actionable ? View.VISIBLE : View.GONE);
-        if (actionable) {
-            card.setOnClickPendingIntent(R.id.payment_edit, open(context, id, "edit"));
-            card.setOnClickPendingIntent(R.id.payment_ignore, ignoreIntent);
-        }
+        if (actionable) card.setOnClickPendingIntent(R.id.payment_ignore, ignoreIntent);
         Intent categoryReply = new Intent(context, PaymentActionReceiver.class)
             .setAction("tmf.category." + id).putExtra("tmfPaymentId", id);
         PendingIntent categoryReplyIntent = PendingIntent.getBroadcast(context, 0, categoryReply,

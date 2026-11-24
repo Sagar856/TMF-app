@@ -31,9 +31,9 @@ alert instead of creating a payment. Statement-file import is not provided.
 Accepted alerts are committed to private SharedPreferences independently of
 the Activity/WebView. `InterceptedPaymentStore` posts Android notifications with a lavender
 structured expanded card and separate Add, Category, Description and Ignore
-controls. Category and Description use separate inline replies; Android shows
-the Ignore button in the expanded card because its system action row supports
-at most three actions. Replies persist without adding the payment or changing
+controls. Category and Description use separate inline replies; Ignore appears
+beside Description in the expanded card because Android's system action row
+supports at most three actions. Replies persist without adding the payment or changing
 the raw bank notification. Category input is limited to 100 characters and
 description to 200. An entered category must match the user's category for the
 payment direction; invalid names make Add retryable. The entered description
@@ -60,9 +60,8 @@ restrictions can delay completion; force-stop prevents workers until Android
 allows the app to run again.
 
 Category, Description and Ignore remain broadcasts and never launch the app.
-Edit (inside the card) opens
-the prefilled editor after unlock and retains the capture until Save; Ignore
-is persisted by a non-exported receiver without opening the app. The bridge
+Tapping the notification body opens the app after unlock for review; Ignore is
+persisted by a non-exported receiver without opening the app. The bridge
 replays captures on startup/resume and forwards live events. JavaScript
 persists its pending queue before handling actions or resolving native entries.
 Original notification timestamps are preserved; transaction details stay
@@ -80,8 +79,8 @@ suffixes are stored locally and are cleared with the native queue.
 
 Detected category type/category are displayed using
 `res/raw/payment_category_rules.json`, also consumed by the JavaScript
-classifier. **Edit category / transaction in app** opens the editor after
-unlock; Android uses inline text input rather than a category dropdown.
+classifier. The inline Category action accepts text rather than opening a
+category dropdown; tap the notification body for further review in the app.
 
 The notification-only Java summary is not the authoritative transaction parser.
 Missing details show "Review in app"; JavaScript still parses the original

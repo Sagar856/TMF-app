@@ -264,7 +264,7 @@ test('Payment notification actions save without launching an Activity and retain
   assert.match(store, /setOnClickPendingIntent\(R\.id\.payment_ignore, ignoreIntent\)/);
   assert.match(store, /"Add", addIntent/);
   assert.doesNotMatch(store, /open\(context, id, "add"\)/);
-  assert.match(store, /open\(context, id, "edit"\)/);
+  assert.doesNotMatch(store, /open\(context, id, "edit"\)|payment_edit/);
   assert.match(store, /open\(context, id, "open"\)/);
   assert.match(receiver, /PaymentSaveWorker\.enqueue\(context, id, retryNow\)/);
   assert.doesNotMatch(receiver + worker, /startActivity|getLaunchIntentForPackage|PendingIntent\.getActivity/);

@@ -60,6 +60,9 @@ test('Android category preview and JS classification share the same ordered rule
   assert.match(app, /categoryOverride: payment\.categoryOverride \?\? n\.categoryOverride/);
   const layout = read('native/notification-intercept-plugin/res/layout/payment_notification.xml');
   assert.match(layout, /@\+id\/payment_ignore/);
+  assert.match(layout, /android:orientation="horizontal">[\s\S]*?@\+id\/payment_description[\s\S]*?@\+id\/payment_ignore/);
+  assert.doesNotMatch(layout, /payment_edit|Edit category \/ transaction in app/);
+  assert.match(store, /setTextViewText\(R\.id\.payment_ignore, "Ignore"\)/);
   const patch = read('scripts/patch-android.mjs');
   assert.match(patch, /copyFileSync\(join\(pluginSrcDir, 'res', 'raw', 'payment_category_rules.json'\)/);
 });
