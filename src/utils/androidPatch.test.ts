@@ -195,7 +195,7 @@ test('Android patch installs background queue and non-exported actions idempoten
       readFileSync(join(app, 'res', 'drawable', 'minarth_launcher_foreground.png')),
       readFileSync(join(root, 'public', 'icons', 'icon-adaptive-foreground.png')),
     );
-    for (const file of ['ic_minarth_monochrome.png', 'ic_minarth_notification.png', 'ic_minarth_purple.png', 'payment_card_background.xml']) {
+    for (const file of ['ic_minarth_monochrome.png', 'ic_minarth_notification.png', 'ic_minarth_purple.png', 'payment_card_background.xml', 'payment_ignore_button.xml']) {
       assert.deepEqual(
         readFileSync(join(app, 'res', 'drawable', file)),
         readFileSync(join(root, 'native', 'notification-intercept-plugin', 'res', 'drawable', file)),

@@ -109,6 +109,7 @@ for (const file of ['ic_minarth_notification.png', 'ic_minarth_monochrome.png'])
 }
 copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'ic_minarth_purple.png'), join(drawableDir, 'ic_minarth_purple.png'));
 copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'payment_card_background.xml'), join(drawableDir, 'payment_card_background.xml'));
+copyFileSync(join(pluginSrcDir, 'res', 'drawable', 'payment_ignore_button.xml'), join(drawableDir, 'payment_ignore_button.xml'));
 const layoutDir = join(resDir, 'layout');
 mkdirSync(layoutDir, { recursive: true });
 copyFileSync(join(pluginSrcDir, 'res', 'layout', 'payment_notification.xml'), join(layoutDir, 'payment_notification.xml'));

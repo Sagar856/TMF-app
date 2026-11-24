@@ -4,14 +4,102 @@ import { inferTransactionKind } from './transactionKind';
 import { newId } from './ids';
 import { CASH_WITHDRAWAL_SUBCATEGORY, applyCashWithdrawalLeg, ensureCashAccount, isCashWithdrawalText } from './cashAccount';
 
+const CATEGORY_MATCH_MIN_SCORE = 0.82;
+const CATEGORY_MATCH_MIN_MARGIN = 0.04;
+const CATEGORY_MATCH_IGNORED_WORDS = new Set([
+  'a', 'an', 'and', 'category', 'expense', 'for', 'income', 'investment', 'is', 'my', 'of', 'please', 'the', 'to',
+]);
+const GENERIC_SUBCATEGORY_NAMES = new Set(['general', 'misc', 'miscellaneous', 'other', 'uncategorized']);
+
 export function applyNotificationCategoryOverride(notification: ParsedNotification, categories: Category[]): ParsedNotification {
   const name = notification.categoryOverride?.trim();
   if (!name) return notification;
   const type = notification.type === 'credit' ? 'income' : 'expense';
-  const matches = categories.filter(category => category.type === type && category.name.toLowerCase() === name.toLowerCase());
-  if (matches.length !== 1) throw new Error(`Category "${name}" was not found for this payment. Edit it in the app.`);
-  const category = matches[0];
-  return { ...notification, category: category.name, subcategory: category.subcategories[0] || 'General' };
+  const inputWords = categoryWords(name);
+  const inputName = inputWords.join(' ');
+  const matches = categories
+    .filter(category => category.type === type)
+    .map(category => ({ category, score: categoryMatchScore(inputName, inputWords, category) }))
+    .filter(match => match.score >= CATEGORY_MATCH_MIN_SCORE)
+    .sort((left, right) => right.score - left.score);
+  const best = matches[0];
+  if (!best || (matches[1] && best.score - matches[1].score < CATEGORY_MATCH_MIN_MARGIN)) {
+    throw new Error(`Category "${name}" was not found or matched ambiguously for this payment. Edit it in the app.`);
+  }
+  const category = best.category;
+  const exactSubcategory = category.subcategories.find(subcategory => {
+    const words = categoryWords(subcategory);
+    return words.length > 0 && words.join(' ') === inputName && !GENERIC_SUBCATEGORY_NAMES.has(inputName);
+  });
+  const subcategory = exactSubcategory
+    || category.subcategories.find(value => value.toLowerCase() === notification.subcategory.toLowerCase())
+    || category.subcategories[0]
+    || 'General';
+  return { ...notification, category: category.name, subcategory };
+}
+
+function categoryMatchScore(inputName: string, inputWords: string[], category: Category): number {
+  const categoryWordsList = categoryWords(category.name);
+  if (!inputName || !categoryWordsList.length) return 0;
+  if (inputName === categoryWordsList.join(' ')) return 1;
+
+  let subcategoryScore = 0;
+  for (const subcategory of category.subcategories) {
+    const words = categoryWords(subcategory);
+    const normalized = words.join(' ');
+    if (!normalized || GENERIC_SUBCATEGORY_NAMES.has(normalized)) continue;
+    if (normalized === inputName) {
+      subcategoryScore = Math.max(subcategoryScore, 0.94);
+    } else {
+      subcategoryScore = Math.max(subcategoryScore, tokenMatchScore(inputWords, words, 0.70, 0.13));
+    }
+  }
+  return Math.max(subcategoryScore, tokenMatchScore(inputWords, categoryWordsList, 0.78, 0.18));
+}
+
+function categoryWords(value: string): string[] {
+  return value.toLowerCase()
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .filter(word => word && !CATEGORY_MATCH_IGNORED_WORDS.has(word));
+}
+
+function tokenMatchScore(inputWords: string[], candidateWords: string[], base: number, span: number): number {
+  if (!inputWords.length || !candidateWords.length) return 0;
+  const scores = inputWords.map(input => Math.max(...candidateWords.map(candidate => wordSimilarity(input, candidate))));
+  const matched = scores.filter(score => score >= 0.75);
+  if (matched.length / inputWords.length < 0.75) return 0;
+  const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  return base + span * average;
+}
+
+function wordSimilarity(left: string, right: string): number {
+  if (left === right) return 1;
+  if (Math.min(left.length, right.length) < 4) return 0;
+  const distance = levenshteinDistance(left, right);
+  return 1 - distance / Math.max(left.length, right.length);
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  const distances = Array.from({ length: left.length + 1 }, (_, row) =>
+    Array.from({ length: right.length + 1 }, (_, column) => row === 0 ? column : column === 0 ? row : 0));
+  for (let row = 1; row <= left.length; row++) {
+    for (let column = 1; column <= right.length; column++) {
+      const substitution = distances[row - 1][column - 1] + (left[row - 1] === right[column - 1] ? 0 : 1);
+      distances[row][column] = Math.min(
+        distances[row - 1][column] + 1,
+        distances[row][column - 1] + 1,
+        substitution,
+      );
+      if (row > 1 && column > 1
+        && left[row - 1] === right[column - 2] && left[row - 2] === right[column - 1]) {
+        distances[row][column] = Math.min(distances[row][column], distances[row - 2][column - 2] + 1);
+      }
+    }
+  }
+  return distances[left.length][right.length];
 }
 
 export function hasUnmatchedPaymentAccount(notification: ParsedNotification, accounts: FinancialAccount[]): boolean {

@@ -6,6 +6,13 @@ A personal finance tracker: React 19 + TypeScript + Vite web app, packaged for
 Android with Capacitor, with a native on-device UPI/SMS notification
 interceptor as the flagship feature.
 
+## For coding agents
+
+Start with [`AGENTS.md`](AGENTS.md) for repository rules and
+[`.github/skills/minarth-app/SKILL.md`](.github/skills/minarth-app/SKILL.md)
+for the app architecture, key flows and focused checks. Keep the skill updated
+with every feature or bug fix.
+
 ## Architecture (kept at $0 running cost)
 
 | Layer | Choice | Cost |
@@ -205,11 +212,13 @@ is automatically kept private from every other user via RLS.
    Then run [`supabase_background_payments.sql`](supabase_background_payments.sql)
    before deploying this version. Android notification **Add** uses this
    authenticated, idempotent RPC to save the transaction and account balance
-   together without opening the app. **Description** and **Ignore** also remain
-   notification-only actions; the notification body and **Edit** still open the
-   app. Offline/expired-session/missing-migration failures remain visible and
-   retryable, not silently marked saved. WorkManager can run after process
-   termination, but not while Android force-stops or otherwise restricts the app.
+   together without opening the app. **Category**, **Description** and
+   **Ignore** are notification-only actions and do not add a transaction. The
+   notification body opens the app for review; the expanded notification has no
+   separate **Edit** section or action. Offline/expired-session/missing-migration
+   failures remain visible and retryable, not silently marked saved. WorkManager
+   can run after process termination, but not while Android force-stops or
+   otherwise restricts the app.
    Finally run [`supabase_pending_notifications.sql`](supabase_pending_notifications.sql)
    to enable **cross-device sync of SMS/notification-parser payment reviews**:
    pending reviews extracted on one device become reviewable on every signed-in
@@ -669,12 +678,15 @@ category type/category. Android and the app share the ordered category rules.
 The actions are **Add**, **Category**, **Description**, and **Ignore**. Android
 shows Add, Category and Description as system actions; Ignore appears beside
 the description in the expanded card because Android supports at most three
-system actions. Category and Description have separate inline replies and save without adding the
-transaction. Category names must match a category of the payment's
-debit/credit type; an invalid category keeps background Add retryable and asks
-for review. The description becomes the transaction title when added, and the
-category is saved to the category column. The original merchant, amount and SMS
-remain intact. Tap the notification body to open the app for further review.
+system actions. Category and Description have separate inline replies and save
+without adding the transaction. Category text is matched against the user's
+existing categories for that payment direction, including their subcategories;
+exact or close matches such as "shopping" or "fuel" resolve to the matching
+category. Matching is local and deterministic, with no AI model required.
+Unmatched or ambiguous input keeps background Add retryable and asks for review.
+The description becomes the transaction title when added, and the category is
+saved to the category column. The original merchant, amount and SMS remain
+intact. Tap the notification body to open the app for further review.
 Android/OEM notification layouts and collapsed presentation may differ from
 the reference image.
 Add saves the transaction and account balance through an authenticated background
@@ -683,8 +695,9 @@ worker without opening the app, even after its process is terminated. Apply
 deploying the updated APK. Network/authentication failures retain a visible,
 retryable notification. Native receipts and a shared cloud-write lock prevent
 duplicate balance changes and older foreground uploads overwriting the save.
-Edit opens a prefilled editor after unlocking; Ignore is saved natively without
-opening the app. Cancelling Edit keeps the
+After opening a pending payment in the app and unlocking, **Edit** opens a
+prefilled editor; **Ignore** is saved natively without opening the app.
+Cancelling Edit keeps the
 payment pending. Replay uses the original notification date/time.
 Opening a notification does not auto-dismiss it. Pending native captures survive
 session expiry and sign-in; actions wait for authentication, unlock and cloud

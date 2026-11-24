@@ -7,7 +7,7 @@ import { createPaymentTransaction, adjustPaymentAccountBalance, applyNotificatio
 import { parseNotification } from '../services/notification/ParserManager';
 import { isEligiblePaymentNotification } from '../services/notification/transactionEligibility';
 import { toLocalISODate } from './dates';
-import type { FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
+import type { Category, FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
 import { isFinancialAccount, isTransaction } from './backup';
 import { reconcileSavedPayments } from './savedPaymentReconciliation';
 import { createCashAccount, isCashWithdrawal } from './cashAccount';
@@ -81,6 +81,41 @@ test('background Add validates the inline category and refuses an unknown accoun
   await assert.rejects(unmatched.run(), /Account not found or ambiguous/);
   assert.equal(unmatched.calls(), 0);
   assert.equal(unmatched.accounts[0].balance, 5000);
+});
+
+test('notification category input resolves close category and subcategory names by transaction type', () => {
+  const categories: Category[] = [
+    { id: 'shopping', name: 'Shopping & Tech', type: 'expense', iconName: 'ShoppingBag', subcategories: ['Electronics', 'Clothing'] },
+    { id: 'transport', name: 'Transport & Fuel', type: 'expense', iconName: 'Car', subcategories: ['Fuel', 'Cab Services'] },
+    { id: 'salary', name: 'Salary', type: 'income', iconName: 'Briefcase', subcategories: ['Primary Job'] },
+  ];
+  const parsed: ParsedNotification = {
+    id: 'native_category', amount: 100, type: 'debit', date: '2026-11-01', time: '12:00',
+    payeeOrPayer: 'Merchant', rawText: 'Paid Rs 100', category: 'Food & Dining', subcategory: 'General',
+    status: 'pending', appSource: 'Other UPI', confidenceScore: 1, requiresManualVerification: false,
+  };
+  const shopping = applyNotificationCategoryOverride({ ...parsed, categoryOverride: 'shopping' }, categories);
+  assert.equal(shopping.category, 'Shopping & Tech');
+  const typo = applyNotificationCategoryOverride({ ...parsed, categoryOverride: 'shoppng' }, categories);
+  assert.equal(typo.category, 'Shopping & Tech');
+  const fuel = applyNotificationCategoryOverride({ ...parsed, categoryOverride: 'fuel' }, categories);
+  assert.equal(fuel.category, 'Transport & Fuel');
+  assert.equal(fuel.subcategory, 'Fuel');
+  assert.throws(
+    () => applyNotificationCategoryOverride({ ...parsed, type: 'credit', categoryOverride: 'fuel' }, categories),
+    /not found or matched ambiguously/,
+  );
+  assert.throws(
+    () => applyNotificationCategoryOverride({ ...parsed, categoryOverride: 'education' }, categories),
+    /not found or matched ambiguously/,
+  );
+  assert.throws(
+    () => applyNotificationCategoryOverride(
+      { ...parsed, categoryOverride: 'fuel' },
+      [...categories, { id: 'fuel-costs', name: 'Fuel Costs', type: 'expense', iconName: 'Tag', subcategories: ['Vehicle'] }],
+    ),
+    /not found or matched ambiguously/,
+  );
 });
 
 test('cold background Add saves the actual transaction and balance with description/location, and retries do not add twice', async () => {

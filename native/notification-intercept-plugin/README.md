@@ -33,12 +33,14 @@ the Activity/WebView. `InterceptedPaymentStore` posts Android notifications with
 structured expanded card and separate Add, Category, Description and Ignore
 controls. Category and Description use separate inline replies; Ignore appears
 beside Description in the expanded card because Android's system action row
-supports at most three actions. Replies persist without adding the payment or changing
-the raw bank notification. Category input is limited to 100 characters and
-description to 200. An entered category must match the user's category for the
-payment direction; invalid names make Add retryable. The entered description
-becomes the transaction title, and category is saved in the transaction
-category column.
+supports at most three actions. The Ignore control is a rounded, outlined
+button. Replies persist without adding the payment or changing the raw bank
+notification. Category input is limited to 100 characters and description to
+200. Category text is matched locally against the user's existing categories
+for the payment direction, including subcategories; exact and close text
+matches can resolve to a category without an AI model. Unmatched or ambiguous
+names keep Add retryable. The entered description becomes the transaction
+title, and category is saved in the transaction category column.
 Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
 without launching an Activity or bypassing the app's PIN/biometric screen.
 A separate application-context WebView loads only the bundled background entry
