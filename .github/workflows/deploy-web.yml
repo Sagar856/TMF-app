@@ -53,6 +53,29 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
         with:
           path: dist
+      # The artifact API is eventually consistent: deploy-pages can query it in
+      # the same second the upload finished and fail with "No artifacts named
+      # 'github-pages' were found". Wait until the artifact is actually visible.
+      - name: Wait for the Pages artifact to be indexed
+        if: steps.current.outputs.deploy == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 12); do
+            COUNT=$(curl --silent --show-error --connect-timeout 15 --max-time 30 \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=github-pages" \
+              | jq -r '.total_count // 0')
+            if [ "$COUNT" -ge 1 ]; then
+              echo "Pages artifact visible after $attempt check(s)"
+              exit 0
+            fi
+            echo "Pages artifact not indexed yet (attempt $attempt); retrying in 5s"
+            sleep 5
+          done
+          echo "Pages artifact never became visible to the API" >&2
+          exit 1
       - name: Deploy matching website, APK and metadata
         id: deployment
         if: steps.current.outputs.deploy == 'true'
