@@ -891,7 +891,10 @@ export default function App() {
       || interceptorState.current.transactions.some((tx) => tx.id === transactionId));
     // Payments already recorded locally: tombstone them so no device re-adds them.
     merge.selfHealed.forEach((id) => enqueueNotificationResolution(id, 'added'));
-    if (merge.selfHealed.length > 0) void flushNotificationSync();
+    // Reviews only this device knows (e.g. parsed before cross-device sync
+    // shipped): upload them so every other signed-in device can review them.
+    merge.toUpload.forEach((notification) => enqueueNotificationUpsert(notification));
+    if (merge.selfHealed.length > 0 || merge.toUpload.length > 0) void flushNotificationSync();
     if (!merge.changed) return;
     if (!safeSetItem('tmf_pending_notifications', JSON.stringify(merge.next))) return;
     interceptorState.current.pendingNotifications = merge.next;

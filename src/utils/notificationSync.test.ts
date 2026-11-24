@@ -158,6 +158,26 @@ test('merge drops locals resolved elsewhere, adds cloud-pending ones, and self-h
   assert.equal(merge.next[1].status, 'pending');
 });
 
+test('merge reports local-only reviews for backfill upload unless something is already queued', () => {
+  const knownToCloud = makeNotification('native_g');
+  const localOnly = makeNotification('native_h');
+  const localOnlyQueued = makeNotification('native_i');
+  const localOnlyResolving = makeNotification('native_j');
+  const merge = mergePendingNotifications(
+    [knownToCloud, localOnly, localOnlyQueued, localOnlyResolving],
+    { pending: [knownToCloud], resolved: [] },
+    [
+      { kind: 'upsert', id: 'native_i', payload: localOnlyQueued },
+      { kind: 'resolve', id: 'native_j', status: 'added' },
+    ],
+    () => false
+  );
+  // Only the entry the cloud has never seen and nothing is queued for.
+  assert.deepEqual(merge.toUpload.map((n) => n.id), ['native_h']);
+  assert.equal(merge.changed, false);
+  assert.deepEqual(merge.next.map((n) => n.id), ['native_g', 'native_h', 'native_i', 'native_j']);
+});
+
 test('merge returns the same list reference when nothing changed', () => {
   const local = [makeNotification('native_f')];
   const merge = mergePendingNotifications(local, { pending: [local[0]], resolved: [] }, [], () => false);

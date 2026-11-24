@@ -220,6 +220,9 @@ export interface PendingNotificationMerge {
   removed: Array<{ notification: ParsedNotification; status: NotificationResolutionStatus }>;
   /** Cloud-pending ids whose transaction already exists locally; resolve them as 'added'. */
   selfHealed: string[];
+  /** Local pending entries the cloud has never seen (e.g. parsed before this
+   *  feature shipped); upload them so other devices can review them too. */
+  toUpload: ParsedNotification[];
   changed: boolean;
 }
 
@@ -227,7 +230,8 @@ export interface PendingNotificationMerge {
  * Merges the authoritative cloud snapshot into the local review list.
  * Cloud resolutions always win; locally queued (unsynced) resolutions are
  * honoured; cloud-pending entries whose payment already exists locally are
- * reported for self-healing instead of being shown again.
+ * reported for self-healing instead of being shown again; and local-only
+ * pending entries unknown to the cloud are reported for backfill upload.
  */
 export function mergePendingNotifications(
   local: ParsedNotification[],
@@ -236,14 +240,24 @@ export function mergePendingNotifications(
   hasTransaction: (transactionId: string) => boolean
 ): PendingNotificationMerge {
   const resolved = new Map(cloud.resolved.map((entry) => [entry.id, entry.status]));
+  const queuedIds = new Set(queuedOps.map((op) => op.id));
   const queuedResolves = new Set(queuedOps.filter((op) => op.kind === 'resolve').map((op) => op.id));
+  const cloudPendingIds = new Set(cloud.pending.filter(isParsedNotification).map((entry) => entry.id));
 
   const removed: PendingNotificationMerge['removed'] = [];
+  const toUpload: ParsedNotification[] = [];
   const next: ParsedNotification[] = [];
   for (const notification of local) {
     const status = resolved.get(notification.id);
-    if (status) removed.push({ notification, status });
-    else next.push(notification);
+    if (status) {
+      removed.push({ notification, status });
+      continue;
+    }
+    next.push(notification);
+    // Entirely unknown to the cloud and nothing queued for it: backfill it.
+    if (!cloudPendingIds.has(notification.id) && !queuedIds.has(notification.id)) {
+      toUpload.push(notification);
+    }
   }
 
   const present = new Set(next.map((notification) => notification.id));
@@ -260,5 +274,5 @@ export function mergePendingNotifications(
   }
 
   const changed = removed.length > 0 || next.length !== local.length;
-  return { next: changed ? next : local, removed, selfHealed, changed };
+  return { next: changed ? next : local, removed, selfHealed, toUpload, changed };
 }
