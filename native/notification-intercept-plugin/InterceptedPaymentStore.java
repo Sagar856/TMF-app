@@ -303,8 +303,8 @@ public final class InterceptedPaymentStore {
                 NotificationInterceptPlugin.dispatchNotification(record);
                 return true;
             }
-            return false;
         }
+        return false;
     }
 
     public static synchronized void resolve(Context context, String id) throws JSONException {

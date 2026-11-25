@@ -175,6 +175,9 @@ behavior.
    idempotent. The native notification shows a saving state; Ignore confirms
    only after its native action is persisted. In-app Add and Ignore confirm
    local completion without claiming that cloud sync succeeded.
+   `InterceptedPaymentStore.action` scans the full pending queue and returns
+   false after the loop for an empty queue or unknown ID; keep that return
+   outside the loop so every Java path returns and later payments remain actionable.
 4. The notification's Category and Description RemoteInput values are stored
    natively and mapped to the final transaction's `category` and `title`.
    `applyNotificationCategoryOverride` in `src/utils/paymentTransaction.ts`

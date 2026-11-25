@@ -64,6 +64,8 @@ allows the app to run again.
 Category, Description and Ignore remain broadcasts and never launch the app.
 Tapping the notification body opens the app after unlock for review; Ignore is
 persisted by a non-exported receiver without opening the app. The bridge
+checks the full pending queue for the selected payment; an empty queue or
+unknown payment ID is not reported as a successful action. The bridge
 replays captures on startup/resume and forwards live events. JavaScript
 persists its pending queue before handling actions or resolving native entries.
 Original notification timestamps are preserved; transaction details stay

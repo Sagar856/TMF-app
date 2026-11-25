@@ -60,6 +60,9 @@ test('native ignore confirms only a persisted action and background Add displays
   const store = readFileSync(new URL('../../native/notification-intercept-plugin/InterceptedPaymentStore.java', import.meta.url), 'utf8');
   const receiver = readFileSync(new URL('../../native/notification-intercept-plugin/PaymentActionReceiver.java', import.meta.url), 'utf8');
   assert.match(store, /boolean action\([\s\S]*?save\(context, records\);[\s\S]*?return true;[\s\S]*?return false;/);
+  const action = store.slice(store.indexOf('    public static synchronized boolean action('),
+    store.indexOf('    public static synchronized void resolve('));
+  assert.match(action, /return true;\s*}\s*}\s*return false;\s*}\s*$/);
   assert.match(store, /saving \? "Saving transaction and syncing account balance\.\.\."/);
   assert.match(receiver, /if \(InterceptedPaymentStore\.action\(context, id, "ignore"\)\) \{[\s\S]*?Payment notification ignored/);
   assert.match(receiver, /Could not ignore payment notification\. Please retry/);
