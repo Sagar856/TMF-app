@@ -26,6 +26,9 @@ BEGIN
      OR direction IS NULL OR direction NOT IN ('credit', 'debit') THEN
     RAISE EXCEPTION 'Invalid notification transaction';
   END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(caller::text, 0));
+  PERFORM pg_catalog.set_config('tmf.account_write', 'allowed', true);
+  PERFORM pg_catalog.set_config('tmf.financial_write', 'allowed', true);
   -- Lock the account before inserting: retries and concurrent payments cannot
   -- apply the same balance delta twice. Deleted accounts are never resurrected.
   IF target_account IS NOT NULL THEN
@@ -47,15 +50,22 @@ BEGIN
       WHERE user_id = caller AND id = cash_account AND type = 'Cash' AND deleted_at IS NULL FOR UPDATE;
     IF NOT FOUND THEN RAISE EXCEPTION 'Cash account is unavailable; review in app'; END IF;
   END IF;
+  PERFORM pg_catalog.set_config('tmf.transaction_write', 'allowed', true);
   INSERT INTO public.transactions (
     user_id, id, title, amount, type, category, subcategory, date, time,
-    location, source, raw_text, payee_or_payer, payment_method, ref_number, kind, account_id, to_account_id
+    location, source, raw_text, payee_or_payer, payment_method, ref_number, kind, account_id, to_account_id,
+    category_origin
   ) VALUES (
     caller, payment->>'id', payment->>'title', amount, direction,
     payment->>'category', payment->>'subcategory', (payment->>'date')::date,
     payment->>'time', payment->'location', payment->>'source', payment->>'rawText',
     payment->>'payeeOrPayer', payment->>'paymentMethod', payment->>'refNumber',
-    payment->>'kind', target_account, cash_account
+    payment->>'kind', target_account, cash_account,
+    CASE
+      WHEN payment->>'category_origin' IN ('eligible', 'user-edited', 'rule') THEN payment->>'category_origin'
+      WHEN pg_catalog.lower(payment->>'category') = 'uncategorized' THEN 'eligible'
+      ELSE 'rule'
+    END
   ) ON CONFLICT (user_id, id) DO NOTHING;
   GET DIAGNOSTICS inserted_count = ROW_COUNT;
   IF inserted_count = 1 AND payment->>'category' = 'Uncategorized' THEN
@@ -81,7 +91,10 @@ BEGIN
   RETURN pg_catalog.jsonb_build_object(
     'saved', EXISTS (
       SELECT 1 FROM public.transactions WHERE user_id = caller AND id = payment->>'id' AND deleted_at IS NULL
-    ), 'balance', target_balance, 'cash_balance', cash_balance
+    ), 'balance', target_balance, 'cash_balance', cash_balance,
+    'account_revision', (SELECT pg_catalog.to_jsonb(a)->'sync_revision' FROM public.financial_accounts a WHERE a.user_id = caller AND a.id = target_account),
+    'cash_revision', (SELECT pg_catalog.to_jsonb(a)->'sync_revision' FROM public.financial_accounts a WHERE a.user_id = caller AND a.id = cash_account),
+    'transaction_revision', (SELECT t.sync_revision FROM public.transactions t WHERE t.user_id = caller AND t.id = payment->>'id')
   );
 END;
 $$;

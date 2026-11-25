@@ -290,19 +290,20 @@ public final class InterceptedPaymentStore {
         }
     }
 
-    public static synchronized void action(Context context, String id, String action) throws JSONException {
+    public static synchronized boolean action(Context context, String id, String action) throws JSONException {
         JSONArray records = read(context);
         for (int i = 0; i < records.length(); i++) {
             JSONObject record = records.getJSONObject(i);
             if (id.equals(record.getString("id"))) {
-                if ("saving".equals(record.optString("action")) && !record.has("saveError") && !"saving".equals(action)) return;
+                if ("saving".equals(record.optString("action")) && !record.has("saveError") && !"saving".equals(action)) return false;
                 record.put("action", action);
                 record.remove("saveError");
                 save(context, records);
                 if ("saving".equals(action)) show(context, record);
                 NotificationInterceptPlugin.dispatchNotification(record);
-                return;
+                return true;
             }
+            return false;
         }
     }
 

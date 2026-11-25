@@ -46,6 +46,8 @@ function harness(upload: (payload: CloudSettings) => Promise<SyncResult> = async
     syncCategoriesToSupabase: async () => ({ success: true }),
     syncAccountsToSupabase: async () => ({ success: true }),
     syncTransactionsToSupabase: async () => ({ success: true }),
+    syncTransactionsAndApplyRevisions: async () => ({ success: true }),
+    syncFinancialStateAndApplyRevisions: async () => ({ success: true }),
     syncInvestmentsToSupabase: async () => ({ success: true }),
     syncLoansToSupabase: async () => ({ success: true }),
     flushNotificationSync: async () => ({ success: true }),

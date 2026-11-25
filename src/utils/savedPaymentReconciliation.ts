@@ -37,7 +37,8 @@ export function reconcileSavedPayments(
     const latest = latestAccounts.get(account.id);
     if (!latest) return account;
     const localDelta = latest.localBalance === undefined ? 0 : account.balance - latest.localBalance;
-    return { ...account, balance: Math.round((latest.account.balance + localDelta) * 100) / 100 };
+    return { ...account, balance: Math.round((latest.account.balance + localDelta) * 100) / 100,
+      syncRevision: latest.account.syncRevision };
   });
   // A cash account first created by a background save is not on the device yet.
   const created = [...latestAccounts.values()]

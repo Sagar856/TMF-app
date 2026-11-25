@@ -45,6 +45,7 @@ import { PermissionDisclosureModal, type PermissionDisclosure } from './Permissi
 import { BrokerPortfoliosSection } from './settings/BrokerPortfoliosSection';
 import { AccountPasswordSettings, ProfileSettings } from './settings/ProfileSettings';
 import { ColorPalettePicker } from './settings/ColorPalettePicker';
+import { AssistantSettingsSection, type AssistantSettingsProps } from './AssistantSettingsSection';
 import { getCurrencyLocale } from '../utils/money';
 import { getUiPalette } from '../utils/uiPalette';
 import {
@@ -82,6 +83,7 @@ interface SettingsViewProps {
   onDeleteUserAccount?: () => void;
   lastSettingsSyncAt?: number | null;
   openProfileRequest?: number;
+  assistant?: AssistantSettingsProps['assistant'];
 }
 
 const SETTINGS_GROUPS = [
@@ -138,6 +140,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onDeleteUserAccount,
   lastSettingsSyncAt,
   openProfileRequest = 0,
+  assistant,
 }) => {
   const [selectedGroup, setSelectedGroup] = useActivityState<SettingsGroup | null>('settings.group', () =>
     openProfileRequest > 0 ? 'profile' :
@@ -932,8 +935,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
             </SettingSection>
 
+            {assistant && <AssistantSettingsSection assistant={assistant} />}
+
             <SettingSection id="settings-privacy" title="Privacy" icon={Shield}>
-              <SettingRow label="Your data" description="Data stays on your device and, when signed in, in your private cloud space protected by row-level security." />
+              <SettingRow label="Your data" description="Your data is stored on this device and, when signed in, selected financial records sync to your private cloud space protected by row-level security." />
               <a className="text-xs underline text-content-1" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
               <p className="mt-2 text-xs text-content-2">App updates from Google Play keep your sign-in and local data. Auto-update timing is controlled by Google Play and your device settings. Uninstalling or clearing app data removes the local session.</p>
             </SettingSection>

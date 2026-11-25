@@ -206,9 +206,10 @@ is automatically kept private from every other user via RLS.
    policies — no user can ever read/write another user's rows). The script
    is idempotent: **re-run it whenever you upgrade the app**, since new
    releases add columns (`ref_number`, `kind`, `account_id`, `updated_at`,
-   `deleted_at` tombstones…). If the live schema is behind, the app keeps
-   working and shows an amber *"Cloud schema is outdated"* banner instead of
-   failing — the skipped columns simply aren't synced until you re-run it.
+   `deleted_at` tombstones, `sync_revision`…). For older optional columns the
+   app shows an amber *"Cloud schema is outdated"* banner and skips only those
+   fields. The transaction revision migration below is mandatory and does not
+   fall back to unsafe snapshot writes.
    Then run [`supabase_background_payments.sql`](supabase_background_payments.sql)
    before deploying this version. Android notification **Add** uses this
    authenticated, idempotent RPC to save the transaction and account balance
@@ -219,6 +220,9 @@ is automatically kept private from every other user via RLS.
    failures remain visible and retryable, not silently marked saved. WorkManager
    can run after process termination, but not while Android force-stops or
    otherwise restricts the app.
+   The notification shows a saving state while background Add runs; Ignore shows
+   a device confirmation after it is recorded. In-app Add and Ignore confirm local
+   completion only, not cloud sync.
    Finally run [`supabase_pending_notifications.sql`](supabase_pending_notifications.sql)
    to enable **cross-device sync of SMS/notification-parser payment reviews**:
    pending reviews extracted on one device become reviewable on every signed-in
@@ -228,6 +232,33 @@ is automatically kept private from every other user via RLS.
    the same payment and double-apply account balances. Without this migration
    the app keeps working device-locally and shows the amber schema banner; the
    queued review operations are retained and sync once the script is applied.
+   **The coordinated financial-sync rollout still requires hosted Supabase and
+   multi-device validation before deployment.** Accounts and transactions now
+   use one atomic, revision-checked batch. Stable operation IDs and server receipts
+   make an identical retry safe after a lost response. Account revisions prevent
+   stale foreground snapshots from overwriting background or other-device
+   balances; a reset epoch rejects queued creates from before a data reset.
+   Transaction deletions include their reversed account projection and retained
+   pending transactions in the same commit. Category-only MINA changes remain
+   balance-neutral. Direct writes from older clients are rejected.
+   A paired local financial snapshot is authoritative over the legacy cache keys.
+   Pending changes are retried before cloud hydration; conflicts preserve them
+   and offer local backup export plus an explicit discard-and-reload choice.
+   Detected offline transaction edits/deletions remain blocked. An online indicator
+   does not establish backend reachability. Local PostgreSQL-compatible tests do
+   not establish real Supabase or Android behavior.
+   After validating the coordinated rollout, run
+   [`supabase_transaction_sync.sql`](supabase_transaction_sync.sql) after the
+   schema and updated notification scripts, then
+   [`supabase_financial_sync.sql`](supabase_financial_sync.sql), and the updated
+   [`supabase_admin.sql`](supabase_admin.sql) if admin features are enabled.
+   These scripts must be deployed together with the matching client.
+   Upgrade every signed-in
+   device before resuming transaction edits; if any device is still on an old
+   build, its direct transaction writes will fail visibly until it is upgraded.
+   If the optional admin tools are installed, also apply the updated
+   [`supabase_admin.sql`](supabase_admin.sql) so the authorized admin data wipe
+   remains compatible with the transaction guard.
 
 3. In Supabase Auth settings, enable **Email**, **Allow new users to sign up**
    and **Confirm email**. Update **both Confirm signup and Magic Link** email
@@ -311,6 +342,14 @@ date/time, retained across restarts. Failed attempts never advance that timestam
 Run the latest [`supabase_schema.sql`](supabase_schema.sql) to create the
 RLS-protected `user_preferences` table. A missing table or failed upload is
 reported as a sync failure, not success.
+Transaction writes additionally require
+[`supabase_transaction_sync.sql`](supabase_transaction_sync.sql). Each synced
+record carries a server revision; stale edits and deletions are rejected rather
+than overwriting newer cloud data. Do not apply the migration until the
+transaction and balance safety risks described above are resolved and validated. After that, apply it
+and upgrade all active devices before enabling this client. Android background **Add** remains on the
+authenticated balance-update RPC and requires the updated
+[`supabase_background_payments.sql`](supabase_background_payments.sql).
 
 Passcodes/hashes/salts, biometric and auto-lock settings, device permission
 switches, broker connections, and sample-data state remain device-local.
@@ -877,6 +916,99 @@ top filters both menus. Categories & Budgets has a menu for Budgets, Categories,
 Auto-categorise. Selecting an item opens its existing controls; Back returns
 to that menu without clearing selected filters.
 
+## MINA: optional on-device AI assistant
+
+MINA is opt-in under **Settings > Privacy & Security > MINA**. The first use requires the user to explicitly download the pinned
+Qwen2.5-0.5B-Instruct model (Apache-2.0) from Hugging Face. The model and
+runtime use about **533 MB** of device storage. Download progress, checksum
+verification, cancellation and removal are available in Settings. Local AI
+requires browser/WebView support for module workers, WebAssembly, Cache Storage
+and Web Locks; unsupported environments display an error. Check actual target
+Android WebView versions before release.
+MINA uses concise MINARTH navigation and calculation guidance bundled with the
+app to answer app and general finance questions; model-generated answers can
+still be wrong. It does not have
+access to your financial records in ordinary chat. Simple navigation questions
+about budgets, categories and auto-categorisation use verified local paths.
+Simple definition questions about budgets, emergency funds, compound interest
+and savings rates also use bundled answers without waiting for model inference.
+Chat and report requests take priority over categorisation requests waiting in
+the same worker; an inference already running cannot be interrupted.
+Synthetic browser validation also started a fresh production worker with fetch
+disabled: it answered a general finance question in about 12 seconds with zero
+fetch attempts. This single desktop result is not an Android performance
+guarantee or proof of a fully offline app restart. Experimental synthetic-only
+fine-tuned adapters have not passed the safety/ambiguity checks and are not shipped.
+Editing or deleting existing transactions, including AI categorisation, is
+blocked when the device reports that it is offline. New transactions and
+notification capture remain available. An online indicator is not proof that
+the cloud is reachable; this restriction alone does not make sync conflict-safe.
+Do not enter passwords, verification codes, account numbers or other private
+details into MINA. Before inference, a local best-effort filter blocks some
+recognisable secrets and masks email addresses and long digit sequences,
+retaining only their last four digits. It cannot recognise every name, secret,
+identifier or format; undetected data may still reach the local model. The
+model has no database tools or direct access to authentication or aggregator
+consent data. Categorisation sends transaction descriptions and category names
+to the model, but not the merchant/person or note fields. Report inference
+receives derived findings rather than raw investment, demat or account records.
+Categorisation uses temporary category aliases rather than stored category IDs;
+if a masked subcategory label is ambiguous, no category is applied.
+Model answers that appear to request credentials are rejected, but this filter
+also cannot guarantee detection of every unsafe response.
+
+When enabled, the circular **MINA** shortcut appears above the add button and
+fades on scroll like the add button.
+
+After installation, inference runs locally without a network or AI API key.
+Prompts, temporary chat history, report data and report commentary are not
+stored by MINARTH or sent to Supabase, analytics or an AI service. Closing the
+assistant discards its in-memory chat/report state. CSV/PDF files are created
+only when the user exports a generated report. The assistant generates a report
+only when the user asks for one. Deterministic app calculations provide report
+figures; the model can select only verified report findings.
+For gold and silver rate questions, the assistant uses only the app's locally
+saved IBJA benchmark data, labels its source/date, and calculates requested
+weights deterministically. It does not browse or fetch live prices; if no
+cached benchmark is available, it declines rather than guessing. Other requests
+for changing market facts are also declined rather than answered with invented
+figures.
+
+Use the report button or explicitly ask MINA to generate or show a report;
+questions that merely mention reports do not generate one.
+Questions mentioning credentials receive a local safety reminder instead of a
+model-generated answer. Do not enter credentials or other sensitive information;
+free-text filtering cannot detect every secret.
+
+When enabled and the app is unlocked, the assistant can automatically
+categorise eligible notification transactions, imported transactions and
+transactions explicitly marked as rule-categorised. Uncertain suggestions and
+disagreements with an existing categorisation rule require review. Existing
+transactions with an unknown category origin—including manually entered or
+legacy records—are left unchanged until you explicitly request processing of
+uncategorised records. User-edited categories are never automatically
+overwritten. If a cloud transaction changed on another device, the suggestion
+is not applied; you can keep the local record or explicitly reload the cloud
+version. Applied categories are ordinary financial-record changes and continue
+to sync through Supabase. Revision-checked sync requires
+[`supabase_transaction_sync.sql`](supabase_transaction_sync.sql) and all active
+devices upgraded to this version, together with the atomic financial-sync and
+background-payment migrations described above. Hosted Supabase/multi-device
+validation remains a release gate; do not deploy an incomplete migration set.
+
+Explicit demo loads use fresh record IDs and linked account IDs, preserving
+custom records and categories. Remove the current demo set before loading
+another. Removed demo IDs remain tombstoned; reloading never revives them.
+Cloud hydration retains live demo records and derives this device's demo-loaded
+indicator from them; it does not omit accounts from an atomic financial snapshot.
+
+Local AI does **not** make all MINARTH features work offline. In particular,
+the normal cloud account still syncs financial records, including categories
+the user applies, according to the existing Supabase sync behavior. During the
+explicit model download, Hugging Face receives normal network metadata.
+Downloaded model files are stored in browser/WebView Cache Storage, not an
+encrypted vault; removing the model deletes that cache.
+
 ## Local storage limits
 
 `localStorage` (used as an offline cache/fallback on every platform, including
@@ -885,8 +1017,9 @@ depending on the browser/WebView vendor, with no way to request more. That's
 roughly tens of thousands of transaction records as JSON, which is plenty for
 normal use, but it's not unlimited and it's per-device, not per-account.
 
-Once Supabase is configured (see above), the cloud database is the real,
-durable source of truth — `localStorage` just mirrors it for instant offline
-reads. If you ever hit the local quota (rare), the oldest safe fix is
-export a backup and free unrelated browser/device storage first. **Reset All
+Confirmed synced records are durable in Supabase; pending changes may exist
+only on this device until acknowledged. The paired financial snapshot and its
+legacy projections store the ledger twice, reducing the effective cache capacity.
+If you hit the local quota, export a backup and free unrelated browser/device
+storage first. Do not clear pending financial snapshots as a cache cleanup. **Reset All
 Data also deletes cloud records**; it is not a cache-only cleanup action.

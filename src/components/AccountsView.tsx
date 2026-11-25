@@ -747,7 +747,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
             </div>
 
             <div className="flex items-baseline justify-between gap-2 flex-wrap">
-              <div className="text-base sm:text-lg lg:text-xl font-bold text-emerald-400 tracking-tight">
+              <div className={`text-base sm:text-lg lg:text-xl font-bold tracking-tight ${showNetLiquid && totalLiquidAssets < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                 {showNetLiquid ? formatMoney(totalLiquidAssets, { symbol: currencySymbol, locale: settings?.locale }) : '••••••••'}
               </div>
               <div className="text-[10px] sm:text-[11px] text-[#aaa]">
@@ -902,7 +902,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
                   <div className="pt-2 border-t border-[#222] flex items-center justify-between">
                     <span className="text-[10px] text-[#666] uppercase">AVAILABLE BALANCE</span>
-                    <span className="text-base font-bold font-mono text-emerald-400">
+                    <span className={`text-base font-bold font-mono ${acc.balance < 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                       {formatMoney(acc.balance, { symbol: currencySymbol, locale: settings?.locale })}
                     </span>
                   </div>

@@ -8,6 +8,7 @@ import androidx.core.app.RemoteInput;
 import androidx.core.content.ContextCompat;
 import android.os.Bundle;
 import android.util.Log;
+import android.widget.Toast;
 
 public class PaymentActionReceiver extends BroadcastReceiver {
     @Override
@@ -44,10 +45,17 @@ public class PaymentActionReceiver extends BroadcastReceiver {
                 return;
             }
             if (!("tmf.ignore." + id).equals(intent.getAction())) return;
-            InterceptedPaymentStore.action(context, id, "ignore");
-            ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
+            if (InterceptedPaymentStore.action(context, id, "ignore")) {
+                ContextCompat.getSystemService(context, NotificationManager.class).cancel(id, 1);
+                Toast.makeText(context, "Payment notification ignored", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(context, "Payment is being saved or is no longer available", Toast.LENGTH_SHORT).show();
+            }
         } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
             Log.e("TMFInterceptor", "Could not persist payment notification action", error);
+            if (("tmf.ignore." + id).equals(intent.getAction())) {
+                Toast.makeText(context, "Could not ignore payment notification. Please retry", Toast.LENGTH_SHORT).show();
+            }
             if (("tmf.add." + id).equals(intent.getAction())) {
                 try {
                     InterceptedPaymentStore.saveFailed(context, id, "Could not schedule saving. Tap Add to retry");

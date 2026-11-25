@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Plus } from 'lucide-react';
+import { useFabScroll } from '../hooks/useFabScroll';
 
 interface FloatingActionButtonProps {
   onClick: () => void;
@@ -14,23 +15,7 @@ export const FloatingActionButton: React.FC<FloatingActionButtonProps> = ({
   visible,
   label = 'Add record',
 }) => {
-  const [isScrolled, setIsScrolled] = useState<boolean>(false);
-
-  useEffect(() => {
-    const target = scrollContainerRef?.current || document.querySelector('main');
-    if (!target) return;
-
-    const handleScroll = () => {
-      if (target.scrollTop > 40) {
-        setIsScrolled(true);
-      } else {
-        setIsScrolled(false);
-      }
-    };
-
-    target.addEventListener('scroll', handleScroll);
-    return () => target.removeEventListener('scroll', handleScroll);
-  }, [scrollContainerRef]);
+  const isScrolled = useFabScroll(scrollContainerRef);
 
   if (!visible) return null;
 

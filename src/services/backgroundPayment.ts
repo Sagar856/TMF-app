@@ -78,7 +78,13 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     location: location ? { lat: location.lat, lng: location.lng, name: locationName || 'Location name unavailable' } : undefined,
   };
   if (hasUnmatchedPaymentAccount(parsed, accounts)) throw new Error('Account not found or ambiguous. Add or select it in the app before saving.');
-  const { transaction } = createPaymentTransaction(applyNotificationCategoryOverride(parsed, categories), accounts, categories);
+  const { transaction: createdTransaction } = createPaymentTransaction(applyNotificationCategoryOverride(parsed, categories), accounts, categories);
+  const transaction: Transaction = {
+    ...createdTransaction,
+    categoryOrigin: parsed.categoryOverride
+      ? 'user-edited'
+      : createdTransaction.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
+  };
   const { data: saved, error: saveError } = await client.rpc('add_notification_payment', {
     payment: transaction, expected_user: payment.owner,
   });
@@ -93,13 +99,15 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
   // Older database functions do not credit the cash leg; only report it when the server did.
   const serverCreditedCash = isCashWithdrawal(transaction) && typeof saved.cash_balance === 'number' && Number.isFinite(saved.cash_balance);
   const cashAccount = serverCreditedCash
-    ? { ...(accounts.find(value => value.id === transaction.toAccountId) || createCashAccount(transaction.toAccountId!)), balance: saved.cash_balance }
+    ? { ...(accounts.find(value => value.id === transaction.toAccountId) || createCashAccount(transaction.toAccountId!)),
+      balance: saved.cash_balance, syncRevision: saved.cash_revision ?? undefined }
     : undefined;
   const receiptTransaction = isCashWithdrawal(transaction) && !serverCreditedCash
     ? { ...transaction, toAccountId: undefined } : transaction;
   if (!bridge.complete(JSON.stringify(saved.saved
     ? {
-      owner: payment.owner, transaction: receiptTransaction, account: account ? { ...account, balance: saved.balance } : undefined,
+      owner: payment.owner, transaction: { ...receiptTransaction, syncRevision: saved.transaction_revision ?? undefined },
+      account: account ? { ...account, balance: saved.balance, syncRevision: saved.account_revision ?? undefined } : undefined,
       localBalance: localAccounts.find(value => value.id === transaction.accountId)?.balance,
       ...(cashAccount ? { cashAccount, localCashBalance: localAccounts.find(value => value.id === cashAccount.id)?.balance } : {}),
     }

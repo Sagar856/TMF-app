@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import type { SettingsView as SettingsViewComponent } from './SettingsView';
 import { SETTINGS_SEARCH_ENTRIES } from '../utils/settingsSearch';
+import { AssistantRuntime } from '../services/assistantRuntime';
+import { ASSISTANT_STORAGE_BYTES } from '../services/assistantModel';
 
 test('categories and budgets remain a separate menu below preferences', (context) => {
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -62,6 +64,12 @@ test('categories and budgets remain a separate menu below preferences', (context
       onSignOut={() => {}}
       authUserEmail="test@example.com"
       isAuthenticated
+      assistant={{
+        runtime: new AssistantRuntime(), enabled: false, installed: false, supported: false,
+        ready: true, busy: false, error: '', progress: null, setEnabled: () => {},
+        install: async () => {}, cancelInstall: async () => {}, remove: async () => {},
+        storageBytes: ASSISTANT_STORAGE_BYTES,
+      }}
     />
   );
   const markup = renderToStaticMarkup(view);
