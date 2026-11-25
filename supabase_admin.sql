@@ -244,9 +244,18 @@ BEGIN
   IF p_user_id = auth.uid() OR EXISTS (SELECT 1 FROM public.admin_users WHERE user_id = p_user_id) THEN
     RAISE EXCEPTION 'Cannot delete data of an admin account' USING ERRCODE = '42501';
   END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_user_id::TEXT, 0));
+  PERFORM pg_catalog.set_config('tmf.transaction_write', 'allowed', true);
+  PERFORM pg_catalog.set_config('tmf.financial_write', 'allowed', true);
+  PERFORM pg_catalog.set_config('tmf.account_write', 'allowed', true);
   DELETE FROM public.transactions WHERE user_id = p_user_id;
   DELETE FROM public.categories WHERE user_id = p_user_id;
   DELETE FROM public.financial_accounts WHERE user_id = p_user_id;
+  IF pg_catalog.to_regclass('public.financial_sync_receipts') IS NOT NULL THEN
+    DELETE FROM public.financial_sync_receipts WHERE user_id = p_user_id;
+    INSERT INTO public.financial_sync_epochs (user_id, epoch) VALUES (p_user_id, 2)
+      ON CONFLICT (user_id) DO UPDATE SET epoch = public.financial_sync_epochs.epoch + 1;
+  END IF;
   DELETE FROM public.investments WHERE user_id = p_user_id;
   DELETE FROM public.loans WHERE user_id = p_user_id;
   DELETE FROM public.user_settings WHERE user_id = p_user_id;

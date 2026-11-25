@@ -262,3 +262,11 @@ test('successful deletion clears the local auth session', async () => {
   await api.deleteUserAccount();
   assert.equal(scope, 'local');
 });
+
+test('a local sign-out failure does not misreport a successful cloud account deletion', async () => {
+  const api = load({
+    signOut: async () => ({ error: { message: 'Local storage unavailable' } }),
+  }, async () => ({ error: null }));
+  const result = await api.deleteUserAccount();
+  assert.match(result.warning!, /Account deleted, but local sign-out failed/);
+});

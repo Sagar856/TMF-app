@@ -21,6 +21,8 @@ test('settings search matches synonyms and requires every meaningful word', () =
   ]) assert.equal(ids(query)[0], expected, query);
   assert.deepEqual(ids('password currency'), []);
   assert.deepEqual(ids('bank unicorn'), []);
+  assert.equal(ids('MINA')[0], 'local-assistant');
+  assert.ok(ids('assistant').includes('local-assistant'));
 });
 
 test('settings search tolerates a single typo or transposition but rejects unrelated terms', () => {

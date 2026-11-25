@@ -32,6 +32,8 @@ export interface FinancialAccount {
   cardNetwork?: 'Visa' | 'Mastercard' | 'RuPay' | 'Amex';
   cardColorTheme?: 'silver' | 'dark' | 'emerald' | 'gold' | 'midnight';
   isDefault?: boolean;
+  /** Optimistic concurrency token for atomic transaction/account cloud sync. */
+  syncRevision?: number;
 }
 
 export interface SavingsGoal {
@@ -71,6 +73,9 @@ export interface Transaction {
   paymentMethod?: string;
   note?: string;
   refNumber?: string;
+  /** Server-side optimistic concurrency token used only by Supabase transaction sync. */
+  syncRevision?: number;
+  categoryOrigin?: 'eligible' | 'unknown' | 'user-edited' | 'imported' | 'rule' | 'assistant';
 }
 
 export interface Category {

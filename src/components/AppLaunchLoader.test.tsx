@@ -25,3 +25,10 @@ test('startup failures keep the loader and expose error recovery instead of hidi
   assert.match(markup, />Retry<\/button>/);
   assert.match(markup, />Sign out<\/button>/);
 });
+
+test('pending financial conflicts offer backup export and explicit cloud recovery', () => {
+  const markup = renderToStaticMarkup(<AppLaunchLoader reduceMotion error="Financial conflict"
+    onExportLocal={() => {}} onDiscardLocal={() => {}} />);
+  assert.match(markup, /Export local backup/);
+  assert.match(markup, /Discard local changes and load cloud/);
+});

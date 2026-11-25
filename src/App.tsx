@@ -31,6 +31,9 @@ import { useActivityState } from './hooks/useActivityState';
 import { activityHistory, attachActivityHistory, resetActivityHistory } from './utils/activityHistory';
 import type { CategoryType, TransferRequest } from './components/EditTransactionModal';
 import { FloatingActionButton } from './components/FloatingActionButton';
+import { AssistantShortcut } from './components/AssistantShortcut';
+import { useAssistantModel } from './hooks/useAssistantModel';
+import { useAssistantCategorization } from './hooks/useAssistantCategorization';
 import { applyUiPalette } from './utils/uiPalette';
 import { BottomNav } from './components/BottomNav';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
@@ -63,18 +66,18 @@ import {
   SAMPLE_ACCOUNT_IDS,
   SAMPLE_TRANSACTION_IDS,
   SAMPLE_INVESTMENT_IDS,
-  SAMPLE_LOAN_IDS
+  SAMPLE_LOAN_IDS,
+  createSampleData,
+  isSampleRecordId,
 } from './data/initialData';
 
 import {
-  syncTransactionsToSupabase,
-  fetchTransactionsFromSupabase,
+  syncFinancialStateToSupabase,
+  fetchFinancialStateFromSupabase,
   syncCategoriesToSupabase,
   syncSettingsToSupabase,
   fetchSettingsFromSupabase,
   fetchCategoriesFromSupabase,
-  syncAccountsToSupabase,
-  fetchAccountsFromSupabase,
   syncInvestmentsToSupabase,
   fetchInvestmentsFromSupabase,
   syncLoansToSupabase,
@@ -85,7 +88,6 @@ import {
   isConfirmedEmailUser,
   signOutUser,
   deleteUserAccount,
-  deleteTransactionFromSupabase,
   deleteAccountFromSupabase,
   deleteCategoryFromSupabase,
   deleteInvestmentFromSupabase,
@@ -124,6 +126,9 @@ import { newId } from './utils/ids';
 import { todayLocalISO, nowLocalTimeHHMM, toLocalISODate } from './utils/dates';
 import { resolveAccountId } from './utils/accountResolver';
 import { inferTransactionKind, normalizeTransactions } from './utils/transactionKind';
+import { applyAccountSyncRevisions, applyTransactionSyncRevisions, pendingDeletionsToRestore } from './utils/transactionSync';
+import { persistFinancialState, readFinancialEpoch, readFinancialState } from './utils/financialState';
+import type { AssistantCategoryReview } from './utils/assistantCategory';
 import { MoneyLocaleContext } from './hooks/useMoneyFormatter';
 import { BackupRestoreData, isFinancialAccount, isTransaction } from './utils/backup';
 import { parseCloudSettings, portableSettings } from './utils/cloudSettings';
@@ -162,6 +167,7 @@ const AuthModal = lazy(() => import('./components/AuthModal').then((module) => (
 const ConfirmationModal = lazy(() => import('./components/ConfirmationModal').then((module) => ({ default: module.ConfirmationModal })));
 const BudgetPushNotificationBanner = lazy(() => import('./components/BudgetPushNotificationBanner').then((module) => ({ default: module.BudgetPushNotificationBanner })));
 const EmiConfirmationPromptModal = lazy(() => import('./components/EmiConfirmationPromptModal').then((module) => ({ default: module.EmiConfirmationPromptModal })));
+const AssistantChatModal = lazy(() => import('./components/AssistantChatModal').then((module) => ({ default: module.AssistantChatModal })));
 
 // Max wrong passcode attempts before a cooldown lockout kicks in.
 const MAX_PASSCODE_ATTEMPTS = 5;
@@ -201,6 +207,8 @@ function ensureMandatoryCategories(cats: Category[]): Category[] {
 
 export default function App() {
   const reduceMotion = useReducedMotion();
+  const assistantModel = useAssistantModel();
+  const [assistantOpen, setAssistantOpen] = useState(false);
   // Navigation Tab
   const [activeTab, setActiveTab] = useActivityState<string>('app.tab', () => new URLSearchParams(window.location.search).has('delete-account') ? 'settings' : 'dashboard');
   const [transactionFocusId, setTransactionFocusId] = useState<string | null>(null);
@@ -264,6 +272,7 @@ export default function App() {
   });
 
   const resolvedTheme = useResolvedTheme(settings.theme);
+  const [financialEpoch, setFinancialEpoch] = useState(() => readFinancialState()?.epoch ?? readFinancialEpoch());
 
   const [categories, setCategories] = useState<Category[]>(() => {
     const parsed = safeGetJson<Category[]>('tmf_categories', INITIAL_CATEGORIES, Array.isArray);
@@ -273,7 +282,7 @@ export default function App() {
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
-    const parsed = safeGetJson<FinancialAccount[] | null>('tmf_accounts', null, Array.isArray);
+    const parsed = readFinancialState()?.accounts ?? safeGetJson<FinancialAccount[] | null>('tmf_accounts', null, Array.isArray);
     if (parsed !== null) {
       return parsed.filter((a) => !deletedIds.has(a.id));
     }
@@ -288,7 +297,7 @@ export default function App() {
 
   const [transactions, setTransactions] = useState<Transaction[]>(() => {
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
-    const parsed = safeGetJson<Transaction[] | null>('tmf_transactions', null, Array.isArray);
+    const parsed = readFinancialState()?.transactions ?? safeGetJson<Transaction[] | null>('tmf_transactions', null, Array.isArray);
     if (parsed !== null) {
       return parsed.filter((t) => !deletedIds.has(t.id));
     }
@@ -554,6 +563,12 @@ export default function App() {
     });
   };
 
+  const requireOnlineForTransactionChange = () => {
+    if (navigator.onLine !== false) return true;
+    showToast('Connect to the internet to edit or delete transactions.', 'warning');
+    return false;
+  };
+
   const [isUnlocked, setIsUnlocked] = useState<boolean>(() => {
     return !settings.passcodeEnabled;
   });
@@ -578,6 +593,8 @@ export default function App() {
   const cloudLoadInFlightRef = useRef<boolean>(false);
   const cloudGenerationRef = useRef(0);
   const [cloudHydrated, setCloudHydrated] = useState<boolean>(false);
+  const transactionDeletesInFlight = useRef(new Set<string>());
+  const accountDeletesInFlight = useRef(new Set<string>());
   const lastPushedRef = useRef<Record<string, string>>({});
   // Surfaces the most recent backend sync outcome (success or a real error
   // message) so failures are visible instead of vanishing into the console.
@@ -626,6 +643,11 @@ export default function App() {
   };
 
   const handleEditTransaction = (tx: Transaction) => {
+    if (!requireOnlineForTransactionChange()) return;
+    if (transactionDeletesInFlight.current.has(tx.id)) {
+      showToast('Wait for this transaction deletion to finish.', 'warning');
+      return;
+    }
     setModalInitialCategoryType(tx.type === 'credit' ? 'Income' : 'Expense');
     setEditingTransaction(tx);
     setIsAddModalOpen(true);
@@ -788,6 +810,19 @@ export default function App() {
   // Cloud sync only ever runs for a real, signed-in user against the shared
   // backend — there is no per-user Supabase URL/Key to "connect" anymore.
   const cloudReady = isCloudBackendConfigured() && isAuthenticated;
+  const assistantCategorization = useAssistantCategorization({
+    runtime: assistantModel.runtime,
+    enabled: assistantModel.enabled,
+    installed: assistantModel.installed,
+    supported: assistantModel.supported,
+    canProcess: isUnlocked && !isAppLoading && !authLoading,
+    transactions,
+    categories,
+    cloudReady,
+    cloudHydrated,
+    setTransactions,
+    notify: showToast,
+  });
 
   useEffect(() => {
     const changed = () => setPreferencesRevision(value => value + 1);
@@ -878,7 +913,9 @@ export default function App() {
       return;
     }
     // Keep a visible schema warning on screen until the user dismisses it.
-    setSyncStatus((prev) => (prev?.success && prev.warning ? prev : { collection, success: true, timestamp }));
+    setSyncStatus((prev) => ((prev?.success && prev.warning)
+      || (prev?.collection === 'financial records' && !prev.success && collection !== 'financial records')
+      ? prev : { collection, success: true, timestamp }));
   };
 
   // Applies the authoritative cloud snapshot of SMS-parser payment reviews:
@@ -946,33 +983,35 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [categories, cloudReady, cloudHydrated]);
 
+  const syncFinancialStateAndApplyRevisions = async (records: Transaction[], accountRecords: FinancialAccount[]): Promise<SyncResult> => {
+    const generation = cloudGenerationRef.current;
+    const result = await syncFinancialStateToSupabase(records, accountRecords, [], financialEpoch, authUser?.id);
+    if (generation !== cloudGenerationRef.current) return { success: false, error: 'Account changed during financial sync. Retry after signing in.' };
+    if (result.success && result.transactionRevisions && result.accountRevisions) {
+      const { transactionRevisions, accountRevisions } = result;
+      lastPushedRef.current.transactions = JSON.stringify(applyTransactionSyncRevisions(records, transactionRevisions));
+      lastPushedRef.current.accounts = JSON.stringify(applyAccountSyncRevisions(accountRecords, accountRevisions));
+      setTransactions(current => applyTransactionSyncRevisions(current, transactionRevisions));
+      setAccounts(current => applyAccountSyncRevisions(current, accountRevisions));
+    }
+    return result;
+  };
+
   useEffect(() => {
-    safeSetItem('tmf_accounts', JSON.stringify(accounts));
+    if (isCloudBackendConfigured() && (!cloudReady || !cloudHydrated)) return;
+    const pending = lastPushedRef.current.transactions !== JSON.stringify(transactions)
+      || lastPushedRef.current.accounts !== JSON.stringify(accounts);
+    if (!persistFinancialState({ owner: authUser?.id || '', accounts, transactions, pending, epoch: financialEpoch })) {
+      showToast('Financial changes could not be saved on this device. Keep the app open; check storage or reload if the account was reset.', 'error');
+      return;
+    }
     if (!cloudReady || !cloudHydrated) return;
-    const snapshot = JSON.stringify(accounts);
-    if (lastPushedRef.current['accounts'] === snapshot) return;
-
+    if (!pending) return;
     const timer = setTimeout(() => {
-      lastPushedRef.current['accounts'] = snapshot;
-      syncAccountsToSupabase(accounts).then((result) => reportSyncResult('accounts', result));
+      void syncFinancialStateAndApplyRevisions(transactions, accounts).then((result) => reportSyncResult('financial records', result));
     }, 400);
-
     return () => clearTimeout(timer);
-  }, [accounts, cloudReady, cloudHydrated]);
-
-  useEffect(() => {
-    safeSetItem('tmf_transactions', JSON.stringify(transactions));
-    if (!cloudReady || !cloudHydrated) return;
-    const snapshot = JSON.stringify(transactions);
-    if (lastPushedRef.current['transactions'] === snapshot) return;
-
-    const timer = setTimeout(() => {
-      lastPushedRef.current['transactions'] = snapshot;
-      syncTransactionsToSupabase(transactions).then((result) => reportSyncResult('transactions', result));
-    }, 400);
-
-    return () => clearTimeout(timer);
-  }, [transactions, cloudReady, cloudHydrated]);
+  }, [transactions, accounts, cloudReady, cloudHydrated, financialEpoch, authUser?.id]);
 
   useEffect(() => {
     safeSetItem('tmf_investments', JSON.stringify(investments));
@@ -1039,8 +1078,7 @@ export default function App() {
     const results = await Promise.all([
       syncManualPreferences(),
       syncCategoriesToSupabase(categories),
-      syncAccountsToSupabase(accounts),
-      syncTransactionsToSupabase(transactions),
+      syncFinancialStateAndApplyRevisions(transactions, accounts),
       syncInvestmentsToSupabase(investments),
       syncLoansToSupabase(loans),
       flushNotificationSync(true).then((result): SyncResult => {
@@ -1121,15 +1159,35 @@ export default function App() {
     setCloudHydrated(false);
     let fetchThrewError = false;
     try {
-      const [cloudTx, cloudAcc, cloudCat, cloudInv, cloudLoans, tombstones] = await Promise.all([
-        fetchTransactionsFromSupabase(),
-        fetchAccountsFromSupabase(),
+      const local = readFinancialState();
+      if (local?.pending && local.owner === authUser?.id) {
+        if (!local.epoch) throw new Error('Pending records predate the financial sync generation. Export a backup before loading cloud records.');
+        const recovery = await syncFinancialStateToSupabase(local.transactions, local.accounts, [], local.epoch, local.owner);
+        if (generation !== cloudGenerationRef.current) return;
+        if (!recovery.success || !recovery.transactionRevisions || !recovery.accountRevisions) {
+          throw new Error(recovery.error || 'Could not recover pending financial changes. Your local records were kept.');
+        }
+        if (!persistFinancialState({
+          ...local, pending: false,
+          transactions: applyTransactionSyncRevisions(local.transactions, recovery.transactionRevisions),
+          accounts: applyAccountSyncRevisions(local.accounts, recovery.accountRevisions),
+        })) throw new Error('Could not persist recovered financial changes.');
+      }
+      const [financialState, cloudCat, cloudInv, cloudLoans, tombstones] = await Promise.all([
+        fetchFinancialStateFromSupabase(),
         fetchCategoriesFromSupabase(),
         fetchInvestmentsFromSupabase(),
         fetchLoansFromSupabase(),
         fetchCloudTombstones(),
       ]);
+      const { transactions: cloudTx, accounts: cloudAcc } = financialState;
+      tombstones.transactions = financialState.deletedTransactions;
+      tombstones.accounts = financialState.deletedAccounts;
       if (generation !== cloudGenerationRef.current) return;
+      if (!safeSetItem('tmf_financial_epoch', JSON.stringify(financialState.epoch))) {
+        throw new Error('Could not save the financial sync generation on this device.');
+      }
+      setFinancialEpoch(financialState.epoch);
 
       try {
         const cloudPreferences = await fetchSettingsFromSupabase();
@@ -1172,33 +1230,35 @@ export default function App() {
       mergeTombstones('tmf_deleted_investment_ids', tombstones.investments);
       mergeTombstones('tmf_deleted_loan_ids', tombstones.loans);
 
-      const isCloudEmpty =
-        cloudTx.length === 0 &&
-        cloudAcc.length === 0 &&
-        cloudInv.length === 0 &&
-        cloudLoans.length === 0;
+      const isSampleLoaded = cloudTx.some(transaction => isSampleRecordId(transaction.id, SAMPLE_TRANSACTION_IDS))
+        || cloudAcc.some(account => isSampleRecordId(account.id, SAMPLE_ACCOUNT_IDS))
+        || cloudInv.some(investment => isSampleRecordId(investment.id, SAMPLE_INVESTMENT_IDS))
+        || cloudLoans.some(loan => isSampleRecordId(loan.id, SAMPLE_LOAN_IDS));
+      setSettings(previous => ({ ...previous, sampleDataLoaded: isSampleLoaded }));
 
-      if (isCloudEmpty) {
-        setSettings(previous => ({ ...previous, sampleDataLoaded: false }));
+      const pendingTxIds = safeGetStringArray('tmf_deleted_tx_ids');
+      const restoredTxIds = pendingDeletionsToRestore(pendingTxIds, cloudTx, tombstones.transactions);
+      if (restoredTxIds.length > 0) {
+        if (!removeDeletedIds('tmf_deleted_tx_ids', restoredTxIds)) {
+          throw new Error('Could not restore pending transaction deletions on this device.');
+        }
+        showToast('Some pending transaction deletions were restored from the cloud. Review and delete them again online if needed.', 'warning', 8000);
       }
-
-      const savedSettings = safeGetJson<UserSettings | null>(
-        'tmf_settings',
-        null,
-        (value): value is UserSettings => typeof value === 'object' && value !== null && !Array.isArray(value)
-      );
-      const isSampleLoaded = isCloudEmpty
-        ? false
-        : (savedSettings ? savedSettings.sampleDataLoaded !== false : true);
-
-      const deletedTxIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
-      const deletedAccIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
+      const deletedTxIds = new Set(pendingTxIds.filter(id => !restoredTxIds.includes(id)));
+      const pendingAccIds = safeGetStringArray('tmf_deleted_account_ids');
+      const restoredAccIds = pendingDeletionsToRestore(pendingAccIds, cloudAcc, tombstones.accounts);
+      if (restoredAccIds.length > 0) {
+        if (!removeDeletedIds('tmf_deleted_account_ids', restoredAccIds)) {
+          throw new Error('Could not restore pending account deletions on this device.');
+        }
+        showToast('Pending account deletions were restored. Review and delete them again online if needed.', 'warning', 8000);
+      }
+      const deletedAccIds = new Set(pendingAccIds.filter(id => !restoredAccIds.includes(id)));
       const deletedInvIds = new Set(safeGetStringArray('tmf_deleted_investment_ids'));
       const deletedLoanIds = new Set(safeGetStringArray('tmf_deleted_loan_ids'));
 
       if (cloudTx) {
-        const filteredTx = (isSampleLoaded ? cloudTx : cloudTx.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id)))
-          .filter((t) => !deletedTxIds.has(t.id));
+        const filteredTx = cloudTx.filter((t) => !deletedTxIds.has(t.id));
         // Snapshot the raw cloud rows so that any back-filled kind/accountId
         // fields are pushed back to the cloud on the next sync pass.
         lastPushedRef.current['transactions'] = JSON.stringify(filteredTx);
@@ -1208,8 +1268,7 @@ export default function App() {
         safeSetItem('tmf_transactions', JSON.stringify(normalizedTx));
       }
       if (cloudAcc) {
-        const filteredAcc = (isSampleLoaded ? cloudAcc : cloudAcc.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id)))
-          .filter((a) => !deletedAccIds.has(a.id));
+        const filteredAcc = cloudAcc.filter((a) => !deletedAccIds.has(a.id));
         lastPushedRef.current['accounts'] = JSON.stringify(filteredAcc);
         setAccounts(filteredAcc);
         safeSetItem('tmf_accounts', JSON.stringify(filteredAcc));
@@ -1253,8 +1312,7 @@ export default function App() {
           return cloudRecord;
         });
 
-        const filteredInv = (isSampleLoaded ? mergedInv : mergedInv.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id)))
-          .filter((i) => !deletedInvIds.has(i.id));
+        const filteredInv = mergedInv.filter((i) => !deletedInvIds.has(i.id));
         lastPushedRef.current['investments'] = JSON.stringify(filteredInv);
         setInvestments(filteredInv);
         safeSetItem('tmf_investments', JSON.stringify(filteredInv));
@@ -1288,8 +1346,7 @@ export default function App() {
           return cloudRecord;
         });
 
-        const filteredLoans = (isSampleLoaded ? mergedLoans : mergedLoans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id)))
-          .filter((l) => !deletedLoanIds.has(l.id));
+        const filteredLoans = mergedLoans.filter((l) => !deletedLoanIds.has(l.id));
         lastPushedRef.current['loans'] = JSON.stringify(filteredLoans);
         setLoans(filteredLoans);
         safeSetItem('tmf_loans', JSON.stringify(filteredLoans));
@@ -1297,8 +1354,6 @@ export default function App() {
 
       // Only acknowledge the snapshot sent to the server; newer offline deletions must survive.
       const cleanup = [
-        { key: 'tmf_deleted_tx_ids', ids: Array.from(deletedTxIds), remove: deleteMultipleTransactionsFromSupabase },
-        { key: 'tmf_deleted_account_ids', ids: Array.from(deletedAccIds), remove: deleteMultipleAccountsFromSupabase },
         { key: 'tmf_deleted_investment_ids', ids: Array.from(deletedInvIds), remove: deleteMultipleInvestmentsFromSupabase },
         { key: 'tmf_deleted_loan_ids', ids: Array.from(deletedLoanIds), remove: deleteMultipleLoansFromSupabase },
       ];
@@ -1321,7 +1376,7 @@ export default function App() {
       setSyncStatus({
         collection: 'cloud-load',
         success: false,
-        error: 'Could not load cloud data — local changes are not being pushed',
+        error: err instanceof Error ? err.message : 'Could not load cloud data — local changes are not being pushed',
         timestamp: Date.now(),
       });
     } finally {
@@ -1365,6 +1420,8 @@ export default function App() {
     });
     setLastSettingsSyncAt(null);
     setSyncStatus(null);
+    setConfirmConfig(null);
+    setFinancialEpoch(undefined);
     // Remove private caches, rules, tombstones and pending sync state, not the Supabase session key.
     for (const key of Object.keys(localStorage)) {
       if (key.startsWith('tmf_')) localStorage.removeItem(key);
@@ -1518,13 +1575,14 @@ export default function App() {
         return navigator.locks.request('minarth-account-cloud-write', async () => {
           const receipts = (await getSavedPayments()).filter(receipt => receipt.owner === authUser?.id);
           if (!isActive() || generation !== cloudGenerationRef.current || safeGetItem('tmf_cache_owner') !== authUser?.id) return;
-          const latestTransactions = safeGetJson<Transaction[] | null>('tmf_transactions', null,
+          const cachedFinancialState = readFinancialState();
+          const latestTransactions = cachedFinancialState?.transactions ?? safeGetJson<Transaction[] | null>('tmf_transactions', null,
             (value): value is Transaction[] => Array.isArray(value) && value.every(isTransaction));
-          const latestAccounts = safeGetJson<FinancialAccount[] | null>('tmf_accounts', null,
+          const latestAccounts = cachedFinancialState?.accounts ?? safeGetJson<FinancialAccount[] | null>('tmf_accounts', null,
             (value): value is FinancialAccount[] => Array.isArray(value) && value.every(isFinancialAccount));
           if (!latestTransactions || !latestAccounts) throw new Error('Could not read financial data to restore saved payments');
           const projection = reconcileSavedPayments(receipts, latestTransactions, latestAccounts);
-          if (!persistPaymentTransaction(projection.transactions, projection.accounts, latestAccounts)) {
+          if (!persistPaymentTransaction(projection.transactions, projection.accounts)) {
             throw new Error('Could not restore background transactions to the device');
           }
           setAccounts(projection.accounts);
@@ -1846,14 +1904,14 @@ export default function App() {
   };
 
   // Notification Handlers (The requested feature: ADD, EDIT, IGNORE)
-  const persistPaymentTransaction = (nextTransactions: Transaction[], nextAccounts: FinancialAccount[], previousAccounts = accounts) => {
-    if (!safeSetItem('tmf_accounts', JSON.stringify(nextAccounts))) return false;
-    if (safeSetItem('tmf_transactions', JSON.stringify(nextTransactions))) return true;
-    if (!safeSetItem('tmf_accounts', JSON.stringify(previousAccounts))) {
-      console.error('Could not restore account balances after payment save failure');
-      showToast('Payment save failed and account balances could not be restored. Please review your accounts.', 'error');
+  const persistPaymentTransaction = (nextTransactions: Transaction[], nextAccounts: FinancialAccount[]) => {
+    if (!persistFinancialState({
+      owner: authUser?.id || '', accounts: nextAccounts, transactions: nextTransactions, pending: true, epoch: financialEpoch,
+    })) {
+      showToast('Could not save this payment on this device. Please retry.', 'error');
+      return false;
     }
-    return false;
+    return true;
   };
 
   const handleConfirmAddNotification = (notif: ParsedNotification) => {
@@ -1863,6 +1921,7 @@ export default function App() {
       queueNotificationResolution(notif.id, 'added', notif);
       void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
       setPendingNotifications(previous => previous.filter(item => item.id !== notif.id));
+      showToast('This payment was already added on this device.', 'info');
       return;
     }
     if (hasUnmatchedPaymentAccount(notif, accounts)) {
@@ -1876,7 +1935,13 @@ export default function App() {
       showToast(error instanceof Error ? error.message : 'Invalid category. Edit the payment in the app.', 'error');
       return;
     }
-    const { transaction: newTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, accounts, categories);
+    const { transaction: createdTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, accounts, categories);
+    const newTx: Transaction = {
+      ...createdTx,
+      categoryOrigin: categorized.categoryOverride
+        ? 'user-edited'
+        : createdTx.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
+    };
     const nextTransactions = [newTx, ...transactions];
     if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
     recordExtractedHistory(categorized, 'added', newTx.id);
@@ -1890,6 +1955,7 @@ export default function App() {
       if (remaining.length === 0) setIsNotificationModalOpen(false);
       return remaining;
     });
+    showToast('Payment added on this device. Cloud sync is separate.', 'success');
   };
 
   const handleConfirmEditNotification = (notif: ParsedNotification) => {
@@ -1948,7 +2014,10 @@ export default function App() {
 
   const handleIgnoreNotification = (notifId: string) => {
     const remaining = pendingNotifications.filter(n => n.id !== notifId);
-    if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) return;
+    if (!safeSetItem('tmf_pending_notifications', JSON.stringify(remaining))) {
+      showToast('Could not ignore this notification. Please retry.', 'error');
+      return;
+    }
     const ignored = pendingNotifications.find((item) => item.id === notifId);
     if (ignored) recordExtractedHistory(ignored, 'ignored');
     queueNotificationResolution(notifId, 'ignored', ignored);
@@ -1958,6 +2027,7 @@ export default function App() {
       if (remaining.length === 0) setIsNotificationModalOpen(false);
       return remaining;
     });
+    if (ignored) showToast('Notification ignored on this device.', 'success');
   };
 
   const historyTransaction = (entry: NotificationHistoryEntry) =>
@@ -2014,11 +2084,18 @@ export default function App() {
   // Transaction Actions
   const handleSaveTransaction = (incoming: Transaction) => {
     const oldTx = transactions.find(t => t.id === incoming.id);
+    if (oldTx && !requireOnlineForTransactionChange()) return;
+    if (oldTx && transactionDeletesInFlight.current.has(oldTx.id)) {
+      showToast('Wait for this transaction deletion to finish.', 'warning');
+      return;
+    }
     const resolvedAccountId = resolveAccountId(accounts, incoming.accountId || incoming.paymentMethod) || undefined;
     // Re-derive the semantic kind unless the editor set one explicitly, so a
     // category change (e.g. to Investment) is reflected in dashboard metrics.
     const tx: Transaction = {
       ...incoming,
+      syncRevision: oldTx?.syncRevision ?? incoming.syncRevision,
+      categoryOrigin: 'user-edited',
       accountId: resolvedAccountId,
       kind: incoming.kind ?? inferTransactionKind(incoming),
     };
@@ -2034,6 +2111,7 @@ export default function App() {
       if (result.added) {
         setAccounts(result.accounts);
         setTransactions(result.transactions);
+        showToast('Payment added on this device. Cloud sync is separate.', 'success');
       } else {
         showToast('This payment was already added. Its existing transaction was kept.', 'warning');
       }
@@ -2054,13 +2132,51 @@ export default function App() {
     setEditingTransaction(null);
   };
 
-  const handleDeleteTransaction = (id: string) => {
+  const handleDeleteTransaction = async (id: string) => {
+    if (!requireOnlineForTransactionChange()) return;
     const primary = transactions.find(t => t.id === id);
+    if (!primary || transactionDeletesInFlight.current.has(id)) return;
     // A transfer is two linked legs sharing a refNumber; removing one must remove both.
     const idsToDelete =
       primary && primary.kind === 'transfer' && primary.refNumber
         ? transactions.filter((t) => t.kind === 'transfer' && t.refNumber === primary.refNumber).map((t) => t.id)
         : [id];
+    if (idsToDelete.some(txId => transactionDeletesInFlight.current.has(txId))) return;
+    const deletedTransactions = transactions.filter(transaction => idsToDelete.includes(transaction.id));
+    if (isCloudBackendConfigured()) {
+      if (!cloudReady || !cloudHydrated || deletedTransactions.some(transaction => transaction.syncRevision === undefined)) {
+        showToast('Wait for transaction cloud sync to finish before deleting.', 'warning');
+        return;
+      }
+      const generation = cloudGenerationRef.current;
+      idsToDelete.forEach(txId => transactionDeletesInFlight.current.add(txId));
+      try {
+        const result = await deleteMultipleTransactionsFromSupabase(
+          deletedTransactions, accounts, transactions.filter(transaction => !idsToDelete.includes(transaction.id)), financialEpoch, authUser?.id,
+        );
+        if (generation !== cloudGenerationRef.current) return;
+        if (!result.success) {
+          setSyncStatus({ collection: 'cloud-delete', ...result, timestamp: Date.now() });
+          showToast(result.error || 'The transaction could not be deleted. Nothing was changed.', 'error');
+          return;
+        }
+        if (result.accountRevisions) {
+          const revisions = result.accountRevisions;
+          setAccounts(current => applyAccountSyncRevisions(current, revisions));
+        }
+        if (result.transactionRevisions) {
+          const revisions = result.transactionRevisions;
+          setTransactions(current => applyTransactionSyncRevisions(current, revisions));
+        }
+      } catch (error) {
+        if (generation === cloudGenerationRef.current) {
+          showToast(error instanceof Error ? error.message : 'The transaction could not be deleted. Please retry.', 'error');
+        }
+        return;
+      } finally {
+        idsToDelete.forEach(txId => transactionDeletesInFlight.current.delete(txId));
+      }
+    }
 
     // Record locally deleted IDs so they are never reloaded from cloud or initial state
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_tx_ids'));
@@ -2083,11 +2199,6 @@ export default function App() {
       })
     );
 
-    if (isCloudBackendConfigured()) {
-      deleteMultipleTransactionsFromSupabase(idsToDelete).then((result) => {
-        acknowledgeCloudDeletion('tmf_deleted_tx_ids', idsToDelete, result);
-      });
-    }
   };
 
   // Account Actions
@@ -2102,7 +2213,7 @@ export default function App() {
   const handleUpdateAccount = (updatedAcc: FinancialAccount) => {
     setAccounts((prev) =>
       prev.map((a) => {
-        if (a.id === updatedAcc.id) return updatedAcc;
+        if (a.id === updatedAcc.id) return { ...updatedAcc, syncRevision: a.syncRevision };
         if (updatedAcc.isDefault) return { ...a, isDefault: false };
         return a;
       })
@@ -2110,7 +2221,35 @@ export default function App() {
     showToast(`Account "${updatedAcc.name}" updated`, 'info');
   };
 
-  const handleDeleteAccount = (id: string) => {
+  const handleDeleteAccount = async (id: string) => {
+    if (!requireOnlineForTransactionChange() || accountDeletesInFlight.current.has(id)) return;
+    const account = accounts.find(item => item.id === id);
+    if (!account) {
+      showToast('Account was not found. Reload before deleting it.', 'error');
+      return;
+    }
+    const generation = cloudGenerationRef.current;
+    if (isCloudBackendConfigured()) {
+      accountDeletesInFlight.current.add(id);
+      try {
+        const sync = await syncFinancialStateAndApplyRevisions(transactions, accounts);
+        if (generation !== cloudGenerationRef.current) return;
+        if (!sync.success || !sync.accountRevisions) {
+          reportSyncResult('delete-account', sync);
+          showToast(sync.error || 'Could not save pending records before account deletion.', 'error');
+          return;
+        }
+        const result = await deleteAccountFromSupabase({ ...account, syncRevision: sync.accountRevisions[id] }, financialEpoch, authUser?.id);
+        if (generation !== cloudGenerationRef.current) return;
+        if (!result.success) {
+          reportSyncResult('delete-account', result);
+          showToast(result.error || 'Could not delete the account. Nothing was changed locally.', 'error');
+          return;
+        }
+      } finally {
+        accountDeletesInFlight.current.delete(id);
+      }
+    }
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
     deletedIds.add(id);
     safeSetItem('tmf_deleted_account_ids', JSON.stringify(Array.from(deletedIds)));
@@ -2119,11 +2258,6 @@ export default function App() {
     setAccounts(previous => previous.filter(a => a.id !== id));
     showToast(`${accName} deleted`, 'warning');
 
-    if (isCloudBackendConfigured()) {
-      deleteAccountFromSupabase(id).then((result) => {
-        acknowledgeCloudDeletion('tmf_deleted_account_ids', [id], result);
-      });
-    }
   };
 
   // Category Actions
@@ -2155,6 +2289,10 @@ export default function App() {
     const oldSubs = prevCat?.subcategories || [];
     const newSubsSet = new Set(cat.subcategories || []);
     const removedSubs = new Set(oldSubs.filter((s) => !newSubsSet.has(s)));
+    if ((nameChanged || removedSubs.size > 0) && transactions.some(tx =>
+      (nameChanged && tx.category === oldName)
+      || ((tx.category === cat.name || tx.category === oldName) && removedSubs.has(tx.subcategory)))
+      && !requireOnlineForTransactionChange()) return;
 
     // Cascade name changes and removed subcategories to transactions in one setTransactions call
     if (nameChanged || removedSubs.size > 0) {
@@ -2227,6 +2365,7 @@ export default function App() {
       intent: 'danger',
       icon: 'trash',
       onConfirm: () => {
+        if (affectedCount > 0 && !requireOnlineForTransactionChange()) return;
         const targetType = catToDelete.type;
 
         // Reassign affected transactions to Uncategorized in one batch
@@ -2803,16 +2942,26 @@ export default function App() {
   const handleRequestDeleteAccount = () => {
     setConfirmConfig({
       title: 'Permanently delete your account?',
-      description: 'This deletes your sign-in account and all associated cloud financial data and preferences. Export a backup first. This cannot be undone.',
+      description: 'This deletes your sign-in account and all associated cloud financial data and preferences. An internet connection is required. Export a backup first. This cannot be undone.',
       confirmLabel: 'Delete my account',
       intent: 'danger',
       icon: 'trash',
       onConfirm: async () => {
+        if (navigator.onLine === false) {
+          showToast('Connect to the internet to delete your account, then retry.', 'error', 8000);
+          return;
+        }
+        let warning: string | undefined;
         try {
-          await deleteUserAccount();
+          ({ warning } = await deleteUserAccount());
         } catch (error) {
           showToast(error instanceof Error ? error.message : 'Account deletion failed. Please retry.', 'error', 8000);
           return;
+        }
+        if (warning) {
+          setAuthUser(null);
+          clearLocalDataOnSignOut(true);
+          showToast(warning, 'warning', 8000);
         }
         try {
           await configureNotificationInterceptor(false, false, false, '');
@@ -2835,35 +2984,51 @@ export default function App() {
       intent: 'primary',
       icon: 'refresh',
       onConfirm: () => {
-        // Clear deleted IDs trackers so sample records are allowed to load
-        localStorage.removeItem('tmf_deleted_tx_ids');
-        localStorage.removeItem('tmf_deleted_account_ids');
-        localStorage.removeItem('tmf_deleted_investment_ids');
-        localStorage.removeItem('tmf_deleted_loan_ids');
-
-        setAccounts(INITIAL_ACCOUNTS);
-        setTransactions(INITIAL_TRANSACTIONS);
-        setInvestments(INITIAL_INVESTMENTS);
-        setLoans(INITIAL_LOANS);
-        setCategories(INITIAL_CATEGORIES);
+        if (transactions.length > 0 && !requireOnlineForTransactionChange()) return;
+        if (accounts.some(account => isSampleRecordId(account.id, SAMPLE_ACCOUNT_IDS))
+          || transactions.some(transaction => isSampleRecordId(transaction.id, SAMPLE_TRANSACTION_IDS))
+          || investments.some(investment => isSampleRecordId(investment.id, SAMPLE_INVESTMENT_IDS))
+          || loans.some(loan => isSampleRecordId(loan.id, SAMPLE_LOAN_IDS))) {
+          showToast('Sample data is already loaded. Remove it before loading a fresh set.', 'warning');
+          return;
+        }
+        const sample = createSampleData();
+        const nextAccounts = [...accounts, ...sample.accounts.map(account => ({
+          ...account, isDefault: accounts.some(existing => existing.isDefault) ? false : account.isDefault,
+        }))];
+        const nextTransactions = [...transactions, ...sample.transactions];
+        const nextInvestments = [...investments, ...sample.investments];
+        const nextLoans = [...loans, ...sample.loans];
+        if (!persistFinancialState({
+          owner: authUser?.id || '', accounts: nextAccounts, transactions: nextTransactions,
+          pending: true, epoch: financialEpoch,
+        })) {
+          showToast('Sample data could not be saved on this device. Free storage and retry.', 'error');
+          return;
+        }
+        setAccounts(nextAccounts);
+        setTransactions(nextTransactions);
+        setInvestments(nextInvestments);
+        setLoans(nextLoans);
+        setCategories(previous => [...previous, ...INITIAL_CATEGORIES.filter(category =>
+          !previous.some(existing => existing.id === category.id
+            || (existing.type === category.type && existing.name.toLowerCase() === category.name.toLowerCase()))
+        )]);
 
         const newSettings = { ...settings, sampleDataLoaded: true };
         setSettings(newSettings);
 
         safeSetItem('tmf_settings', JSON.stringify(newSettings));
-        safeSetItem('tmf_accounts', JSON.stringify(INITIAL_ACCOUNTS));
-        safeSetItem('tmf_transactions', JSON.stringify(INITIAL_TRANSACTIONS));
-        safeSetItem('tmf_investments', JSON.stringify(INITIAL_INVESTMENTS));
-        safeSetItem('tmf_loans', JSON.stringify(INITIAL_LOANS));
+        safeSetItem('tmf_investments', JSON.stringify(nextInvestments));
+        safeSetItem('tmf_loans', JSON.stringify(nextLoans));
 
         if (isCloudBackendConfigured()) {
-          syncAccountsToSupabase(INITIAL_ACCOUNTS);
-          syncTransactionsToSupabase(INITIAL_TRANSACTIONS);
-          syncInvestmentsToSupabase(INITIAL_INVESTMENTS);
-          syncLoansToSupabase(INITIAL_LOANS);
+          void syncFinancialStateAndApplyRevisions(nextTransactions, nextAccounts).then(result => reportSyncResult('financial records', result));
+          syncInvestmentsToSupabase(nextInvestments);
+          syncLoansToSupabase(nextLoans);
         }
 
-        showToast('Sample demo data loaded & saved', 'success');
+        showToast('Sample demo data loaded locally', 'success');
       },
     });
   };
@@ -2877,17 +3042,47 @@ export default function App() {
       intent: 'warning',
       icon: 'trash',
       onConfirm: async () => {
+        const generation = cloudGenerationRef.current;
+        if (transactions.some(transaction => isSampleRecordId(transaction.id, SAMPLE_TRANSACTION_IDS))
+          && !requireOnlineForTransactionChange()) return;
+        const sampleTransactions = transactions.filter(transaction => isSampleRecordId(transaction.id, SAMPLE_TRANSACTION_IDS));
+        const sampleAccounts = accounts.filter(account => isSampleRecordId(account.id, SAMPLE_ACCOUNT_IDS));
+        const sampleInvestments = investments.filter(investment => isSampleRecordId(investment.id, SAMPLE_INVESTMENT_IDS));
+        const sampleLoans = loans.filter(loan => isSampleRecordId(loan.id, SAMPLE_LOAN_IDS));
+        let accountRevisions: Record<string, number> = {};
+        if (isCloudBackendConfigured()) {
+          const deletion = await deleteMultipleTransactionsFromSupabase(
+            sampleTransactions, accounts, transactions.filter(transaction => !isSampleRecordId(transaction.id, SAMPLE_TRANSACTION_IDS)), financialEpoch, authUser?.id,
+          );
+          if (generation !== cloudGenerationRef.current) return;
+          if (!deletion.success) {
+            reportSyncResult('remove-demo', deletion);
+            showToast(deletion.error || 'Could not remove demo transactions.', 'error');
+            return;
+          }
+          accountRevisions = deletion.accountRevisions || {};
+          const accountDeletion = await deleteMultipleAccountsFromSupabase(
+            applyAccountSyncRevisions(sampleAccounts, accountRevisions), financialEpoch, authUser?.id,
+          );
+          if (generation !== cloudGenerationRef.current) return;
+          if (!accountDeletion.success) {
+            reportSyncResult('remove-demo', accountDeletion);
+            showToast('Demo transactions were removed, but account removal failed. Reload the cloud data before retrying.', 'error');
+            return;
+          }
+        }
         const removals = [
-          { key: 'tmf_deleted_tx_ids', ids: Array.from(SAMPLE_TRANSACTION_IDS), remove: deleteMultipleTransactionsFromSupabase },
-          { key: 'tmf_deleted_account_ids', ids: Array.from(SAMPLE_ACCOUNT_IDS), remove: deleteMultipleAccountsFromSupabase },
-          { key: 'tmf_deleted_investment_ids', ids: Array.from(SAMPLE_INVESTMENT_IDS), remove: deleteMultipleInvestmentsFromSupabase },
-          { key: 'tmf_deleted_loan_ids', ids: Array.from(SAMPLE_LOAN_IDS), remove: deleteMultipleLoansFromSupabase },
+          { key: 'tmf_deleted_investment_ids', ids: sampleInvestments.map(item => item.id), remove: deleteMultipleInvestmentsFromSupabase },
+          { key: 'tmf_deleted_loan_ids', ids: sampleLoans.map(item => item.id), remove: deleteMultipleLoansFromSupabase },
         ];
+        trackDeletedIds('tmf_deleted_tx_ids', sampleTransactions.map(item => item.id));
+        trackDeletedIds('tmf_deleted_account_ids', sampleAccounts.map(item => item.id));
         removals.forEach(item => trackDeletedIds(item.key, item.ids));
-        const nextTx = transactions.filter((t) => !SAMPLE_TRANSACTION_IDS.has(t.id));
-        const nextAcc = accounts.filter((a) => !SAMPLE_ACCOUNT_IDS.has(a.id));
-        const nextInv = investments.filter((i) => !SAMPLE_INVESTMENT_IDS.has(i.id));
-        const nextLoans = loans.filter((l) => !SAMPLE_LOAN_IDS.has(l.id));
+        const nextTx = transactions.filter((t) => !isSampleRecordId(t.id, SAMPLE_TRANSACTION_IDS));
+        const reverted = sampleTransactions.reduce((current, transaction) => applyTransactionToAccounts(current, transaction, -1), accounts);
+        const nextAcc = applyAccountSyncRevisions(reverted, accountRevisions).filter((a) => !isSampleRecordId(a.id, SAMPLE_ACCOUNT_IDS));
+        const nextInv = investments.filter((i) => !isSampleRecordId(i.id, SAMPLE_INVESTMENT_IDS));
+        const nextLoans = loans.filter((l) => !isSampleRecordId(l.id, SAMPLE_LOAN_IDS));
 
         setTransactions(nextTx);
         setAccounts(nextAcc);
@@ -2944,7 +3139,7 @@ export default function App() {
 
   const handleRestoreBackupJSON = (backup: BackupRestoreData) => {
     const restoredCategories = ensureMandatoryCategories(backup.categories);
-    const restoredAccounts = backup.accounts ?? accounts;
+    const restoredAccounts = (backup.accounts ?? accounts).map(({ syncRevision: _revision, ...account }) => account);
     const restoredSavingsGoals = backup.savingsGoals ?? savingsGoals;
     const legacyAccountNote = backup.accounts === undefined
       ? ' This older backup does not include accounts, so current accounts will be kept.'
@@ -2961,13 +3156,22 @@ export default function App() {
       intent: 'danger',
       icon: 'warning',
       onConfirm: async () => {
+        const generation = cloudGenerationRef.current;
+        if (transactions.length > 0 && !requireOnlineForTransactionChange()) return;
         if (cloudReady) {
-          const deletion = await deleteAllUserDataFromSupabase();
+          const deletion = await deleteAllUserDataFromSupabase(authUser?.id);
+          if (generation !== cloudGenerationRef.current) return;
           if (!deletion.success) {
             setSyncStatus({ collection: 'backup-restore', ...deletion, timestamp: Date.now() });
             showToast(`Could not restore backup because cloud data could not be cleared: ${deletion.error || 'Unknown error'}`, 'error');
             return;
           }
+          if (!deletion.financialEpoch || !safeSetItem('tmf_financial_epoch', JSON.stringify(deletion.financialEpoch))) {
+            showToast('Cloud data was cleared, but the new sync generation could not be saved. Reload before restoring.', 'error');
+            return;
+          }
+          cloudGenerationRef.current++;
+          setFinancialEpoch(deletion.financialEpoch);
         }
 
         const tombstoneKeys = [
@@ -2988,7 +3192,7 @@ export default function App() {
         });
         setCategories(restoredCategories);
         setAccounts(restoredAccounts);
-        setTransactions(backup.transactions);
+        setTransactions(backup.transactions.map(({ syncRevision: _revision, ...transaction }) => transaction));
         setInvestments(backup.investments);
         setLoans(backup.loans);
         setSavingsGoals(restoredSavingsGoals);
@@ -3006,7 +3210,10 @@ export default function App() {
       if (existingIds.has(transaction.id) || importedIds.has(transaction.id)) return false;
       importedIds.add(transaction.id);
       return true;
-    });
+    }).map(transaction => ({
+      ...transaction,
+      categoryOrigin: transaction.category.toLowerCase() === 'uncategorized' ? 'eligible' as const : 'imported' as const,
+    }));
 
     if (added.length > 0) {
       removeDeletedIds('tmf_deleted_tx_ids', added.map((transaction) => transaction.id));
@@ -3025,18 +3232,30 @@ export default function App() {
       intent: 'danger',
       icon: 'warning',
       onConfirm: async () => {
-        let receiptCleanupError: string | null = null;
-        try {
-          await deleteAllReceiptAttachments();
-        } catch (error) {
-          receiptCleanupError = error instanceof Error ? error.message : 'Unknown storage error';
+        const generation = cloudGenerationRef.current;
+        if (transactions.length > 0 && !requireOnlineForTransactionChange()) return;
+        if (isCloudBackendConfigured()) {
+          const result = await deleteAllUserDataFromSupabase(authUser?.id);
+          if (generation !== cloudGenerationRef.current) return;
+          if (!result.success) {
+            setSyncStatus({ collection: 'delete-all-data', ...result, timestamp: Date.now() });
+            showToast(result.error || 'Cloud reset failed. Your local records were kept.', 'error');
+            return;
+          }
+          if (!result.financialEpoch || !safeSetItem('tmf_financial_epoch', JSON.stringify(result.financialEpoch))
+            || !persistFinancialState({
+              owner: authUser?.id || '', accounts: [], transactions: [], pending: false, epoch: result.financialEpoch,
+            })) {
+            showToast('Cloud records were reset, but this device could not save the new state. Export a backup and reload.', 'error');
+            return;
+          }
+          cloudGenerationRef.current++;
+          setFinancialEpoch(result.financialEpoch);
         }
-        const deletedSnapshots = [
-          { key: 'tmf_deleted_tx_ids', ids: transactions.map(item => item.id) },
-          { key: 'tmf_deleted_account_ids', ids: accounts.map(item => item.id) },
-          { key: 'tmf_deleted_investment_ids', ids: investments.map(item => item.id) },
-          { key: 'tmf_deleted_loan_ids', ids: loans.map(item => item.id) },
-        ].map(item => ({ key: item.key, ids: trackDeletedIds(item.key, item.ids) }));
+        const resetGeneration = cloudGenerationRef.current;
+        for (const key of ['tmf_deleted_tx_ids', 'tmf_deleted_account_ids', 'tmf_deleted_investment_ids', 'tmf_deleted_loan_ids']) {
+          safeSetItem(key, '[]');
+        }
         const newSettings = { ...settings, sampleDataLoaded: false };
         setSettings(newSettings);
 
@@ -3065,20 +3284,23 @@ export default function App() {
         resetDuplicateMemory();
         setPaymentActions([]);
         setEditingPaymentId(null);
-        await clearInterceptedPayments();
-
-        if (isCloudBackendConfigured()) {
-          const result = await deleteAllUserDataFromSupabase();
-          if (result.success) {
-            deletedSnapshots.forEach(item => acknowledgeCloudDeletion(item.key, item.ids, result));
-          } else {
-            setSyncStatus({ collection: 'delete-all-data', ...result, timestamp: Date.now() });
-          }
+        let receiptCleanupError: string | null = null;
+        try {
+          await deleteAllReceiptAttachments();
+        } catch (error) {
+          receiptCleanupError = error instanceof Error ? error.message : 'Unknown storage error';
         }
+        if (resetGeneration !== cloudGenerationRef.current) return;
+        try {
+          await clearInterceptedPayments();
+        } catch (error) {
+          receiptCleanupError = `Notification cleanup failed: ${error instanceof Error ? error.message : 'Unknown storage error'}`;
+        }
+        if (resetGeneration !== cloudGenerationRef.current) return;
 
         showToast(
           receiptCleanupError
-            ? `Financial records were cleared, but local receipt images could not be removed: ${receiptCleanupError}`
+            ? `Financial records were cleared, but some local cleanup failed: ${receiptCleanupError}`
             : 'All local financial records cleared',
           receiptCleanupError ? 'warning' : 'error'
         );
@@ -3099,14 +3321,36 @@ export default function App() {
   }
 
   const waitingForPrivateAccount = Boolean(authUser) && !isPasswordRecovery && cloudReady && !cloudHydrated;
-  if (isAppLoading || passcodeMigrationPending || authLoading || waitingForPrivateAccount) {
+  if (isAppLoading || passcodeMigrationPending || authLoading
+    || (waitingForPrivateAccount && (!settings.passcodeEnabled || isUnlocked))) {
+    const pendingFinancialState = waitingForPrivateAccount && readFinancialState()?.pending;
     return (
+      <>
       <AppLaunchLoader
         reduceMotion={reduceMotion}
         error={waitingForPrivateAccount && syncStatus?.success === false ? syncStatus.error : undefined}
         onRetry={() => void loadCloudData()}
         onSignOut={handleSignOut}
+        onExportLocal={pendingFinancialState ? handleExportBackupJSON : undefined}
+        onDiscardLocal={pendingFinancialState ? () => setConfirmConfig({
+          title: 'Discard pending local financial changes?',
+          description: 'Export a local backup first if you need these changes. This loads the cloud accounts and transactions instead of retrying the pending local batch.',
+          confirmLabel: 'Discard & load cloud',
+          intent: 'danger',
+          icon: 'warning',
+          onConfirm: async () => {
+            if (!persistFinancialState({
+              owner: authUser?.id || '', accounts: [], transactions: [], pending: false, epoch: readFinancialEpoch(),
+            })) {
+              showToast('Could not discard the local snapshot. Check storage and retry.', 'error');
+              return;
+            }
+            await loadCloudData();
+          },
+        }) : undefined}
       />
+      {confirmConfig && <Suspense fallback={null}><ConfirmationModal config={confirmConfig} onClose={() => setConfirmConfig(null)} /></Suspense>}
+      </>
     );
   }
 
@@ -3288,6 +3532,11 @@ export default function App() {
                 ? `Cloud sync warning (${syncStatus.collection}): ${syncStatus.warning}`
                 : `Backend sync failed (${syncStatus.collection}): ${syncStatus.error || 'Unknown error'}`}
             </span>
+            {!syncStatus.success && syncStatus.collection === 'financial records' && (
+              <button type="button" onClick={() => void loadCloudData()} className="shrink-0 text-xs underline">
+                Review financial sync
+              </button>
+            )}
             <button
               type="button"
               onClick={() => setSyncStatus((prev) => (prev ? { ...prev, success: true, warning: undefined } : null))}
@@ -3462,6 +3711,7 @@ export default function App() {
               onDeleteUserAccount={handleRequestDeleteAccount}
               onSignOut={handleSignOut}
               openProfileRequest={openProfileRequest}
+              assistant={assistantModel}
             />
           )}
             </motion.div>
@@ -3470,6 +3720,12 @@ export default function App() {
         </main>
 
         {/* Global Floating Action Button for Home, Txns, Invest, Loans */}
+        <AssistantShortcut
+          visible={assistantModel.ready && assistantModel.enabled && assistantModel.installed
+            && ['dashboard', 'transactions', 'investments', 'loans'].includes(activeTab)}
+          onClick={() => setAssistantOpen(true)}
+          scrollContainerRef={mainScrollRef}
+        />
         <FloatingActionButton
           onClick={() => {
             if (activeTab === 'investments') setOpenAssetRequest((request) => request + 1);
@@ -3499,6 +3755,28 @@ export default function App() {
       </div>
 
       {/* Top Bar Auto-Vanishing Pop-up Notification */}
+      {assistantOpen && assistantModel.enabled && assistantModel.installed && (
+        <Suspense fallback={<div role="status" className="fixed inset-0 z-modal flex items-center justify-center bg-backdrop/80 text-xs text-white">Loading MINA…</div>}>
+          <AssistantChatModal
+            runtime={assistantModel.runtime}
+            transactions={transactions}
+            categories={categories}
+            accounts={accounts}
+            investments={investments}
+            loans={loans}
+            savingsGoals={savingsGoals}
+            currencyCode={settings.currencyCode}
+            marketSnapshot={marketSnapshot}
+            categoryReviews={assistantCategorization.reviews}
+            existingUncategorizedCount={assistantCategorization.existingUncategorizedCount}
+            onCategorizeExisting={assistantCategorization.categorizeExisting}
+            onApproveCategory={assistantCategorization.approveReview}
+            onDismissCategory={assistantCategorization.dismissReview}
+            onReloadConflict={assistantCategorization.reloadConflict}
+            onClose={() => setAssistantOpen(false)}
+          />
+        </Suspense>
+      )}
       <AnimatePresence>
         {topBarToast && (
           <TopBarToast

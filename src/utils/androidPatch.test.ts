@@ -56,6 +56,15 @@ test('Payment interception preserves API 22 compatibility without suppressing li
   }
 });
 
+test('native ignore confirms only a persisted action and background Add displays saving state', () => {
+  const store = readFileSync(new URL('../../native/notification-intercept-plugin/InterceptedPaymentStore.java', import.meta.url), 'utf8');
+  const receiver = readFileSync(new URL('../../native/notification-intercept-plugin/PaymentActionReceiver.java', import.meta.url), 'utf8');
+  assert.match(store, /boolean action\([\s\S]*?save\(context, records\);[\s\S]*?return true;[\s\S]*?return false;/);
+  assert.match(store, /saving \? "Saving transaction and syncing account balance\.\.\."/);
+  assert.match(receiver, /if \(InterceptedPaymentStore\.action\(context, id, "ignore"\)\) \{[\s\S]*?Payment notification ignored/);
+  assert.match(receiver, /Could not ignore payment notification\. Please retry/);
+});
+
 test('Background update notifications are scheduled, bounded, permission-aware and deduplicated', () => {
   const worker = readFileSync(new URL('../../native/app-update-plugin/AppUpdateWorker.java', import.meta.url), 'utf8');
   const plugin = readFileSync(new URL('../../native/app-update-plugin/AppUpdatePlugin.java', import.meta.url), 'utf8');

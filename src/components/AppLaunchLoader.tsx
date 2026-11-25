@@ -7,9 +7,11 @@ interface AppLaunchLoaderProps {
   error?: string;
   onRetry?: () => void;
   onSignOut?: () => void;
+  onExportLocal?: () => void;
+  onDiscardLocal?: () => void;
 }
 
-export function AppLaunchLoader({ reduceMotion, error, onRetry, onSignOut }: AppLaunchLoaderProps) {
+export function AppLaunchLoader({ reduceMotion, error, onRetry, onSignOut, onExportLocal, onDiscardLocal }: AppLaunchLoaderProps) {
   return (
     <div className="identity-glass app-launch flex flex-col items-center justify-center min-h-dvh text-content-1 font-mono p-6 relative overflow-hidden select-none">
       <div className="absolute w-96 h-96 bg-violet-600/15 rounded-full blur-3xl pointer-events-none motion-safe:animate-pulse" />
@@ -39,6 +41,8 @@ export function AppLaunchLoader({ reduceMotion, error, onRetry, onSignOut }: App
             <div className="flex flex-wrap justify-center gap-4">
               {onRetry && <button type="button" onClick={onRetry} className="rounded-xl bg-violet-600 px-4 py-2 text-sm text-white">Retry</button>}
               {onSignOut && <button type="button" onClick={onSignOut} className="text-sm underline">Sign out</button>}
+              {onExportLocal && <button type="button" onClick={onExportLocal} className="text-sm underline">Export local backup</button>}
+              {onDiscardLocal && <button type="button" onClick={onDiscardLocal} className="text-sm text-red-400 underline">Discard local changes and load cloud</button>}
             </div>
           </div>
         )}

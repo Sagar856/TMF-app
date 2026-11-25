@@ -1,4 +1,5 @@
 import { Transaction, Category, InvestmentRecord, LoanRecord, FinancialAccount } from '../types/finance';
+import { normalizeTransactions } from '../utils/transactionKind';
 
 export const INITIAL_ACCOUNTS: FinancialAccount[] = [
   // Bank Accounts
@@ -611,3 +612,25 @@ export const SAMPLE_TRANSACTION_IDS = new Set(INITIAL_TRANSACTIONS.map((t) => t.
 export const SAMPLE_INVESTMENT_IDS = new Set(INITIAL_INVESTMENTS.map((i) => i.id));
 export const SAMPLE_LOAN_IDS = new Set(INITIAL_LOANS.map((l) => l.id));
 
+export function isSampleRecordId(id: string, legacyIds: ReadonlySet<string>): boolean {
+  const originalId = /^tmf-demo:[0-9a-f-]{36}:(.+)$/.exec(id)?.[1];
+  return legacyIds.has(id) || Boolean(originalId && legacyIds.has(originalId));
+}
+
+export function createSampleData() {
+  const prefix = `tmf-demo:${crypto.randomUUID()}:`;
+  const accountId = (id: string | undefined) => id ? `${prefix}${id}` : undefined;
+  return {
+    accounts: INITIAL_ACCOUNTS.map(account => ({ ...account, id: `${prefix}${account.id}` })),
+    transactions: normalizeTransactions(INITIAL_TRANSACTIONS, INITIAL_ACCOUNTS).map(transaction => ({
+      ...transaction, id: `${prefix}${transaction.id}`,
+      accountId: accountId(transaction.accountId), toAccountId: accountId(transaction.toAccountId),
+    })),
+    investments: INITIAL_INVESTMENTS.map(investment => ({
+      ...investment, id: `${prefix}${investment.id}`, linkedAccountId: accountId(investment.linkedAccountId),
+    })),
+    loans: INITIAL_LOANS.map(loan => ({
+      ...loan, id: `${prefix}${loan.id}`, linkedAccountId: accountId(loan.linkedAccountId),
+    })),
+  };
+}

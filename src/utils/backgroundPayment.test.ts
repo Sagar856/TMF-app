@@ -12,8 +12,10 @@ import { isFinancialAccount, isTransaction } from './backup';
 import { reconcileSavedPayments } from './savedPaymentReconciliation';
 import { createCashAccount, isCashWithdrawal } from './cashAccount';
 import type { InterceptedPayment } from '../services/notificationListener';
+import { parseTransactionSyncRevisions } from './transactionSync';
 
 const source = readFileSync(new URL('../services/backgroundPayment.ts', import.meta.url), 'utf8');
+const backgroundSql = readFileSync(new URL('../../supabase_background_payments.sql', import.meta.url), 'utf8');
 const start = source.indexOf('async function savePayment(');
 const end = source.indexOf('\nif (window.PaymentBackground)', start);
 assert.ok(start >= 0 && end > start);
@@ -21,6 +23,15 @@ const save = transformSync(source.slice(start, end) + '\nsavePayment(bridge);', 
 const bank: FinancialAccount = {
   id: 'bank', name: 'HDFC', bankName: 'HDFC', type: 'Bank', accountNumberLast4: '4411', balance: 5000, isDefault: true,
 };
+
+test('background payment RPC uses the guarded transaction-write path and keeps duplicate inserts idempotent', () => {
+  const start = backgroundSql.indexOf('CREATE OR REPLACE FUNCTION public.add_notification_payment');
+  const end = backgroundSql.indexOf('REVOKE ALL ON FUNCTION public.add_notification_payment', start);
+  assert.ok(start >= 0 && end > start);
+  const functionSql = backgroundSql.slice(start, end);
+  assert.match(functionSql, /set_config\('tmf\.transaction_write', 'allowed', true\)/);
+  assert.match(functionSql, /ON CONFLICT \(user_id, id\) DO NOTHING/);
+});
 const payment = {
   id: 'payment-1', owner: 'user-1', packageName: 'com.google.android.apps.messaging',
   title: 'HDFC Bank', text: 'Rs 1,500 debited from a/c XX4411 to Big Bazaar ref 12345678',
@@ -261,59 +272,67 @@ test('saving an open notification editor does not reapply a payment added in the
 });
 
 const syncSource = readFileSync(new URL('../services/supabaseClient.ts', import.meta.url), 'utf8');
-const syncStart = syncSource.indexOf('export async function syncAccountsToSupabase(');
+const syncStart = syncSource.indexOf('export async function syncFinancialStateToSupabase(');
 const syncEnd = syncSource.indexOf('export async function deleteAccountFromSupabase(', syncStart);
 assert.ok(syncStart >= 0 && syncEnd > syncStart);
-const sync = transformSync(syncSource.slice(syncStart, syncEnd).replace('export ', '') + '\nsyncAccountsToSupabase(accounts);', { loader: 'ts' }).code;
+const helper = syncSource.slice(syncSource.indexOf('function transactionSyncRows('), syncSource.indexOf('// Metadata-only transaction writes'));
+const sync = transformSync(helper + syncSource.slice(syncStart, syncEnd).replace('export ', '') + '\nsyncFinancialStateToSupabase([], accounts);', { loader: 'ts' }).code;
 
 function accountUploadHarness() {
-  const storage = new Map([
-    ['tmf_cache_owner', 'user-1'], ['tmf_accounts', JSON.stringify([bank])], ['tmf_transactions', '[]'],
-  ]);
-  const uploads: { balance: number }[][] = [];
-  const receipts: InterceptedPayment[] = [];
+  const uploads: { p_accounts: { balance: number; sync_revision: number | null }[]; p_operation_id: string }[] = [];
+  let conflict = false;
   const state = {
-    accounts: [bank], isFinancialAccount, isTransaction,
-    getSupabaseClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) } }),
-    Capacitor: { getPlatform: () => 'android' },
-    localStorage: { getItem: (key: string) => storage.get(key) ?? null },
-    getSavedPayments: async () => receipts,
-    navigator: { locks: { request: async (_name: string, work: () => Promise<unknown>) => work() } },
-    upsertWithSchemaFallback: async (_client: unknown, _table: string, rows: { balance: number }[]) => {
-      uploads.push(rows);
-      return { success: true };
-    },
+    accounts: [{ ...bank, syncRevision: 3 }], crypto, TextEncoder, parseTransactionSyncRevisions,
+    readFinancialEpoch: () => 1,
+    safeGetItem: () => 'user-1',
+    getSupabaseClient: () => ({
+      auth: { getUser: async () => ({ data: { user: { id: 'user-1' } } }) },
+      rpc: async (name: string, payload: typeof uploads[number]) => {
+        assert.equal(name, 'sync_financial_state');
+        uploads.push(payload);
+        return conflict ? { error: { code: '40001' } } : { data: { accounts: [{ id: bank.id, sync_revision: 4 }], transactions: [] } };
+      },
+    }),
     syncError: (_collection: string, error: Error) => ({ success: false, error: error.message }),
   };
-  return { state, uploads, storage, receipts, run: () => runInNewContext(sync, state) };
+  return { state, uploads, setConflict: () => { conflict = true; }, run: () => runInNewContext(sync, state) };
 }
 
-test('foreground account upload waits for the background-save lock and reads the latest balances', async () => {
+test('foreground financial uploads carry account revisions and stable retry IDs instead of blind balance upserts', async () => {
   const h = accountUploadHarness();
-  let release!: () => void;
-  const held = new Promise<void>(resolve => { release = resolve; });
-  h.state.navigator.locks.request = async (name, work) => {
-    assert.equal(name, 'minarth-account-cloud-write');
-    await held;
-    return work();
-  };
-  const upload = h.run();
-  h.storage.set('tmf_accounts', JSON.stringify([{ ...bank, balance: 3500 }]));
-  release();
-  await upload;
-  assert.equal(h.uploads[0][0].balance, 3500);
+  assert.equal((await h.run()).success, true);
+  await h.run();
+  assert.equal(h.uploads[0].p_accounts[0].sync_revision, 3);
+  assert.equal(h.uploads[0].p_operation_id, h.uploads[1].p_operation_id);
+  h.state.accounts[0].balance -= 1;
+  await h.run();
+  assert.notEqual(h.uploads[0].p_operation_id, h.uploads[2].p_operation_id);
 });
 
-test('an unimported background receipt prevents a stale foreground balance from being uploaded', async () => {
-  const background = harness();
-  await background.run();
+test('a background account revision change visibly rejects the stale foreground batch', async () => {
   const h = accountUploadHarness();
-  h.receipts.push({
-    ...payment, action: 'saved', transaction: background.completed[0].transaction,
-    account: { ...bank, balance: 3500 }, localBalance: 5000, savedRevision: 1,
-  });
+  h.setConflict();
   const result = await h.run();
   assert.equal(result.success, false);
-  assert.match(result.error, /background payment was saved/);
+  assert.equal(result.conflict, true);
+  assert.match(result.error, /No part of this batch was saved/);
+});
+
+test('a session belonging to another cache owner cannot upload a financial snapshot', async () => {
+  const h = accountUploadHarness();
+  h.state.safeGetItem = () => 'previous-user';
+  const result = await h.run();
+  assert.equal(result.success, false);
+  assert.match(result.error, /Account changed/);
+  assert.equal(h.uploads.length, 0);
+});
+
+test('a delayed financial batch retains its original owner even after the active cache changes', async () => {
+  const h = accountUploadHarness();
+  const originalOwner = sync.replace('syncFinancialStateToSupabase([], accounts);',
+    'syncFinancialStateToSupabase([], accounts, [], 1, "previous-user");');
+  assert.notEqual(originalOwner, sync);
+  const result = await runInNewContext(originalOwner, h.state);
+  assert.equal(result.success, false);
   assert.equal(h.uploads.length, 0);
 });

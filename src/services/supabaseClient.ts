@@ -3,8 +3,10 @@ import { Transaction, Category, FinancialAccount, InvestmentRecord, LoanRecord }
 import { CloudSettings, parseCloudSettings } from '../utils/cloudSettings';
 import { isStrongPassword } from '../utils/passwordPolicy';
 import { Capacitor } from '@capacitor/core';
-import { getSavedPayments } from './notificationListener';
-import { isFinancialAccount, isTransaction } from '../utils/backup';
+import { parseTransactionSyncRevisions } from '../utils/transactionSync';
+import { applyTransactionToAccounts } from '../utils/paymentTransaction';
+import { readFinancialEpoch } from '../utils/financialState';
+import { safeGetItem } from '../utils/storage';
 
 let supabaseInstance: SupabaseClient | null = null;
 let clientInitAttempted = false;
@@ -203,13 +205,18 @@ export function createEmailRegistration() {
   };
 }
 
-export async function deleteUserAccount(): Promise<void> {
+export async function deleteUserAccount(): Promise<{ warning?: string }> {
   const client = getSupabaseClient();
   if (!client) throw new Error('Cloud backend is not configured for this build');
   const { error } = await client.rpc('delete_own_account');
   if (error) throw new Error(`Account deletion failed: ${error.message}`);
-  const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
-  if (signOutError) throw new Error(`Account deleted, but local sign-out failed: ${signOutError.message}. Restart the app.`);
+  try {
+    const { error: signOutError } = await client.auth.signOut({ scope: 'local' });
+    if (signOutError) return { warning: `Account deleted, but local sign-out failed: ${signOutError.message}. Restart the app.` };
+  } catch (reason) {
+    return { warning: `Account deleted, but local sign-out failed: ${reason instanceof Error ? reason.message : 'Unknown error'}. Restart the app.` };
+  }
+  return {};
 }
 
 export async function signInUser(email: string, pass: string) {
@@ -331,6 +338,11 @@ export interface SyncResult {
   warning?: string;
   /** True when the error/warning is caused by the deployed Supabase schema missing columns from supabase_schema.sql. */
   schemaOutdated?: boolean;
+  transactionRevisions?: Record<string, number>;
+  accountRevisions?: Record<string, number>;
+  financialEpoch?: number;
+  /** Transaction RPC rejected a stale revision; callers must not overwrite the newer cloud row. */
+  conflict?: boolean;
 }
 
 export const SCHEMA_OUTDATED_HINT =
@@ -553,18 +565,10 @@ export async function fetchCloudTombstones(): Promise<CloudTombstones> {
   return results.reduce<CloudTombstones>((acc, [key, ids]) => ({ ...acc, [key]: ids }), empty);
 }
 
-// 1. Transactions Sync
-export async function syncTransactionsToSupabase(transactions: Transaction[]): Promise<SyncResult> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  const { data: { user } } = await client.auth.getUser();
-  if (!user) return { success: false, error: 'Not signed in' };
-
-  try {
-    const rows = transactions.map((t) => ({
+function transactionSyncRows(transactions: Transaction[], userId: string) {
+  return transactions.map((t) => ({
       id: t.id,
-      user_id: user.id,
+      user_id: userId,
       title: t.title,
       amount: t.amount,
       type: t.type,
@@ -582,20 +586,58 @@ export async function syncTransactionsToSupabase(transactions: Transaction[]): P
       kind: t.kind || null,
       account_id: t.accountId || null,
       to_account_id: t.toAccountId || null,
-    }));
+      sync_revision: t.syncRevision ?? null,
+      category_origin: t.categoryOrigin || 'unknown',
+  }));
+}
 
-    return upsertWithSchemaFallback(client, 'transactions', rows, 'transactions');
+// Metadata-only transaction writes; money movements use syncFinancialStateToSupabase.
+export async function syncTransactionsToSupabase(transactions: Transaction[]): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) return { success: false, error: 'Not signed in' };
+  try {
+    const rows = transactionSyncRows(transactions, user.id);
+    const { data, error } = await client.rpc('sync_transactions', { p_transactions: rows });
+    if (error) {
+      if (error.code === 'PGRST202' || error.code === '42883') {
+        return {
+          success: false,
+          schemaOutdated: true,
+          error: 'Transaction sync is unavailable. Do not deploy the transaction-sync migration yet; it requires further balance-safety validation.',
+        };
+      }
+      if (error.code === '40001') {
+        return {
+          success: false,
+          conflict: true,
+          error: 'A transaction changed or was deleted on another device. Reload to view the cloud version, then reapply your edit if needed.',
+        };
+      }
+      return syncError('transactions', error);
+    }
+
+    const transactionRevisions = parseTransactionSyncRevisions(data, transactions.map(transaction => transaction.id));
+    if (!transactionRevisions) {
+      return { success: false, error: 'The transaction sync service returned an invalid or incomplete response.' };
+    }
+    return { success: true, transactionRevisions };
   } catch (err) {
     return syncError('transactions', err);
   }
 }
 
-export async function deleteTransactionFromSupabase(id: string): Promise<SyncResult> {
-  return deleteRows('transactions', [id], 'delete-transaction');
-}
-
-export async function deleteMultipleTransactionsFromSupabase(ids: string[]): Promise<SyncResult> {
-  return deleteRows('transactions', ids, 'delete-multiple-transactions');
+export async function deleteMultipleTransactionsFromSupabase(
+  transactions: Transaction[], accounts: FinancialAccount[], retainedTransactions: Transaction[],
+  expectedEpoch = readFinancialEpoch(), expectedUser = safeGetItem('tmf_cache_owner'),
+): Promise<SyncResult> {
+  if (transactions.length === 0) return { success: true };
+  if (!accounts || !retainedTransactions) {
+    return { success: false, error: 'Transaction deletion requires the current financial snapshot. Reload and retry.' };
+  }
+  const nextAccounts = transactions.reduce((current, transaction) => applyTransactionToAccounts(current, transaction, -1), accounts);
+  return syncFinancialStateToSupabase(retainedTransactions, nextAccounts, transactions, expectedEpoch, expectedUser);
 }
 
 export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | null> {
@@ -614,7 +656,19 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
     }
     if (!data) return null;
 
-    return data.map((row) => ({
+    return data.map(transactionFromRow);
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [transactions]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [transactions]:', err);
+    }
+    return null;
+  }
+}
+
+function transactionFromRow(row: AnyRow): Transaction {
+  return {
       id: row.id,
       title: row.title,
       amount: Number(row.amount),
@@ -633,15 +687,11 @@ export async function fetchTransactionsFromSupabase(): Promise<Transaction[] | n
       kind: row.kind || undefined,
       accountId: row.account_id || undefined,
       toAccountId: row.to_account_id || undefined,
-    }));
-  } catch (err) {
-    if (isNetworkOrFetchError(err)) {
-      console.warn('Supabase fetch [transactions]: Network unreachable. Using local data.');
-    } else {
-      console.warn('Supabase fetch error [transactions]:', err);
-    }
-    return null;
-  }
+      syncRevision: Number.isSafeInteger(row.sync_revision) && row.sync_revision > 0 ? row.sync_revision : undefined,
+      categoryOrigin: ['eligible', 'unknown', 'user-edited', 'imported', 'rule', 'assistant'].includes(row.category_origin)
+        ? row.category_origin
+        : 'unknown',
+  };
 }
 
 // 2. Categories Sync
@@ -707,37 +757,20 @@ export async function fetchCategoriesFromSupabase(): Promise<Category[] | null> 
   }
 }
 
-// 3. Financial Accounts Sync
-export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Promise<SyncResult> {
+// Account projections and ledger writes commit together, with per-account CAS.
+export async function syncFinancialStateToSupabase(
+  transactions: Transaction[], accounts: FinancialAccount[], deletions: Transaction[] = [], expectedEpoch = readFinancialEpoch(),
+  expectedUser = safeGetItem('tmf_cache_owner'),
+): Promise<SyncResult> {
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
-
-  const { data: { user } } = await client.auth.getUser();
-  if (!user) return { success: false, error: 'Not signed in' };
-
   const upload = async (): Promise<SyncResult> => {
     try {
-      let currentAccounts = accounts;
-      if (Capacitor.getPlatform() === 'android' && localStorage.getItem('tmf_cache_owner') === user.id) {
-        // A native Add may commit while an older foreground upload waits for
-        // the lock. Read the latest projection and include unimported receipts.
-        const stored = localStorage.getItem('tmf_accounts');
-        if (stored) {
-          const parsed: unknown = JSON.parse(stored);
-          if (!Array.isArray(parsed) || !parsed.every(isFinancialAccount)) throw new Error('Invalid account cache');
-          currentAccounts = parsed;
-        }
-        const storedTransactions: unknown = JSON.parse(localStorage.getItem('tmf_transactions') || '[]');
-        if (!Array.isArray(storedTransactions) || !storedTransactions.every(isTransaction)) throw new Error('Invalid transaction cache');
-        const transactionIds = new Set(storedTransactions.map(transaction => transaction.id));
-        const receipts = await getSavedPayments();
-        for (const receipt of receipts) {
-          const transaction = receipt.transaction;
-          if (receipt.owner !== user.id || !transaction || transactionIds.has(transaction.id)) continue;
-          return { success: false, error: 'A background payment was saved. Resume the app to refresh balances before syncing.' };
-        }
-      }
-      const rows = currentAccounts.map((a) => ({
+      const { data: { user } } = await client.auth.getUser();
+      if (!user || user.id !== expectedUser) return { success: false, error: 'Account changed. Reload before syncing financial records.' };
+      const epoch = expectedEpoch;
+      if (!epoch) return { success: false, error: 'Load the cloud financial snapshot before syncing changes.' };
+      const rows = accounts.map((a) => ({
         id: a.id,
         user_id: user.id,
         name: a.name,
@@ -752,25 +785,61 @@ export async function syncAccountsToSupabase(accounts: FinancialAccount[]): Prom
         card_network: a.cardNetwork || null,
         card_color_theme: a.cardColorTheme || 'dark',
         is_default: Boolean(a.isDefault),
+        sync_revision: a.syncRevision ?? null,
       }));
-
-      return await upsertWithSchemaFallback(client, 'financial_accounts', rows, 'financial_accounts');
+      const payload = {
+        p_accounts: rows,
+        p_transactions: transactionSyncRows(transactions, user.id),
+        p_deletions: deletions.map(({ id, syncRevision }) => ({ id, sync_revision: syncRevision ?? null })),
+        p_epoch: epoch,
+      };
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(payload)));
+      const operationId = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      const { data, error } = await client.rpc('sync_financial_state', { ...payload, p_operation_id: operationId, p_expected_user: user.id });
+      if (error?.code === 'PGRST202' || error?.code === '42883') {
+        return { success: false, schemaOutdated: true, error: 'Atomic financial sync is unavailable. Do not deploy the migrations until the coordinated rollout has been validated.' };
+      }
+      if (error?.code === '40001') {
+        return { success: false, conflict: true, error: 'Financial records changed on another device. Reload the cloud records, then reapply your changes. No part of this batch was saved.' };
+      }
+      if (error) return syncError('financial-state', error);
+      const transactionRevisions = parseTransactionSyncRevisions(data?.transactions, transactions.map(item => item.id));
+      const accountRevisions = parseTransactionSyncRevisions(data?.accounts, accounts.map(item => item.id));
+      if (!transactionRevisions || !accountRevisions) {
+        return { success: false, error: 'The financial sync service returned an invalid response. Retry the same changes to recover the committed result.' };
+      }
+      return { success: true, transactionRevisions, accountRevisions };
     } catch (err) {
       return syncError('financial_accounts', err);
     }
   };
-  if (typeof navigator !== 'undefined' && navigator.locks) {
-    return navigator.locks.request('minarth-account-cloud-write', upload);
-  }
   return upload();
 }
 
-export async function deleteAccountFromSupabase(id: string): Promise<SyncResult> {
-  return deleteRows('financial_accounts', [id], 'delete-financial-account');
+export async function deleteAccountFromSupabase(
+  account: FinancialAccount, expectedEpoch = readFinancialEpoch(), expectedUser = safeGetItem('tmf_cache_owner'),
+): Promise<SyncResult> {
+  return deleteMultipleAccountsFromSupabase([account], expectedEpoch, expectedUser);
 }
 
-export async function deleteMultipleAccountsFromSupabase(ids: string[]): Promise<SyncResult> {
-  return deleteRows('financial_accounts', ids, 'delete-multiple-financial-accounts');
+export async function deleteMultipleAccountsFromSupabase(
+  accounts: FinancialAccount[], expectedEpoch = readFinancialEpoch(), expectedUser = safeGetItem('tmf_cache_owner'),
+): Promise<SyncResult> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+  try {
+    const { data: { user } } = await client.auth.getUser();
+    if (!user || user.id !== expectedUser) return { success: false, error: 'Account changed. Reload before deleting financial records.' };
+    const epoch = expectedEpoch;
+    if (!epoch) return { success: false, error: 'Load the cloud financial snapshot before deleting accounts.' };
+    const { error } = await client.rpc('delete_financial_accounts', {
+      p_ids: accounts.map(account => ({ id: account.id, sync_revision: account.syncRevision ?? null })),
+      p_expected_user: user.id, p_epoch: epoch,
+    });
+    return error ? syncError('delete-financial-accounts', error) : { success: true };
+  } catch (error) {
+    return syncError('delete-financial-accounts', error);
+  }
 }
 
 export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | null> {
@@ -789,7 +858,19 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
     }
     if (!data) return null;
 
-    return data.map((row) => ({
+    return data.map(accountFromRow);
+  } catch (err) {
+    if (isNetworkOrFetchError(err)) {
+      console.warn('Supabase fetch [financial_accounts]: Network unreachable. Using local data.');
+    } else {
+      console.warn('Supabase fetch error [financial_accounts]:', err);
+    }
+    return null;
+  }
+}
+
+function accountFromRow(row: AnyRow): FinancialAccount {
+  return {
       id: row.id,
       name: row.name,
       bankName: row.bank_name,
@@ -803,15 +884,38 @@ export async function fetchAccountsFromSupabase(): Promise<FinancialAccount[] | 
       cardNetwork: row.card_network,
       cardColorTheme: row.card_color_theme,
       isDefault: Boolean(row.is_default),
-    }));
-  } catch (err) {
-    if (isNetworkOrFetchError(err)) {
-      console.warn('Supabase fetch [financial_accounts]: Network unreachable. Using local data.');
-    } else {
-      console.warn('Supabase fetch error [financial_accounts]:', err);
+      syncRevision: Number.isSafeInteger(row.sync_revision) && row.sync_revision > 0 ? row.sync_revision : undefined,
+  };
+}
+
+export async function fetchFinancialStateFromSupabase(): Promise<{
+  transactions: Transaction[]; accounts: FinancialAccount[]; deletedTransactions: string[]; deletedAccounts: string[]; epoch: number;
+}> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Supabase is not configured.');
+  const expectedUser = safeGetItem('tmf_cache_owner');
+  const { data: { user } } = await client.auth.getUser();
+  if (!user || user.id !== expectedUser) throw new Error('Account changed. Reload before loading financial records.');
+  const { data, error } = await client.rpc('fetch_financial_state', { p_expected_user: user.id });
+  if (error) {
+    if (error.code === 'PGRST202' || error.code === '42883') {
+      throw new Error('Atomic financial sync is unavailable. The coordinated migration rollout must be validated before deploying this build.');
     }
-    return null;
+    throw new Error('Could not load a consistent financial snapshot. Retry when the cloud is reachable.');
   }
+  if (!data || !Number.isSafeInteger(data.epoch) || data.epoch < 1
+    || !Array.isArray(data.transactions) || !Array.isArray(data.accounts)
+    || !Array.isArray(data.deleted_transactions) || !data.deleted_transactions.every((id: unknown) => typeof id === 'string')
+    || !Array.isArray(data.deleted_accounts) || !data.deleted_accounts.every((id: unknown) => typeof id === 'string')) {
+    throw new Error('The financial sync service returned an invalid snapshot.');
+  }
+  return {
+    transactions: data.transactions.map(transactionFromRow),
+    accounts: data.accounts.map(accountFromRow),
+    deletedTransactions: data.deleted_transactions,
+    deletedAccounts: data.deleted_accounts,
+    epoch: data.epoch,
+  };
 }
 
 // 4. Investments Sync
@@ -928,18 +1032,22 @@ export async function deleteMultipleLoansFromSupabase(ids: string[]): Promise<Sy
   return deleteRows('loans', ids, 'delete-multiple-loans');
 }
 
-export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
+export async function deleteAllUserDataFromSupabase(expectedUser = safeGetItem('tmf_cache_owner')): Promise<SyncResult> {
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
 
   try {
     const { data: { user } } = await client.auth.getUser();
-    if (!user) return { success: false, error: 'Not signed in' };
+    if (!user || user.id !== expectedUser) return { success: false, error: 'Account changed. Reload before resetting financial records.' };
     // Explicit user scope as defense in depth alongside RLS. Hard delete is
     // intentional here: "Reset all data" must also remove tombstones.
-    const tables: SyncTable[] = ['transactions', 'categories', 'financial_accounts', 'investments', 'loans'];
-    const results = await Promise.all(tables.map((t) => client.from(t).delete().eq('user_id', user.id)));
+    const tables: SyncTable[] = ['categories', 'investments', 'loans'];
+    const [transactions, ...results] = await Promise.all([
+      client.rpc('reset_financial_state', { p_expected_user: user.id }),
+      ...tables.map((table) => client.from(table).delete().eq('user_id', user.id)),
+    ]);
 
+    if (transactions.error) return syncError('delete-all-data', transactions.error);
     for (const res of results) {
       if (res.error) {
         return syncError('delete-all-data', res.error);
@@ -951,7 +1059,8 @@ export async function deleteAllUserDataFromSupabase(): Promise<SyncResult> {
     if (reviews.error && reviews.error.code !== 'PGRST205' && reviews.error.code !== '42P01') {
       return syncError('delete-all-data', reviews.error);
     }
-    return { success: true };
+    const snapshot = await fetchFinancialStateFromSupabase();
+    return { success: true, financialEpoch: snapshot.epoch };
   } catch (err) {
     return syncError('delete-all-data', err);
   }

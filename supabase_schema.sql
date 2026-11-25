@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS public.transactions (
   kind TEXT,
   account_id TEXT,
   to_account_id TEXT,
+  sync_revision INTEGER NOT NULL DEFAULT 1,
+  category_origin TEXT NOT NULL DEFAULT 'unknown'
+    CHECK (category_origin IN ('eligible', 'unknown', 'user-edited', 'imported', 'rule', 'assistant')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   PRIMARY KEY (user_id, id)
 );
@@ -240,6 +243,8 @@ ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS ref_number TEXT;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS kind TEXT;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS account_id TEXT;
 ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS to_account_id TEXT;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS sync_revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE public.transactions ADD COLUMN IF NOT EXISTS category_origin TEXT NOT NULL DEFAULT 'unknown';
 
 -- =======================================================
 -- SYNC METADATA: updated_at (last-writer timestamp) and deleted_at

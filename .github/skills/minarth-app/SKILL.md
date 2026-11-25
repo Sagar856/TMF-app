@@ -49,6 +49,115 @@ behavior.
 - Transaction/account balance changes must remain idempotent and consistent.
   Reuse stable IDs and existing reconciliation/locking logic instead of
   applying a balance change again on retries.
+- Transaction sync uses `sync_revision` and the RPCs in
+  `supabase_transaction_sync.sql`; direct legacy writes are rejected after the
+  migration. Preserve RLS and owner checks, handle stale-write conflicts
+  visibly, and keep `add_notification_payment` compatible via the updated
+  `supabase_background_payments.sql`. The guard permits auth-account cascades;
+  the authorized admin data wipe requires the updated `supabase_admin.sql`.
+  Live cloud rows with pending local deletion IDs are restored for review
+  rather   than deleted with a newly fetched revision; cloud tombstones remain protected.
+  `supabase_financial_sync.sql` adds account revisions, an owner-scoped reset
+  epoch, an atomic account/transaction/deletion RPC and hash-only retry receipts.
+  `App.tsx` uploads accounts and transactions together, never as independent
+  snapshots. Deletion batches include retained pending transactions and reverse
+  balances in the same commit; only a confirmed batch changes the local deletion.
+  The transaction-only RPC permits balance-neutral metadata changes for MINA.
+  Background Add uses the same owner advisory lock and bumps account revisions.
+  Legacy direct account writes are rejected. Reset removes both ledger sides
+  atomically and advances the epoch, preventing old unsynced creates from returning.
+  Capture a batch's owner and epoch with its snapshot, not when a delayed upload executes.
+  Keep the loaded epoch in React state: another tab changing storage must not
+  relabel old in-memory records with a post-reset epoch. Paired persistence rejects
+  a different active cache owner or generation.
+  Reset/restore invalidate old callbacks before replacing local state. Financial
+  account deletion checks the account revision and epoch; pending live account
+  deletions are restored for review, not retried with fresh revisions.
+  `financialState.ts` stores an authoritative paired device snapshot; pending
+  snapshots are recovered before cloud hydration. Conflicts preserve the local
+  snapshot and offer backup export and explicit discard/reload after unlocking.
+  Financial snapshot reads use one RPC, not separate account/transaction reads.
+  Offline edits/deletes remain blocked; online status does not prove reachability.
+  Keep deployment gated on hosted Supabase and multi-device validation of the
+  complete coordinated migration set; local PGlite checks are not that validation.
+- `src/utils/assistantReport.ts` prepares deterministic monthly report data;
+  operating cashflow and budget usage reuse existing helpers. Accounts,
+  investments, loans and goals are current snapshots, not month-end history.
+  `assistantReportExplanation.ts` allows the model to select only preverified
+  findings, rejecting invented or malformed output. `AssistantChatModal`
+  triggers reports only on explicit report requests or the report button;
+  questions merely mentioning reports do not generate one. It holds chat/report data in
+  component memory, and presents the report with user-triggered CSV/PDF export.
+  PDF pages are rendered images and are not text-selectable. Report exports
+  reuse the same deterministic report rows.
+- `src/hooks/useAssistantCategorization.ts` runs only while the app is unlocked
+  and the assistant is enabled with an installed model. It processes eligible
+  notification, imported and rule-origin transactions, while unknown-origin
+  existing records require explicit selection. `assistantCategory.ts` validates
+  proposals against current transaction state, type-valid categories and
+  rules; uncertain/rule-conflicting suggestions require review. User-edited
+  categories and transaction fields, including transfer destination and
+  location, are protected from changes during inference. Approved changes use revision-checked sync and
+  preserve other transaction fields; cloud conflicts must be reloaded or kept
+  locally rather than retried as stale writes. The review UI is in
+  `AssistantChatModal.tsx`.
+- `useAssistantModel` owns the device-local enable preference and the assistant
+  download/disable/remove lifecycle. MINA is the user-facing name, including in
+  Settings search and the chat dialog. `AssistantSettingsSection` explains the
+  storage impact and continuing Supabase financial-record sync; the circular
+  MINA shortcut is shown only while AI is enabled and installed. MINA and the
+  add FAB share `useFabScroll` for their scroll fade behavior.
+- Self-service account deletion requires connectivity and invokes the
+  `delete_own_account` RPC. Once the server confirms deletion, a local sign-out
+  failure is reported as a cleanup warning, not a failed cloud deletion.
+- The assistant worker downloads pinned, verified files into Cache
+  Storage; weights are split into bounded entries and reassembled as a stream
+  for inference. Pipeline preflight reads the pinned revision through a
+  read-only cache adapter; generation uses the model's chat template.
+  Web Locks serialize installs/removal against inference across tabs, and
+  unsupported lock implementations fail explicitly. The worker prioritizes interactive chat/report requests over queued
+  categorization without interrupting an active inference or passing an install.
+  `AssistantRuntime.cancelInstall()` and `stop()` wait for
+  partial download cleanup; removal stops the worker before deleting the model.
+  Browser harnesses verified download, warm-worker offline inference, model
+  removal and cross-tab locks. A fresh production worker also generated a
+  synthetic finance answer with fetch disabled (zero fetch attempts); this does
+  not verify an offline app/browser restart or Android compatibility.
+  Those still require target-device end-to-end testing. Chat prompts and report
+  findings are passed only to the local worker; never log or persist them.
+- Categorization prompts use temporary category aliases rather than stored
+  IDs; sanitized subcategory labels must map unambiguously to current choices.
+  Prompts include transaction titles and available categories,
+  not merchant/person or note fields. `assistantPrivacy.ts` filters all runtime
+  prompts before the worker and rejects some unsafe responses. It blocks some
+  labelled secrets and masks emails and long digit sequences, but cannot detect
+  all private text; the UI warns users not to enter it. The model has no
+  database tools; report inference receives derived findings, not raw records.
+  Never log, persist or upload prompts, chat or report content. Ordinary
+  financial records and applied category changes continue to sync to Supabase.
+- General chat uses `assistantChat.ts` for bundled MINARTH navigation and
+  calculation guidance and passes
+  separate system/user/assistant messages through the model's chat template.
+  Questions mentioning credentials receive a deterministic refusal before
+  report creation or inference and are omitted from later model history; this
+  is not a complete free-text privacy filter.
+  Questions about report snapshot periods use verified current-snapshot
+  guidance instead of a generated claim.
+  Simple navigation questions about budgets, categories and auto-categorisation
+  receive deterministic settings paths. Exact basic finance-definition questions
+  use bundled answers without model inference; personalized questions do not.
+  Category and report prompts continue
+  to use their existing string protocol.
+- `createSampleData` in `src/data/initialData.ts` gives each explicit demo load
+  fresh IDs and remaps account links so old tombstones cannot resurrect. Demo
+  loading preserves custom data/categories; remove an existing demo set before
+  loading another. `isSampleRecordId` recognizes legacy and generated demo IDs.
+  Cloud hydration retains every live financial row, including demo rows, and
+  derives the local demo-loaded indicator from those records.
+- `assistantMarketResponse.ts` handles changing-price questions without model
+  generation: gold/silver amounts come only from the cached `MarketSnapshot`
+  and show the IBJA source/date; other live-data requests are declined. Never
+  let free-form model output invent a current quote or claim internet access.
 
 ## Android notification payment flow
 
@@ -63,7 +172,9 @@ behavior.
    `src/services/backgroundPayment.ts` in an application-context WebView.
    The signed-in owner is checked before calling the
    `add_notification_payment` RPC. Keep failures retryable and receipts
-   idempotent.
+   idempotent. The native notification shows a saving state; Ignore confirms
+   only after its native action is persisted. In-app Add and Ignore confirm
+   local completion without claiming that cloud sync succeeded.
 4. The notification's Category and Description RemoteInput values are stored
    natively and mapped to the final transaction's `category` and `title`.
    `applyNotificationCategoryOverride` in `src/utils/paymentTransaction.ts`
@@ -104,7 +215,22 @@ Use focused tests first when possible. Relevant tests include
 `src/utils/notificationRecovery.test.ts`,
 `src/utils/androidPatch.test.ts`,
 `src/components/NotificationPromptModal.test.tsx` and
+`src/components/AppNotificationFeedback.test.tsx`,
+`src/components/AccountsView.regression.test.tsx`, and
 `src/components/TransactionsView.regression.test.tsx`.
+For assistant behavior and categorization review, also run
+`node --import tsx --test src/utils/assistantReport.test.ts src/utils/assistantCategory.test.ts src/utils/assistantModel.test.ts src/components/AssistantReportView.test.tsx src/components/AssistantExperience.test.tsx src/components/SettingsView.regression.test.tsx`.
+For MINA's chat message construction, run `node --import tsx --test src/utils/assistantChat.test.ts`.
+For worker scheduling, run `node --import tsx --test src/utils/assistantQueue.test.ts src/utils/assistantModel.test.ts`.
+For revision protocol checks, run
+`node --import tsx --test src/utils/transactionSync.test.ts src/utils/transactionCascade.test.ts src/utils/backgroundPayment.test.ts src/utils/authFlow.test.ts src/components/AppTransactionOffline.test.tsx`.
+For atomic batches and recovery, also run
+`node --import tsx --test src/utils/financialSync.test.ts src/utils/financialState.test.ts src/components/AppLaunchLoader.test.tsx`.
+Demo generation and account links are covered by
+`node --import tsx --test src/utils/initialData.test.ts`.
+The PGlite regression includes background-payment retries, account ownership,
+card and cash balances, and rollback on failure; it is not a hosted Supabase
+or multi-device concurrency test.
 
 For Android, `npm run cap:sync` builds the web assets and syncs Capacitor;
 `npm run android:patch` applies the hand-maintained plugin sources to a
