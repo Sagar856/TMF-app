@@ -2,8 +2,60 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import { transformSync } from 'esbuild';
 import { NotificationHistoryList, NotificationPromptModal } from './NotificationPromptModal';
 import type { ParsedNotification } from '../types/finance';
+
+function addHarness(confirm: () => Promise<void>) {
+  const source = readFileSync(new URL('./NotificationPromptModal.tsx', import.meta.url), 'utf8');
+  const start = source.indexOf('  const addPayment =');
+  const end = source.indexOf('  const historyButton =', start);
+  assert.ok(start >= 0 && end > start);
+  const busy: boolean[] = [];
+  const errors: string[] = [];
+  const handler = transformSync(`${source.slice(start, end)}\naddPayment;`, { loader: 'tsx' }).code;
+  const add = runInNewContext(handler, {
+    addInFlight: { current: false },
+    setAdding: (value: boolean) => busy.push(value),
+    setAddError: (value: string) => errors.push(value),
+    onConfirmAdd: confirm,
+  }) as (notification: unknown) => Promise<void>;
+  return { add, busy, errors };
+}
+
+test('notification Add remains busy until save completes and suppresses rapid repeated clicks', async () => {
+  let finish!: () => void;
+  let calls = 0;
+  const h = addHarness(() => {
+    calls++;
+    return new Promise<void>(resolve => { finish = resolve; });
+  });
+  const saving = h.add({ id: 'synthetic-payment' });
+  await h.add({ id: 'synthetic-payment' });
+  assert.equal(calls, 1);
+  assert.deepEqual(h.busy, [true]);
+  finish();
+  await saving;
+  assert.deepEqual(h.busy, [true, false]);
+  assert.deepEqual(h.errors, ['']);
+});
+
+test('notification Add surfaces unexpected failure without private error text and permits retry', async () => {
+  let calls = 0;
+  const h = addHarness(async () => {
+    if (++calls === 1) throw new Error('Synthetic private payment detail');
+  });
+  await h.add({});
+  assert.match(h.errors[1], /Could not add this payment/);
+  assert.doesNotMatch(h.errors[1], /private payment/);
+  assert.deepEqual(h.busy, [true, false]);
+  await h.add({});
+  assert.equal(calls, 2);
+  assert.equal(h.errors.at(-1), '');
+  assert.deepEqual(h.busy, [true, false, true, false]);
+});
 
 test('payment review displays inline descriptions and honest missing-location labels', () => {
   const payment: ParsedNotification = {

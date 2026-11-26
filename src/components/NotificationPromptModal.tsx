@@ -1,12 +1,12 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { ParsedNotification } from '../types/finance';
-import { Check, Edit3, Pencil, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History } from 'lucide-react';
+import { Check, Edit3, Pencil, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History, LoaderCircle } from 'lucide-react';
 import { NOTIFICATION_HISTORY_LIMIT, type NotificationHistoryEntry } from '../utils/notificationHistory';
 
 interface NotificationPromptModalProps {
   notifications: ParsedNotification[];
-  onConfirmAdd: (notif: ParsedNotification) => void;
+  onConfirmAdd: (notif: ParsedNotification) => void | Promise<void>;
   onConfirmEdit: (notif: ParsedNotification) => void;
   onIgnore: (notifId: string) => void;
   onClose: () => void;
@@ -95,6 +95,23 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [showRawText, setShowRawText] = useState<boolean>(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState('');
+  const addInFlight = useRef(false);
+  const addPayment = async (notification: ParsedNotification) => {
+    if (addInFlight.current) return;
+    addInFlight.current = true;
+    setAddError('');
+    setAdding(true);
+    try {
+      await onConfirmAdd(notification);
+    } catch {
+      setAddError('Could not add this payment. Review its status before retrying.');
+    } finally {
+      addInFlight.current = false;
+      setAdding(false);
+    }
+  };
   const historyButton = (
     <button type="button" onClick={() => setShowHistory(!showHistory)}
       aria-label={showHistory ? 'Back to pending notifications' : 'Notification history'}
@@ -228,7 +245,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
               {activeNotif.subcategory}
             </span>
             <button type="button" className="text-[10px] underline text-cyan-400"
-              onClick={() => onConfirmEdit(activeNotif)}>Change category</button>
+              disabled={adding} onClick={() => onConfirmEdit(activeNotif)}>Change category</button>
           </div>
         </div>
 
@@ -251,14 +268,17 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
         {/* 3 Prominent Confirmation Action Buttons */}
         <div className="grid grid-cols-3 gap-2.5">
           <button
-            onClick={() => onConfirmAdd(activeNotif)}
-            className="py-2.5 bg-white text-black text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-neutral-200 transition-colors flex items-center justify-center gap-1.5 shadow-md"
+            onClick={() => void addPayment(activeNotif)}
+            disabled={adding}
+            aria-busy={adding}
+            className="py-2.5 bg-white text-black text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-neutral-200 transition-colors flex items-center justify-center gap-1.5 shadow-md disabled:opacity-50"
           >
-            <Check className="w-3.5 h-3.5 text-black" />
-            ADD
+            {adding ? <LoaderCircle className="w-3.5 h-3.5 animate-spin" aria-hidden="true" /> : <Check className="w-3.5 h-3.5 text-black" />}
+            <span role={adding ? 'status' : undefined}>{adding ? 'Saving...' : 'ADD'}</span>
           </button>
 
           <button
+            disabled={adding}
             onClick={() => onConfirmEdit(activeNotif)}
             className="py-2.5 border border-[#444] text-white text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-surface-3 transition-colors flex items-center justify-center gap-1.5"
           >
@@ -267,6 +287,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
           </button>
 
           <button
+            disabled={adding}
             onClick={() => onIgnore(activeNotif.id)}
             className="py-2.5 border border-[#333] text-[#777] text-[11px] font-mono font-bold uppercase rounded-xl hover:bg-surface-3 hover:text-white transition-colors flex items-center justify-center gap-1.5"
           >
@@ -274,11 +295,13 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
             IGNORE
           </button>
         </div>
+        {addError && <p role="alert" className="mt-2 text-xs text-red-400">{addError}</p>}
 
         {/* Multi notification pagination indicator */}
         {notifications.length > 1 && (
           <div className="flex justify-between items-center mt-4 pt-3 border-t border-line text-[10px] font-mono text-[#666]">
             <button
+              disabled={adding}
               onClick={() => setCurrentIndex((prev) => (prev > 0 ? prev - 1 : notifications.length - 1))}
               className="hover:text-white transition-colors"
             >
@@ -286,6 +309,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
             </button>
             <span>Notification {safeIndex + 1} of {notifications.length}</span>
             <button
+              disabled={adding}
               onClick={() => setCurrentIndex((prev) => (prev < notifications.length - 1 ? prev + 1 : 0))}
               className="hover:text-white transition-colors"
             >

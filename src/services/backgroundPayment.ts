@@ -2,7 +2,10 @@ import type { InterceptedPayment } from './notificationListener';
 import type { FinancialAccount, ParsedNotification, Transaction } from '../types/finance';
 import { parseNotification } from './notification/ParserManager';
 import { isEligiblePaymentNotification } from './notification/transactionEligibility';
-import { applyNotificationCategoryOverride, createPaymentTransaction, hasUnmatchedPaymentAccount } from '../utils/paymentTransaction';
+import { createPaymentTransaction, hasUnmatchedPaymentAccount } from '../utils/paymentTransaction';
+import { categorizeNotification } from './notificationCategorization';
+import { notificationCategoryConfirmation } from '../utils/notificationCategoryFeedback';
+import { safeGetJson } from '../utils/storage';
 import { createCashAccount, isCashWithdrawal } from '../utils/cashAccount';
 import { toLocalISODate } from '../utils/dates';
 import { isFinancialAccount } from '../utils/backup';
@@ -78,7 +81,9 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     location: location ? { lat: location.lat, lng: location.lng, name: locationName || 'Location name unavailable' } : undefined,
   };
   if (hasUnmatchedPaymentAccount(parsed, accounts)) throw new Error('Account not found or ambiguous. Add or select it in the app before saving.');
-  const { transaction: createdTransaction } = createPaymentTransaction(applyNotificationCategoryOverride(parsed, categories), accounts, categories);
+  let categorizationWarning: string | undefined;
+  const categorized = await categorizeNotification(parsed, categories, { onWarning: message => { categorizationWarning = message; } });
+  const { transaction: createdTransaction } = createPaymentTransaction(categorized, accounts, categories);
   const transaction: Transaction = {
     ...createdTransaction,
     categoryOrigin: parsed.categoryOverride
@@ -104,8 +109,14 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     : undefined;
   const receiptTransaction = isCashWithdrawal(transaction) && !serverCreditedCash
     ? { ...transaction, toAccountId: undefined } : transaction;
+  const preferences = safeGetJson<{ currencySymbol?: unknown; locale?: unknown } | null>('tmf_settings', null);
   if (!bridge.complete(JSON.stringify(saved.saved
     ? {
+      confirmation: notificationCategoryConfirmation(transaction, {
+        symbol: typeof preferences?.currencySymbol === 'string' ? preferences.currencySymbol : undefined,
+        locale: typeof preferences?.locale === 'string' ? preferences.locale : undefined,
+      }),
+      ...(categorizationWarning ? { categorizationWarning } : {}),
       owner: payment.owner, transaction: { ...receiptTransaction, syncRevision: saved.transaction_revision ?? undefined },
       account: account ? { ...account, balance: saved.balance, syncRevision: saved.account_revision ?? undefined } : undefined,
       localBalance: localAccounts.find(value => value.id === transaction.accountId)?.balance,

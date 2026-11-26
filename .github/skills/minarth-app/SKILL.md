@@ -86,10 +86,31 @@ behavior.
   `assistantReportExplanation.ts` allows the model to select only preverified
   findings, rejecting invented or malformed output. `AssistantChatModal`
   triggers reports only on explicit report requests or the report button;
-  questions merely mentioning reports do not generate one. It holds chat/report data in
-  component memory, and presents the report with user-triggered CSV/PDF export.
+  questions merely mentioning reports do not generate one. First-use consent
+  gates chat, including local storage of messages, generated reports and commentary.
+  `assistantChatHistory.ts` stores one owner-scoped IndexedDB archive atomically:
+  five newest chats by creation, last-open selection and report snapshots with
+  original currency. Creating a sixth deletes the oldest, not the least recently
+  viewed. Stale same-chat writes fail instead of replacing another window's reply.
+  Chats survive sign-out outside financial caches/sync/backups; App gates access
+  by signed-in owner and unlock, keys the modal by owner, and closes it on sign-out.
+  Never pass that storage owner to the model. Clear chats withdraws consent;
+  auth-account deletion attempts local cleanup after cloud deletion without
+  blocking deletion on a storage failure. Other devices need local cleanup.
+  Model removal does not delete chats. Local storage is not a separate encrypted
+  vault; keep this limitation visible. Report exports are user-triggered CSV/PDF.
   PDF pages are rendered images and are not text-selectable. Report exports
   reuse the same deterministic report rows.
+  The palette-aware chat shell has a fixed-height scrollable conversation,
+  labelled message bubbles, draft-only starter questions and an auto-growing
+  composer (Enter sends, Shift+Enter inserts a newline; IME Enter is ignored).
+  An on-demand left navigation contains new/previous chats, clear confirmation,
+  and expandable monthly report controls; Escape and Android Back close the
+  navigation first. Category reviews scroll with the conversation.
+  Privacy/capability disclosures remain in a footer details
+  control. Preserve the consent gate, chat navigation and report/category actions.
+  Validate shell changes with `AssistantExperience.test.tsx` and browser checks
+  at mobile/desktop sizes in both themes.
 - `src/hooks/useAssistantCategorization.ts` runs only while the app is unlocked
   and the assistant is enabled with an installed model. It processes eligible
   notification, imported and rule-origin transactions, while unknown-origin
@@ -101,6 +122,8 @@ behavior.
   preserve other transaction fields; cloud conflicts must be reloaded or kept
   locally rather than retried as stale writes. The review UI is in
   `AssistantChatModal.tsx`.
+  Category confirmations use `notificationCategoryFeedback.ts` for amount and
+  category; the hook emits them after the React transaction state commits.
 - `useAssistantModel` owns the device-local enable preference and the assistant
   download/disable/remove lifecycle. MINA is the user-facing name, including in
   Settings search and the chat dialog. `AssistantSettingsSection` explains the
@@ -123,8 +146,9 @@ behavior.
   removal and cross-tab locks. A fresh production worker also generated a
   synthetic finance answer with fetch disabled (zero fetch attempts); this does
   not verify an offline app/browser restart or Android compatibility.
-  Those still require target-device end-to-end testing. Chat prompts and report
-  findings are passed only to the local worker; never log or persist them.
+  Those still require target-device end-to-end testing. Inference prompts and report
+  findings are passed only to the local worker; never log or upload them. Only
+  consented chat messages/report snapshots are retained in the chat archive.
 - Categorization prompts use temporary category aliases rather than stored
   IDs; sanitized subcategory labels must map unambiguously to current choices.
   Prompts include transaction titles and available categories,
@@ -133,7 +157,8 @@ behavior.
   labelled secrets and masks emails and long digit sequences, but cannot detect
   all private text; the UI warns users not to enter it. The model has no
   database tools; report inference receives derived findings, not raw records.
-  Never log, persist or upload prompts, chat or report content. Ordinary
+  Never log or upload prompts, chat or report content. Persist only consented
+  messages/report snapshots through `assistantChatHistory.ts`. Ordinary
   financial records and applied category changes continue to sync to Supabase.
 - General chat uses `assistantChat.ts` for bundled MINARTH navigation and
   calculation guidance and passes
@@ -180,11 +205,23 @@ behavior.
    outside the loop so every Java path returns and later payments remain actionable.
 4. The notification's Category and Description RemoteInput values are stored
    natively and mapped to the final transaction's `category` and `title`.
-   `applyNotificationCategoryOverride` in `src/utils/paymentTransaction.ts`
-   resolves category input against fetched categories for the payment
-   direction, including close category-name and subcategory matches. Ambiguous
-   or distant values remain retryable; this uses deterministic local text
-   matching, not an AI model.
+   `notificationCategorization.ts` is shared by foreground and background Add.
+   Category text takes priority over entered Description. Fast matching in
+   `paymentTransaction.ts` uses close category/subcategory names and shared
+   `CategoryClassifier.ts` merchant/topic rules. Meals and food merchants map
+   only to available categories; conflicting matches never pick the first rule.
+   Enabled MINA handles unfamiliar text in an owned local worker (including
+   locked/closed background Add), capped at 20 seconds with no implicit install.
+   Invalid/uncertain results or inference failures warn and retain the local
+   classifier result: explicit Category stays pending; unclear Description
+   retains parser categorisation. Disable/remove still prevents MINA inference.
+   Foreground Add guards duplicate requests and changes during inference, using
+   the latest paired snapshot even when another Add finishes before a rerender.
+   `NotificationPromptModal` shows a saving spinner and disables conflicting
+   payment actions/pagination while its Add request is pending.
+   Background Add requests a native amount/category toast only after cloud save
+   and receipt persistence; receipt retries omit it. Android controls visibility.
+   `applyNotificationCategoryOverride` remains the synchronous matching path for Edit.
    Android provides at most three system action buttons: Add, Category and
    Description. Ignore is a custom button beside the description in
    `native/notification-intercept-plugin/res/layout/payment_notification.xml`,
@@ -221,9 +258,15 @@ Use focused tests first when possible. Relevant tests include
 `src/components/AppNotificationFeedback.test.tsx`,
 `src/components/AccountsView.regression.test.tsx`, and
 `src/components/TransactionsView.regression.test.tsx`.
+For notification reply semantics, MINA/fallback privacy, ambiguity and feedback,
+also run `node --import tsx --test src/utils/notificationCategorization.test.ts src/components/AppNotificationFeedback.test.tsx`.
 For assistant behavior and categorization review, also run
 `node --import tsx --test src/utils/assistantReport.test.ts src/utils/assistantCategory.test.ts src/utils/assistantModel.test.ts src/components/AssistantReportView.test.tsx src/components/AssistantExperience.test.tsx src/components/SettingsView.regression.test.tsx`.
 For MINA's chat message construction, run `node --import tsx --test src/utils/assistantChat.test.ts`.
+For consent, five-chat pruning, report snapshots and isolation guards, also run
+`node --import tsx --test src/utils/assistantChatHistory.test.ts src/components/AssistantExperience.test.tsx`;
+validate IndexedDB, navigation, storage failures and reload in an isolated
+browser harness using synthetic owners/data, never the shared user's records.
 For worker scheduling, run `node --import tsx --test src/utils/assistantQueue.test.ts src/utils/assistantModel.test.ts`.
 For revision protocol checks, run
 `node --import tsx --test src/utils/transactionSync.test.ts src/utils/transactionCascade.test.ts src/utils/backgroundPayment.test.ts src/utils/authFlow.test.ts src/components/AppTransactionOffline.test.tsx`.

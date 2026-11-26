@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
+import { notificationCategoryConfirmation } from '../utils/notificationCategoryFeedback';
 
 const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const start = source.indexOf('  const persistPaymentTransaction =');
@@ -13,37 +14,70 @@ const handlers = transformSync(`${source.slice(start, end)}\n({ handleConfirmAdd
 function harness(failingKey?: string) {
   const notification = { id: 'payment', type: 'debit', category: 'Food' };
   const messages: { message: string; type: string }[] = [];
+  const refs: { current: unknown }[] = [];
+  let writes = 0;
   const state = {
     transactions: [], accounts: [], categories: [], pendingNotifications: [notification],
     authUser: { id: 'owner' }, financialEpoch: 1,
     safeSetItem: (key: string) => key !== failingKey,
     safeGetItem: () => 'owner',
     readFinancialEpoch: () => 1,
-    persistFinancialState: () => failingKey !== 'tmf_financial_state',
+    persistFinancialState: () => { writes++; return failingKey !== 'tmf_financial_state'; },
     showToast: (message: string, type: string) => messages.push({ message, type }),
     hasUnmatchedPaymentAccount: () => false,
     applyNotificationCategoryOverride: (value: typeof notification) => value,
-    createPaymentTransaction: () => ({ transaction: { id: 'tx_payment', category: 'Food' }, accounts: [], categories: state.categories }),
+    categorizeNotification: async (value: typeof notification) => value,
+    notificationCategoryConfirmation, settings: { currencySymbol: 'INR ' },
+    cloudGenerationRef: { current: 1 }, isUnlocked: true,
+    useRef: (current: unknown) => { const ref = { current }; refs.push(ref); return ref; },
+    createPaymentTransaction: (value = notification) => ({ transaction: { id: `tx_${value.id}`, amount: 125, category: 'Food' }, accounts: [], categories: state.categories }),
     recordExtractedHistory: () => {}, queueNotificationResolution: () => {},
     resolveInterceptedPayment: async () => {}, setCategories: () => {}, setAccounts: () => {},
     setTransactions: () => {}, setPendingNotifications: () => {}, setIsNotificationModalOpen: () => {},
   };
   const actions = runInNewContext(handlers, state) as {
-    handleConfirmAddNotification: (value: typeof notification) => void;
+    handleConfirmAddNotification: (value: typeof notification) => Promise<void>;
     handleIgnoreNotification: (id: string) => void;
   };
-  return { actions, messages, notification };
+  return { actions, messages, notification, state, refs, writes: () => writes };
 }
 
-test('notification add confirms local persistence only and reports write failures', () => {
+test('notification add confirms local persistence and the amount/category, and reports write failures', async () => {
   const success = harness();
-  success.actions.handleConfirmAddNotification(success.notification);
+  await success.actions.handleConfirmAddNotification(success.notification);
   assert.match(success.messages[0].message, /added on this device.*Cloud sync is separate/i);
+  assert.match(success.messages[0].message, /INR 125.00 transaction moved under Food/);
   for (const key of ['tmf_financial_state']) {
     const failure = harness(key);
-    failure.actions.handleConfirmAddNotification(failure.notification);
+    await failure.actions.handleConfirmAddNotification(failure.notification);
     assert.equal(failure.messages[0].type, 'error');
     assert.doesNotMatch(failure.messages[0].message, /added/i);
+  }
+});
+
+test('notification categorisation suppresses duplicate Add and discards results after an edit or account change', async () => {
+  for (const change of ['none', 'edit', 'account']) {
+    const h = harness();
+    let finish!: (value: typeof h.notification) => void;
+    let calls = 0;
+    h.state.categorizeNotification = () => {
+      calls++;
+      return new Promise(resolve => { finish = resolve; });
+    };
+    const saving = h.actions.handleConfirmAddNotification(h.notification);
+    await h.actions.handleConfirmAddNotification(h.notification);
+    assert.equal(calls, 1);
+    assert.equal(h.writes(), 0);
+    if (change === 'edit') {
+      const current = h.refs[0].current as { transactions: unknown[] };
+      h.refs[0].current = { ...current, transactions: [{ id: 'new-edit' }] };
+    }
+    if (change === 'account') h.state.cloudGenerationRef.current++;
+    finish(h.notification);
+    await saving;
+    assert.equal(h.writes(), change === 'none' ? 1 : 0);
+    if (change === 'edit') assert.match(h.messages[0].message, /changed during categorisation/);
+    if (change === 'account') assert.equal(h.messages.length, 0);
   }
 });
 
@@ -55,4 +89,16 @@ test('notification ignore confirms only after local queue persistence', () => {
   failure.actions.handleIgnoreNotification('payment');
   assert.equal(failure.messages[0].type, 'error');
   assert.doesNotMatch(failure.messages[0].message, /ignored on this device/i);
+});
+
+test('notification Adds before a rerender preserve prior saves and recognise already-saved payments', async () => {
+  const h = harness();
+  await h.actions.handleConfirmAddNotification(h.notification);
+  await h.actions.handleConfirmAddNotification({ ...h.notification, id: 'second' });
+  const current = h.refs[0].current as { transactions: { id: string }[] };
+  assert.deepEqual(Array.from(current.transactions, transaction => transaction.id), ['tx_second', 'tx_payment']);
+  assert.equal(h.writes(), 2);
+  await h.actions.handleConfirmAddNotification(h.notification);
+  assert.equal(h.writes(), 2);
+  assert.match(h.messages.at(-1)?.message || '', /already added/);
 });

@@ -7,6 +7,28 @@ import { AssistantSettingsSection } from './AssistantSettingsSection';
 import { AssistantShortcut } from './AssistantShortcut';
 import { AssistantRuntime } from '../services/assistantRuntime';
 import type { AssistantCategoryReview } from '../utils/assistantCategory';
+import { emptyMinaArchive, type MinaChatArchive } from '../utils/assistantChatHistory';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { runInNewContext } from 'node:vm';
+import { transformSync } from 'esbuild';
+
+function renderLoadedChat(element: React.ReactElement, archive: MinaChatArchive = { ...emptyMinaArchive(), consented: true }, navigationOpen = false): string {
+  const require = createRequire(import.meta.url);
+  const source = readFileSync(new URL('./AssistantChatModal.tsx', import.meta.url), 'utf8');
+  const code = transformSync(source, { loader: 'tsx', format: 'cjs' }).code;
+  const module = { exports: {} as { AssistantChatModal?: typeof AssistantChatModal } };
+  let stateIndex = 0;
+  runInNewContext(code, {
+    module, exports: module.exports,
+    require: (name: string) => name === 'react' ? {
+      ...React,
+      useState: (initial: unknown) => React.useState(stateIndex++ === 0 ? navigationOpen : initial === null ? archive : initial === true ? false : initial),
+    } : require(name),
+  });
+  assert.ok(module.exports.AssistantChatModal);
+  return renderToStaticMarkup(React.createElement(module.exports.AssistantChatModal, element.props));
+}
 
 test('assistant entry UI explains local model storage and keeps a shortcut above the add action', () => {
   const runtime = new AssistantRuntime();
@@ -29,19 +51,39 @@ test('assistant entry UI explains local model storage and keeps a shortcut above
   assert.match(shortcut, /h-11 w-11 sm:h-13 sm:w-13/);
 });
 
-test('assistant starts with ephemeral-chat disclosure and an explicit report action', () => {
-  const html = renderToStaticMarkup(<AssistantChatModal
+test('consented assistant offers saved chats, clear controls and an explicit report action', () => {
+  const element = <AssistantChatModal ownerId="synthetic-owner"
     runtime={new AssistantRuntime()} transactions={[]} categories={[]} accounts={[]} investments={[]} loans={[]}
     savingsGoals={[]} currencyCode="INR" marketSnapshot={null} onClose={() => {}}
-  />);
-  assert.match(html, /Prompts and this temporary chat stay on this device/);
+  />;
+  const closed = renderLoadedChat(element);
+  assert.match(closed, /aria-label="Open MINA navigation" aria-expanded="false"/);
+  assert.doesNotMatch(closed, /aria-label="MINA navigation"|Generate report|Previous chats/);
+  const html = renderLoadedChat(element, { ...emptyMinaArchive(), consented: true }, true);
+  assert.match(html, /aria-label="Open MINA navigation" aria-expanded="true"/);
+  assert.match(html, /<nav id="mina-navigation" aria-label="MINA navigation"/);
+  assert.match(html, /aria-label="Close MINA navigation"/);
+  assert.match(html, /Your saved chats will appear here/);
+  assert.match(html, /messages, generated reports and commentary stay on this device/);
   assert.match(html, /Generate report/);
-  assert.match(html, /Chat history is temporary and is discarded when you close MINA/);
+  assert.match(html, /Last 5 chats saved on this device/);
+  assert.match(html, /New chat/);
+  assert.match(html, /Previous chats/);
+  assert.match(html, /Clear chats/);
+  assert.doesNotMatch(html, /temporary chat|discarded when you close/);
   assert.match(html, /id="assistant-title"[^>]*>MINA</);
   assert.match(html, /Message MINA/);
   assert.match(html, /The app still needs internet for its existing cloud sync/);
   assert.match(html, /it cannot check live internet prices/);
   assert.doesNotMatch(html, /MINARTH_Report_.*\.pdf/);
+  assert.match(html, /role="log" aria-label="Conversation with MINA"/);
+  assert.match(html, /aria-expanded="false" aria-controls="mina-report-tools"/);
+  assert.match(html, /id="mina-report-tools" hidden=""/);
+  assert.match(html, /What can I help you with\?/);
+  assert.match(html, /What is a budget\?/);
+  assert.match(html, /rows="1"/);
+  assert.match(html, /Shift \+ Enter for a new line/);
+  assert.match(html, /<summary tabindex="0"/);
 });
 
 test('cloud-conflicted category suggestions require an explicit reload instead of retrying a stale write', () => {
@@ -58,11 +100,34 @@ test('cloud-conflicted category suggestions require an explicit reload instead o
     reason: 'The transaction changed on another device.',
     cloudConflict: true,
   };
-  const html = renderToStaticMarkup(<AssistantChatModal
+  const html = renderLoadedChat(<AssistantChatModal ownerId="synthetic-owner"
     runtime={new AssistantRuntime()} transactions={[]} categories={[]} accounts={[]} investments={[]} loans={[]}
     savingsGoals={[]} currencyCode="INR" marketSnapshot={null} categoryReviews={[review]} onClose={() => {}}
   />);
   assert.match(html, /Reload cloud version/);
   assert.match(html, /Keep local version/);
   assert.doesNotMatch(html, /Apply category/);
+});
+
+test('assistant does not expose messages, reports or composer before loading consent', () => {
+  const html = renderToStaticMarkup(<AssistantChatModal ownerId="synthetic-owner"
+    runtime={new AssistantRuntime()} transactions={[]} categories={[]} accounts={[]} investments={[]} loans={[]}
+    savingsGoals={[]} currencyCode="INR" marketSnapshot={null} onClose={() => {}} />);
+  assert.match(html, /MINA privacy &amp; security consent/);
+  assert.match(html, /Opening device-local chats/);
+  assert.doesNotMatch(html, /id="assistant-message"|Generate report|role="log"/);
+});
+
+test('first-use consent is explicit, unchecked and required before showing any chat controls', () => {
+  const html = renderLoadedChat(<AssistantChatModal ownerId="synthetic-owner"
+    runtime={new AssistantRuntime()} transactions={[]} categories={[]} accounts={[]} investments={[]} loans={[]}
+    savingsGoals={[]} currencyCode="INR" marketSnapshot={null} onClose={() => {}} />, emptyMinaArchive());
+  assert.match(html, /messages, generated financial reports and report commentary/);
+  assert.match(html, /Starting a sixth permanently deletes the oldest chat/);
+  assert.match(html, /remain after sign-out/);
+  assert.match(html, /not a separately encrypted vault/);
+  assert.match(html, /type="checkbox"/);
+  assert.doesNotMatch(html, /checked=""/);
+  assert.match(html, /disabled=""[^>]*>Agree and continue/);
+  assert.doesNotMatch(html, /id="assistant-message"|Generate report|role="log"/);
 });

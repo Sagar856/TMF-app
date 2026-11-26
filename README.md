@@ -718,11 +718,25 @@ The actions are **Add**, **Category**, **Description**, and **Ignore**. Android
 shows Add, Category and Description as system actions; Ignore appears beside
 the description in the expanded card because Android supports at most three
 system actions. Category and Description have separate inline replies and save
-without adding the transaction. Category text is matched against the user's
-existing categories for that payment direction, including their subcategories;
-exact or close matches such as "shopping" or "fuel" resolve to the matching
-category. Matching is local and deterministic, with no AI model required.
-Unmatched or ambiguous input keeps background Add retryable and asks for review.
+without adding the transaction. On Add, Category text takes priority; when it is
+blank, the entered Description is used. Both are matched against the user's
+existing categories for that payment direction, including subcategories and
+shared merchant/topic keywords. For example lunch, dinner, breakfast, Zomato
+and Swiggy map to an available Food & Dining category; petrol/taxi/pharmacy
+resolve to their respective available categories. Close category names work too.
+Clear matches resolve immediately without model inference. When MINA is enabled,
+unfamiliar wording can use its installed local model, including while the app
+is closed or locked. A separate worker bounds generation to 20 seconds and
+does not download a missing model. Model errors/uncertainty show a warning.
+With MINA disabled, the same shared local classifier remains available.
+Ambiguous or unmatched explicit Category input keeps Add pending for review;
+an unclear Description retains the parser's existing category. Neither path
+invents a category from model output. In-app Add shows a saving spinner and
+disables competing payment actions while matching and saving. It confirms the
+amount/category after local persistence; Android background Add shows a brief amount/category
+confirmation after cloud saving and native receipt persistence, without opening
+the app. Android may limit background toast visibility. Duplicate retries do not
+repeat the category confirmation.
 The description becomes the transaction title when added, and the category is
 saved to the category column. The original merchant, amount and SMS remain
 intact. Tap the notification body to open the app for further review.
@@ -959,11 +973,40 @@ also cannot guarantee detection of every unsafe response.
 
 When enabled, the circular **MINA** shortcut appears above the add button and
 fades on scroll like the add button.
+MINA opens in a palette-aware chat window with separate You/MINA message
+bubbles and a scrollable conversation. Starter questions fill the message
+box for you to review before sending. Press Enter to send, or Shift + Enter
+for a new line; the send button is also available on mobile. Open the menu at
+the top left to access **New chat**, **Previous chats**, **Clear chats** and
+**Monthly report**. Expand **Monthly report** to choose a month and generate a report. Category reviews
+remain in the conversation area, and privacy/capability details are available
+under **Privacy & how MINA works**.
 
 After installation, inference runs locally without a network or AI API key.
-Prompts, temporary chat history, report data and report commentary are not
-stored by MINARTH or sent to Supabase, analytics or an AI service. Closing the
-assistant discards its in-memory chat/report state. CSV/PDF files are created
+Before the first chat, MINA requires explicit privacy/security consent to save
+messages, generated reports and commentary on this device. **New chat** starts
+a conversation; **Previous chats** reopens one. The last-open conversation is
+restored when MINA reopens or the app restarts. Only the five newest chats per
+app account are retained: starting a sixth permanently deletes the oldest chat,
+including its reports, even if it was reopened recently.
+Unsent drafts are not saved. Closing during generation retains messages already
+saved, but an unfinished response is not resumed automatically.
+
+Chats use a separate owner-scoped IndexedDB database, outside financial sync
+and app backup exports. They remain after sign-out but are displayed only when
+the same account signs in and unlocks the app. No prompts, chat messages, reports
+or commentary are sent to Supabase, analytics or an AI service. Account identity
+is used only to isolate storage, never passed to the model. The saved data is
+not a separately encrypted vault: device/browser-data access can expose it.
+Clearing browser/app storage or uninstalling may remove chats. **Clear chats**
+permanently deletes this account's local chats and withdraws consent; reopening
+chat then requires consent again. Account deletion attempts the same local
+cleanup without blocking cloud account deletion if device cleanup fails.
+Copies on other devices require clearing that device's storage.
+Disabling MINA or removing its model does not delete saved chats.
+
+Saved reports retain their original snapshot date and currency rather than
+recalculating from later records. CSV/PDF files are created
 only when the user exports a generated report. The assistant generates a report
 only when the user asks for one. Deterministic app calculations provide report
 figures; the model can select only verified report findings.
@@ -979,6 +1022,11 @@ questions that merely mention reports do not generate one.
 Questions mentioning credentials receive a local safety reminder instead of a
 model-generated answer. Do not enter credentials or other sensitive information;
 free-text filtering cannot detect every secret.
+
+Notification Add can also match Category/Description replies before saving,
+even while closed or locked when MINA is enabled. Shared keyword matches are
+instant; only unfamiliar wording needs model inference. This is separate from
+the unlocked-only categorisation of existing records described below.
 
 When enabled and the app is unlocked, the assistant can automatically
 categorise eligible notification transactions, imported transactions and

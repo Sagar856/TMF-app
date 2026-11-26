@@ -8,6 +8,8 @@ import {
   syncTransactionsToSupabase,
 } from '../services/supabaseClient';
 import { safeGetJson } from '../utils/storage';
+import { notificationCategoryConfirmation } from '../utils/notificationCategoryFeedback';
+import type { FormatMoneyOptions } from '../utils/money';
 import {
   assistantCategoryPrompt,
   evaluateAssistantCategory,
@@ -29,6 +31,7 @@ interface AssistantCategorizationOptions {
   cloudHydrated: boolean;
   setTransactions: Dispatch<SetStateAction<Transaction[]>>;
   notify: (message: string, type: 'success' | 'warning' | 'error') => void;
+  moneyOptions?: FormatMoneyOptions;
 }
 
 interface SmartRule {
@@ -62,9 +65,23 @@ export function useAssistantCategorization(options: AssistantCategorizationOptio
   const transactionsRef = useRef(transactions);
   const categoriesRef = useRef(categories);
   const notifyRef = useRef(options.notify);
+  const moneyOptionsRef = useRef(options.moneyOptions);
+  const confirmations = useRef(new Map<string, { category: string; subcategory: string; amount: number }>());
   transactionsRef.current = transactions;
   categoriesRef.current = categories;
   notifyRef.current = options.notify;
+  moneyOptionsRef.current = options.moneyOptions;
+
+  useEffect(() => {
+    for (const [id, expected] of confirmations.current) {
+      const saved = transactions.find(transaction => transaction.id === id);
+      if (saved?.categoryOrigin === 'assistant' && saved.category === expected.category
+        && saved.subcategory === expected.subcategory && saved.amount === expected.amount) {
+        notifyRef.current(notificationCategoryConfirmation(saved, moneyOptionsRef.current), 'success');
+      }
+      confirmations.current.delete(id);
+    }
+  }, [transactions]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine !== false);
@@ -149,14 +166,13 @@ export function useAssistantCategorization(options: AssistantCategorizationOptio
       }
     }
 
-    let applied = false;
+    confirmations.current.set(before.id, { category: categoryName, subcategory, amount: before.amount });
     setTransactions(previous => previous.map(item => {
       if (item.id !== before.id) return item;
       const latest = evaluateAssistantCategory({
         before, current: item, categories: categoriesRef.current, origin, explicitlySelected, rule, output: proposal,
       });
       if (latest.status === 'apply' || (explicitlySelected && latest.status === 'review')) {
-        applied = true;
         return {
           ...item,
           category: categoryName,
@@ -168,12 +184,6 @@ export function useAssistantCategorization(options: AssistantCategorizationOptio
       return revision ? { ...item, syncRevision: revision } : item;
     }));
     setReviews(previous => previous.filter(item => item.transactionId !== before.id));
-    if (applied) {
-      notifyRef.current(
-        `Categorized "${before.title}" as ${categoryName}.`,
-        'success',
-      );
-    }
   }, [appendReview, cloudHydrated, cloudReady, setTransactions]);
 
   const processTransaction = useCallback(async (transaction: Transaction, explicitlySelected = false) => {

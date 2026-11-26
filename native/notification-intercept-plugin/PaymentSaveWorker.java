@@ -9,6 +9,7 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.util.Log;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.concurrent.futures.CallbackToFutureAdapter;
 import androidx.work.BackoffPolicy;
@@ -134,8 +135,18 @@ public final class PaymentSaveWorker extends ListenableWorker {
         public boolean complete(String result) {
             if (finished || isStopped()) return false;
             try {
-                InterceptedPaymentStore.completeSave(getApplicationContext(), id, new JSONObject(result));
-                main.post(() -> finish(true, null));
+                JSONObject receipt = new JSONObject(result);
+                InterceptedPaymentStore.completeSave(getApplicationContext(), id, receipt);
+                main.post(() -> {
+                    if (finished || isStopped()) return;
+                    String confirmation = receipt.optString("confirmation");
+                    String warning = receipt.optString("categorizationWarning");
+                    if (!confirmation.isEmpty()) {
+                        Toast.makeText(getApplicationContext(),
+                            warning.isEmpty() ? confirmation : confirmation + " " + warning, Toast.LENGTH_LONG).show();
+                    }
+                    finish(true, null);
+                });
                 return true;
             } catch (JSONException | IllegalStateException | SecurityException error) {
                 Log.e("TMFInterceptor", "Could not persist background save receipt", error);

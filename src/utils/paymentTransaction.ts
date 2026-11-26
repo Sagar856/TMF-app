@@ -3,6 +3,7 @@ import { resolveAccountId } from './accountResolver';
 import { inferTransactionKind } from './transactionKind';
 import { newId } from './ids';
 import { CASH_WITHDRAWAL_SUBCATEGORY, applyCashWithdrawalLeg, ensureCashAccount, isCashWithdrawalText } from './cashAccount';
+import { categoryKeywordMatches } from '../services/notification/CategoryClassifier';
 
 const CATEGORY_MATCH_MIN_SCORE = 0.82;
 const CATEGORY_MATCH_MIN_MARGIN = 0.04;
@@ -13,18 +14,42 @@ const GENERIC_SUBCATEGORY_NAMES = new Set(['general', 'misc', 'miscellaneous', '
 
 export function applyNotificationCategoryOverride(notification: ParsedNotification, categories: Category[]): ParsedNotification {
   const name = notification.categoryOverride?.trim();
-  if (!name) return notification;
-  const type = notification.type === 'credit' ? 'income' : 'expense';
-  const inputWords = categoryWords(name);
+  const text = name || notification.description?.trim();
+  if (!text || isCashWithdrawalNotification(notification)) return notification;
+  const match = matchNotificationCategoryText(text, notification.type, categories);
+  if (match.status !== 'match') {
+    if (!name) return notification;
+    throw new Error(`Category "${name}" was not found or matched ambiguously for this payment. Edit it in the app.`);
+  }
+  return { ...notification, category: match.category.name, subcategory: match.subcategory };
+}
+
+export type NotificationCategoryMatch =
+  | { status: 'match'; category: Category; subcategory: string }
+  | { status: 'none' | 'ambiguous' };
+
+export function matchNotificationCategoryText(
+  text: string, direction: 'credit' | 'debit', categories: readonly Category[],
+): NotificationCategoryMatch {
+  const type = direction === 'credit' ? 'income' : 'expense';
+  const inputWords = categoryWords(text.slice(0, 200));
   const inputName = inputWords.join(' ');
+  const keywordMatches = categoryKeywordMatches(text.slice(0, 200), direction);
   const matches = categories
     .filter(category => category.type === type)
-    .map(category => ({ category, score: categoryMatchScore(inputName, inputWords, category) }))
+    .map(category => {
+      const related = keywordMatches.filter(match =>
+        categoryMatchScore(categoryWords(match.category).join(' '), categoryWords(match.category), category) >= CATEGORY_MATCH_MIN_SCORE
+        || tokenMatchScore(categoryWords(category.name), categoryWords(match.category), 0.78, 0.18) >= CATEGORY_MATCH_MIN_SCORE
+        || categoryMatchScore(categoryWords(match.subcategory).join(' '), categoryWords(match.subcategory), category) >= CATEGORY_MATCH_MIN_SCORE);
+      return { category, related, score: Math.max(categoryMatchScore(inputName, inputWords, category), related.length ? 0.94 : 0) };
+    })
     .filter(match => match.score >= CATEGORY_MATCH_MIN_SCORE)
     .sort((left, right) => right.score - left.score);
   const best = matches[0];
-  if (!best || (matches[1] && best.score - matches[1].score < CATEGORY_MATCH_MIN_MARGIN)) {
-    throw new Error(`Category "${name}" was not found or matched ambiguously for this payment. Edit it in the app.`);
+  if (!best) return { status: 'none' };
+  if (matches[1] && best.score - matches[1].score < CATEGORY_MATCH_MIN_MARGIN) {
+    return { status: 'ambiguous' };
   }
   const category = best.category;
   const exactSubcategory = category.subcategories.find(subcategory => {
@@ -32,10 +57,12 @@ export function applyNotificationCategoryOverride(notification: ParsedNotificati
     return words.length > 0 && words.join(' ') === inputName && !GENERIC_SUBCATEGORY_NAMES.has(inputName);
   });
   const subcategory = exactSubcategory
-    || category.subcategories.find(value => value.toLowerCase() === notification.subcategory.toLowerCase())
+    || category.subcategories.find(value => best.related.some(match =>
+      categoryWords(match.subcategory).join(' ') === categoryWords(value).join(' ')))
+    || category.subcategories.find(value => GENERIC_SUBCATEGORY_NAMES.has(value.toLowerCase()))
     || category.subcategories[0]
-    || 'General';
-  return { ...notification, category: category.name, subcategory };
+    || '';
+  return subcategory ? { status: 'match', category, subcategory } : { status: 'none' };
 }
 
 function categoryMatchScore(inputName: string, inputWords: string[], category: Category): number {

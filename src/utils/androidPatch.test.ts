@@ -286,6 +286,7 @@ test('Payment notification actions save without launching an Activity and retain
   assert.match(worker, /ExistingWorkPolicy\.KEEP/);
   assert.match(worker, /Result\.retry\(\)/);
   assert.match(worker, /InterceptedPaymentStore\.completeSave/);
+  assert.match(worker, /InterceptedPaymentStore\.completeSave[\s\S]*?main\.post\([\s\S]*?Toast\.makeText[\s\S]*?finish\(true, null\)/);
   assert.match(store, /saved\.put\(id, record\)/);
   assert.match(store, /record\.put\("account", result\.getJSONObject\("account"\)\)/);
   assert.match(store, /"Not saved: "/);

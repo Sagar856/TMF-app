@@ -104,7 +104,9 @@ export function parseAssistantCategoryProposal(output: string): unknown {
   }
 }
 
-export function assistantCategoryPrompt(transaction: Transaction, categories: readonly Category[]): string {
+export function assistantCategoryPrompt(
+  transaction: Pick<Transaction, 'type' | 'title' | 'category' | 'subcategory'>, categories: readonly Category[],
+): string {
   const available = categories
     .filter(category => category.type === (transaction.type === 'credit' ? 'income' : 'expense'))
     .map((category, index) => ({ id: `c${index}`, name: category.name, subcategories: category.subcategories }));
@@ -120,7 +122,7 @@ export function assistantCategoryPrompt(transaction: Transaction, categories: re
 
 export function resolveAssistantCategoryProposal(
   output: unknown,
-  transaction: Transaction,
+  transaction: Pick<Transaction, 'type'>,
   categories: readonly Category[],
 ): unknown {
   if (typeof output !== 'object' || output === null || Array.isArray(output)) return undefined;

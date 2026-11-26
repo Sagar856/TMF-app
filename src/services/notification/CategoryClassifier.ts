@@ -19,6 +19,18 @@ interface RuleDefinition {
 
 const CATEGORY_RULES = categoryRules as RuleDefinition[];
 
+export function categoryKeywordMatches(text: string, type: 'credit' | 'debit'): CategoryMapping[] {
+  const normalized = ` ${normalizeText(text)} `;
+  const categoryType = type === 'credit' ? 'Income' : 'Expense';
+  return CATEGORY_RULES.filter(rule => rule.categoryType === categoryType).flatMap(rule => {
+    const keyword = rule.keywords.find(value => normalized.includes(` ${normalizeText(value)} `));
+    return keyword ? [{
+      category: rule.category, subcategory: rule.subcategory, categoryType: rule.categoryType,
+      confidence: 0.95, matchedKeyword: keyword,
+    }] : [];
+  });
+}
+
 /**
  * Clean & tokenize text for robust matching against keywords
  */
@@ -116,6 +128,7 @@ export function suggestCategoryForTitle(
   type: 'credit' | 'debit' = 'debit'
 ): CategoryMapping | null {
   if (!title || title.trim().length < 2) return null;
+  if (new Set(categoryKeywordMatches(title, type).map(match => match.category)).size > 1) return null;
   const result = classifyMerchant(title, '', type);
   if (result && result.confidence && result.confidence >= 0.8) {
     return result;

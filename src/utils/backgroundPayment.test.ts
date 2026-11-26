@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
@@ -13,6 +13,17 @@ import { reconcileSavedPayments } from './savedPaymentReconciliation';
 import { createCashAccount, isCashWithdrawal } from './cashAccount';
 import type { InterceptedPayment } from '../services/notificationListener';
 import { parseTransactionSyncRevisions } from './transactionSync';
+import { categorizeNotification } from '../services/notificationCategorization';
+import { notificationCategoryConfirmation } from './notificationCategoryFeedback';
+
+const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+before(() => Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true, value: { getItem: () => null },
+}));
+after(() => {
+  if (previousStorage) Object.defineProperty(globalThis, 'localStorage', previousStorage);
+  else Reflect.deleteProperty(globalThis, 'localStorage');
+});
 
 const source = readFileSync(new URL('../services/backgroundPayment.ts', import.meta.url), 'utf8');
 const backgroundSql = readFileSync(new URL('../../supabase_background_payments.sql', import.meta.url), 'utf8');
@@ -42,7 +53,7 @@ const payment = {
 function harness() {
   const transactions: Transaction[] = [];
   const accounts = [{ ...bank }];
-  const completed: { transaction?: Transaction; duplicate?: boolean; account?: FinancialAccount }[] = [];
+  const completed: { transaction?: Transaction; duplicate?: boolean; account?: FinancialAccount; confirmation?: string }[] = [];
   let calls = 0;
   const state = {
     bridge: {
@@ -72,7 +83,8 @@ function harness() {
     fetchCategoriesFromSupabase: async () => [{
       id: 'groceries', name: 'Groceries', type: 'expense', iconName: 'Tag', subcategories: ['General'],
     }],
-    parseNotification, isEligiblePaymentNotification, createPaymentTransaction, applyNotificationCategoryOverride, hasUnmatchedPaymentAccount, toLocalISODate, isFinancialAccount,
+    parseNotification, isEligiblePaymentNotification, createPaymentTransaction, categorizeNotification, hasUnmatchedPaymentAccount, toLocalISODate, isFinancialAccount,
+    notificationCategoryConfirmation, safeGetJson: () => ({}),
     createCashAccount, isCashWithdrawal,
   };
   return { state, completed, accounts, transactions, calls: () => calls, run: () => runInNewContext(save, state) as Promise<void> };
@@ -85,7 +97,7 @@ test('background Add validates the inline category and refuses an unknown accoun
   assert.equal(valid.transactions[0].category, 'Groceries');
   const invalid = harness();
   invalid.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'Not a category' });
-  await assert.rejects(invalid.run(), /Category .* was not found/);
+  await assert.rejects(invalid.run(), /Category was not found/);
   assert.equal(invalid.calls(), 0);
   const unmatched = harness();
   unmatched.state.bridge.input = () => JSON.stringify({ ...payment, text: payment.text.replace('XX4411', 'XX9876') });
@@ -137,6 +149,8 @@ test('cold background Add saves the actual transaction and balance with descript
   assert.equal(h.transactions.length, 1);
   assert.equal(h.accounts[0].balance, 3500);
   assert.equal(h.calls(), 1);
+  assert.match(h.completed[0].confirmation!, /1,500.00 transaction moved under Groceries/);
+  assert.equal(h.completed[1].confirmation, undefined);
   const saved = h.completed[0].transaction!;
   assert.equal(saved.id, 'tx_native_payment-1');
   assert.equal(saved.title, 'Weekly groceries');

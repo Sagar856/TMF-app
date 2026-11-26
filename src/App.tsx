@@ -134,6 +134,9 @@ import { BackupRestoreData, isFinancialAccount, isTransaction } from './utils/ba
 import { parseCloudSettings, portableSettings } from './utils/cloudSettings';
 import { isSavingsGoalArray } from './utils/savingsGoals';
 import { formatMoney, getCurrencyLocale } from './utils/money';
+import { categorizeNotification } from './services/notificationCategorization';
+import { notificationCategoryConfirmation } from './utils/notificationCategoryFeedback';
+import { deleteMinaChats } from './utils/assistantChatHistory';
 import { createPasscodeCredentials, isLegacyPasscodeHash, PasscodeCredentials, verifyPasscode } from './utils/passcode';
 import { isBiometricAvailable, isBiometricEnrolled, verifyBiometric } from './services/biometric';
 import { deleteAllReceiptAttachments, deleteReceiptAttachmentsForTransaction } from './utils/receiptStorage';
@@ -822,6 +825,7 @@ export default function App() {
     cloudHydrated,
     setTransactions,
     notify: showToast,
+    moneyOptions: { symbol: settings.currencySymbol, locale: settings.locale },
   });
 
   useEffect(() => {
@@ -1401,6 +1405,7 @@ export default function App() {
     cloudGenerationRef.current++;
     cloudLoadInFlightRef.current = false;
     setCloudHydrated(false);
+    setAssistantOpen(false);
     lastPushedRef.current = {};
     setTransactions([]);
     setAccounts([]);
@@ -1914,48 +1919,75 @@ export default function App() {
     return true;
   };
 
-  const handleConfirmAddNotification = (notif: ParsedNotification) => {
-    const alreadyAdded = transactions.find(tx => tx.id === `tx_${notif.id}`);
-    if (alreadyAdded) {
-      recordExtractedHistory(notif, 'added', alreadyAdded.id);
-      queueNotificationResolution(notif.id, 'added', notif);
-      void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
-      setPendingNotifications(previous => previous.filter(item => item.id !== notif.id));
-      showToast('This payment was already added on this device.', 'info');
-      return;
-    }
-    if (hasUnmatchedPaymentAccount(notif, accounts)) {
-      showToast('Account not found or ambiguous. Add it in Accounts or use Edit to choose an account.', 'error');
-      return;
-    }
-    let categorized: ParsedNotification;
+  const notificationCategoryStateRef = useRef({ transactions, accounts, categories, pendingNotifications, isUnlocked });
+  notificationCategoryStateRef.current = { transactions, accounts, categories, pendingNotifications, isUnlocked };
+  const notificationAddsInFlight = useRef(new Set<string>());
+
+  const handleConfirmAddNotification = async (notif: ParsedNotification) => {
+    if (notificationAddsInFlight.current.has(notif.id)) return;
+    notificationAddsInFlight.current.add(notif.id);
     try {
-      categorized = applyNotificationCategoryOverride(notif, categories);
-    } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Invalid category. Edit the payment in the app.', 'error');
-      return;
+      const snapshot = notificationCategoryStateRef.current;
+      const alreadyAdded = snapshot.transactions.find(tx => tx.id === `tx_${notif.id}`);
+      if (alreadyAdded) {
+        recordExtractedHistory(notif, 'added', alreadyAdded.id);
+        queueNotificationResolution(notif.id, 'added', notif);
+        void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
+        setPendingNotifications(previous => previous.filter(item => item.id !== notif.id));
+        showToast('This payment was already added on this device.', 'info');
+        return;
+      }
+      if (hasUnmatchedPaymentAccount(notif, snapshot.accounts)) {
+        showToast('Account not found or ambiguous. Add it in Accounts or use Edit to choose an account.', 'error');
+        return;
+      }
+      let categorized: ParsedNotification;
+      const generation = cloudGenerationRef.current;
+      try {
+        categorized = await categorizeNotification(notif, snapshot.categories, {
+          onWarning: message => {
+            if (generation === cloudGenerationRef.current) showToast(message, 'warning');
+          },
+        });
+      } catch (error) {
+        if (generation === cloudGenerationRef.current) {
+          showToast(error instanceof Error ? error.message : 'Invalid category. Edit the payment in the app.', 'error');
+        }
+        return;
+      }
+      if (generation !== cloudGenerationRef.current) return;
+      const current = notificationCategoryStateRef.current;
+      if (snapshot.transactions !== current.transactions || snapshot.accounts !== current.accounts
+        || snapshot.categories !== current.categories || snapshot.pendingNotifications !== current.pendingNotifications
+        || !current.isUnlocked) {
+        showToast('Payment details changed during categorisation. Nothing was added; please retry.', 'warning');
+        return;
+      }
+      const { transaction: createdTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, snapshot.accounts, snapshot.categories);
+      const newTx: Transaction = {
+        ...createdTx,
+        categoryOrigin: categorized.categoryOverride
+          ? 'user-edited'
+          : createdTx.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
+      };
+      const nextTransactions = [newTx, ...snapshot.transactions];
+      if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
+      notificationCategoryStateRef.current = { ...current, transactions: nextTransactions, accounts: nextAccounts, categories: nextCategories };
+      recordExtractedHistory(categorized, 'added', newTx.id);
+      if (nextCategories !== snapshot.categories) setCategories(nextCategories);
+      setAccounts(nextAccounts);
+      setTransactions(nextTransactions);
+      queueNotificationResolution(notif.id, 'added', categorized);
+      void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
+      setPendingNotifications((prev) => {
+        const remaining = prev.filter((n) => n.id !== notif.id);
+        if (remaining.length === 0) setIsNotificationModalOpen(false);
+        return remaining;
+      });
+      showToast(`${notificationCategoryConfirmation(newTx, { symbol: settings.currencySymbol, locale: settings.locale })} Added on this device. Cloud sync is separate.`, 'success');
+    } finally {
+      notificationAddsInFlight.current.delete(notif.id);
     }
-    const { transaction: createdTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, accounts, categories);
-    const newTx: Transaction = {
-      ...createdTx,
-      categoryOrigin: categorized.categoryOverride
-        ? 'user-edited'
-        : createdTx.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
-    };
-    const nextTransactions = [newTx, ...transactions];
-    if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
-    recordExtractedHistory(categorized, 'added', newTx.id);
-    if (nextCategories !== categories) setCategories(nextCategories);
-    setAccounts(nextAccounts);
-    setTransactions(nextTransactions);
-    queueNotificationResolution(notif.id, 'added', categorized);
-    void resolveInterceptedPayment(notif.id).catch(error => console.warn('Could not dismiss payment alert:', error));
-    setPendingNotifications((prev) => {
-      const remaining = prev.filter((n) => n.id !== notif.id);
-      if (remaining.length === 0) setIsNotificationModalOpen(false);
-      return remaining;
-    });
-    showToast('Payment added on this device. Cloud sync is separate.', 'success');
   };
 
   const handleConfirmEditNotification = (notif: ParsedNotification) => {
@@ -2951,6 +2983,8 @@ export default function App() {
           showToast('Connect to the internet to delete your account, then retry.', 'error', 8000);
           return;
         }
+        const deletingOwner = authUser?.id;
+        setAssistantOpen(false);
         let warning: string | undefined;
         try {
           ({ warning } = await deleteUserAccount());
@@ -2962,6 +2996,13 @@ export default function App() {
           setAuthUser(null);
           clearLocalDataOnSignOut(true);
           showToast(warning, 'warning', 8000);
+        }
+        if (deletingOwner) {
+          try {
+            await deleteMinaChats(deletingOwner);
+          } catch {
+            showToast('Account deleted, but saved MINA chats could not be removed from this device. Clear this app/browser storage to remove them.', 'warning', 8000);
+          }
         }
         try {
           await configureNotificationInterceptor(false, false, false, '');
@@ -3755,9 +3796,11 @@ export default function App() {
       </div>
 
       {/* Top Bar Auto-Vanishing Pop-up Notification */}
-      {assistantOpen && assistantModel.enabled && assistantModel.installed && (
+      {assistantOpen && authUser && isUnlocked && assistantModel.enabled && assistantModel.installed && (
         <Suspense fallback={<div role="status" className="fixed inset-0 z-modal flex items-center justify-center bg-backdrop/80 text-xs text-white">Loading MINA…</div>}>
           <AssistantChatModal
+            key={authUser.id}
+            ownerId={authUser.id}
             runtime={assistantModel.runtime}
             transactions={transactions}
             categories={categories}

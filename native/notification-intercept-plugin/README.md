@@ -36,10 +36,16 @@ beside Description in the expanded card because Android's system action row
 supports at most three actions. The Ignore control is a rounded, outlined
 button. Replies persist without adding the payment or changing the raw bank
 notification. Category input is limited to 100 characters and description to
-200. Category text is matched locally against the user's existing categories
-for the payment direction, including subcategories; exact and close text
-matches can resolve to a category without an AI model. Unmatched or ambiguous
-names keep Add retryable. The entered description becomes the transaction
+200. On Add, Category text takes priority over Description; a blank Category
+uses the entered Description. Both use `notificationCategorization.ts` and the
+shared category rules against existing direction-valid categories/subcategories.
+Meal words (lunch/dinner/breakfast) and merchants such as Zomato/Swiggy resolve
+locally without model inference. Enabled MINA can handle unfamiliar wording with
+its installed model while closed or locked, in a separate worker with a
+20-second generation deadline. It never implicitly downloads a model.
+Disabled/unavailable MINA retains the local classifier; errors show a warning.
+Unmatched or ambiguous Category replies keep Add retryable; unclear descriptions
+retain the parser category. The entered description becomes the transaction
 title, and category is saved in the transaction category column.
 Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
 without launching an Activity or bypassing the app's PIN/biometric screen.
@@ -52,6 +58,9 @@ after a process dies between the cloud commit and native receipt persistence.
 The resulting transaction/account receipt is committed to private native storage
 and reconciled with the app on its next resume. It is not an Add confirmation
 deferred until the user opens the app.
+After a committed receipt, the worker posts a short amount/category toast on
+the main thread without launching an Activity. Retry receipts omit that
+confirmation; Android may restrict background toast visibility.
 
 **Deployment requirement:** run `supabase_background_payments.sql` after the
 latest `supabase_schema.sql`, then build/install the updated APK. Missing schema,
