@@ -65,7 +65,7 @@ export const AssistantSettingsSection: React.FC<AssistantSettingsProps> = ({ ass
         Do not enter passwords, codes, account numbers or other private details. MINA masks some detected identifiers and blocks some secrets, but detection is not guaranteed. Transaction descriptions and category names may still reach the local model.
       </p>
       <p className="py-2 text-[10px] leading-relaxed text-content-3">
-        Notification Add matches your Category reply first, or Description when Category is blank. While MINA is enabled, unfamiliar wording may be processed locally even when the app is closed or locked. Clear matches use shared local rules; disabling MINA keeps those rules available.
+        Notification Add matches your Category reply first, or Description when Category is blank, using shared local rules whether MINA is enabled or not. Unmatched Category replies remain pending; unclear descriptions retain the parser category.
       </p>
       {assistant.error && <p role="alert" className="py-2 text-xs text-red-600 dark:text-red-400">{assistant.error}</p>}
       {assistant.ready && !assistant.installed && !assistant.error && (

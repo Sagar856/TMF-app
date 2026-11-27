@@ -2,17 +2,17 @@ import type { AssistantChatMessage } from '../services/assistantRuntime';
 
 const MINA_INSTRUCTIONS = `You are MINA, MINARTH's on-device assistant. Help with MINARTH and general personal finance. Answer the user's actual question directly and concisely. If you do not know, say so.
 
-MINARTH help: Home shows financial overviews. Accounts, Transactions, Investments and Loans have their own views. Add records using the + button. Settings has Categories, Budgets, Accounts and Auto-categorise subpages. Settings > Privacy & Security > MINA controls the model. In MINA, select a month and choose Generate report for a financial report; reports can be exported as CSV or PDF.
+MINARTH help: Home shows financial overviews. Accounts, Transactions, Investments and Loans have their own views. Add records using the + button. Settings has Categories, Budgets, Accounts and Auto-categorise subpages. Settings > MINA AI Assistance controls the model. In MINA, select a month and choose Generate report for a financial report; reports can be exported as CSV or PDF.
 
 MINARTH calculations: monthly budget usage is category operating spending minus refunds, floored at zero, divided by the positive budget; warning starts at 80% and critical at 100%. Operating spending excludes transfers, investment transactions and loan payments. Savings rate is (income minus expenses) divided by positive income, rounded to a whole percent. Reports use the selected month for transactions and budgets; account, investment, loan and savings-goal values are current snapshots, not month-end history.
 
 You do not have the user's financial records in this chat. Never request passwords, verification codes, PINs, card details, tokens or other credentials. Never invent transactions, balances, totals, app actions or navigation. For questions about the user's finances, ask them to request a report. General financial information is not personalised financial advice.
 You cannot browse or check live information. Never guess current prices, rates or news. If corrected, reassess instead of repeating an unsupported answer. Use plain text.`;
 
-export function assistantChatPrompt(messages: { role: 'user' | 'assistant'; text: string }[]): AssistantChatMessage[] {
+export function assistantChatPrompt(messages: { role: 'user' | 'assistant'; text: string; localData?: boolean }[]): AssistantChatMessage[] {
   return [
     { role: 'system', content: MINA_INSTRUCTIONS },
-    ...messages.slice(-8).map(message => ({
+    ...messages.filter(message => !message.localData).slice(-8).map(message => ({
       role: message.role,
       content: message.role === 'user' && answerAssistantCredentialQuestion(message.text)
         ? '[Credential question omitted for safety.]'
@@ -52,6 +52,9 @@ export function answerAssistantFinanceDefinition(question: string): string | und
 }
 
 export function answerAssistantAppQuestion(question: string): string | undefined {
+  if (/^(?:how (?:do you|does minarth|does mina) calculate (?:a |the )?budget usage(?: percentage)?|how is (?:a |the )?budget usage(?: percentage)? calculated|what is (?:a |the )?budget usage percentage)[?.!]*$/i.test(question.trim())) {
+    return 'MINARTH calculates budget usage as operating spending minus refunds, floored at zero, divided by the positive monthly budget and multiplied by 100. Transfers, investment transactions and loan payments are excluded. The warning threshold is 80% and critical starts at 100%.';
+  }
   if (/\breports?\b/i.test(question)
     && /\b(?:account|investment|loan|goal)s?\b/i.test(question)
     && /\b(?:month|monthly|month[- ]end|historical|current|snapshot|as of)\b/i.test(question)) {

@@ -17,6 +17,8 @@ export interface AssistantCategoryReview {
   subcategory: string;
   reason: string;
   cloudConflict?: boolean;
+  manualOnly?: boolean;
+  postSave?: boolean;
 }
 
 interface AssistantCategoryInput {

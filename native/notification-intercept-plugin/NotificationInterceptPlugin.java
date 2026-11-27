@@ -66,6 +66,16 @@ public class NotificationInterceptPlugin extends Plugin {
         }
         String id = intent.getStringExtra("tmfPaymentId");
         String action = intent.getStringExtra("tmfPaymentAction");
+        if (id != null && "category-review-open".equals(action)) {
+            try {
+                InterceptedPaymentStore.openCategoryReview(getContext(), id, true);
+                intent.removeExtra("tmfPaymentId");
+                intent.removeExtra("tmfPaymentAction");
+            } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+                android.util.Log.e("TMFInterceptor", "Could not open saved category review", error);
+            }
+            return;
+        }
         if (id == null || !("add".equals(action) || "edit".equals(action) || "open".equals(action))) return;
         try {
             InterceptedPaymentStore.action(getContext(), id, action);
@@ -73,6 +83,34 @@ public class NotificationInterceptPlugin extends Plugin {
             intent.removeExtra("tmfPaymentAction");
         } catch (org.json.JSONException | IllegalStateException error) {
             android.util.Log.e("TMFInterceptor", "Could not save notification action", error);
+        }
+    }
+
+    @PluginMethod
+    public void acknowledgeCategoryReview(PluginCall call) {
+        String id = call.getString("id");
+        if (id == null) { call.reject("Category review id required"); return; }
+        try {
+            InterceptedPaymentStore.openCategoryReview(getContext(), id, false);
+            call.resolve();
+        } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+            call.reject("Could not acknowledge category review", error);
+        }
+    }
+
+    @PluginMethod
+    public void categoryReview(PluginCall call) {
+        String id = call.getString("id");
+        String owner = call.getString("owner");
+        if (id == null || owner == null) { call.reject("Category review id and owner required"); return; }
+        try {
+            boolean displayed = InterceptedPaymentStore.categoryReview(getContext(), id, owner,
+                call.getString("title", "Saved transaction needs a category"), Boolean.TRUE.equals(call.getBoolean("remove")));
+            JSObject result = new JSObject();
+            result.put("displayed", displayed);
+            call.resolve(result);
+        } catch (org.json.JSONException | IllegalStateException | SecurityException error) {
+            call.reject("Could not update saved category review notification", error);
         }
     }
 

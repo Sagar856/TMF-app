@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useBackActivity } from '../../hooks/useActivityState';
-import { Check, LogOut, Trash2, Upload, UserCircle2, Lock } from 'lucide-react';
+import { Check, Edit3, LogOut, Trash2, Upload, UserCircle2, Lock } from 'lucide-react';
 import { UserSettings } from '../../types/finance';
-import { createProfileThumbnail } from '../../utils/profilePhoto';
+import { validateProfilePhoto } from '../../utils/profilePhoto';
 import { isStrongPassword } from '../../utils/passwordPolicy';
 import { signInUser, updatePassword } from '../../services/supabaseClient';
 import { PasswordField } from '../PasswordField';
 import { SettingButton, SettingSection } from './SettingsPrimitives';
+import { ProfilePhotoEditor } from './ProfilePhotoEditor';
 
 interface ProfileSettingsProps {
   settings: UserSettings;
@@ -19,7 +20,7 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
   const [name, setName] = useState(settings.userName || '');
   const email = authUserEmail || settings.userEmail || '';
   const [photo, setPhoto] = useState(settings.userPhoto || '');
-  const [uploading, setUploading] = useState(false);
+  const [editorSource, setEditorSource] = useState('');
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -30,20 +31,22 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
     setPhoto(settings.userPhoto || '');
   }, [settings.userName, settings.userPhoto]);
 
-  const uploadPhoto = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  useEffect(() => () => {
+    if (editorSource.startsWith('blob:')) URL.revokeObjectURL(editorSource);
+  }, [editorSource]);
+
+  const uploadPhoto = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     setError('');
     setSaved(false);
-    setUploading(true);
     try {
-      setPhoto(await createProfileThumbnail(file));
+      validateProfilePhoto(file);
+      setEditorSource(URL.createObjectURL(file));
     } catch (reason) {
       console.warn('Could not prepare profile photo:', reason);
       setError(reason instanceof Error ? reason.message : 'Could not prepare your profile photo.');
-    } finally {
-      setUploading(false);
     }
   };
 
@@ -53,7 +56,7 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
       <SettingSection id="settings-profile" title="Profile settings" icon={UserCircle2} description="Your photo and personal details, shown across MINARTH.">
         <form onSubmit={event => {
           event.preventDefault();
-          if (uploading || !hasChanges) return;
+          if (!hasChanges) return;
           if (!name.trim()) { setError('Enter a display name.'); return; }
           onUpdateSettings({ ...settings, userName: name.trim(), userPhoto: photo });
           setError('');
@@ -64,16 +67,16 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
               : <div aria-hidden="true" className="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-3xl font-semibold text-white">{name.trim().charAt(0).toUpperCase() || 'U'}</div>}
             <div className="min-w-0 flex-1 space-y-3">
               <p className="text-sm font-semibold text-content-1">Profile picture</p>
-              <p className="text-xs text-content-3">Images up to 5 MB are resized for your profile.</p>
-              <input ref={fileInput} type="file" accept="image/*" aria-label="Select profile picture" className="hidden" disabled={uploading} onChange={event => void uploadPhoto(event)} />
+              <p className="text-xs text-content-3">Crop and adjust images up to 5 MB before saving.</p>
+              <input ref={fileInput} type="file" accept="image/*" aria-label="Select profile picture" className="hidden" onChange={uploadPhoto} />
               <div className="flex flex-wrap gap-2">
-                <SettingButton icon={Upload} disabled={uploading} onClick={() => fileInput.current?.click()}>Upload Photo</SettingButton>
-                {photo && <SettingButton icon={Trash2} disabled={uploading} onClick={() => { setPhoto(''); setSaved(false); }}>Remove</SettingButton>}
+                <SettingButton icon={Upload} onClick={() => fileInput.current?.click()}>Upload Photo</SettingButton>
+                {photo && <SettingButton icon={Edit3} onClick={() => setEditorSource(photo)}>Edit photo</SettingButton>}
+                {photo && <SettingButton icon={Trash2} onClick={() => { setPhoto(''); setSaved(false); }}>Remove</SettingButton>}
               </div>
             </div>
           </div>
           {error && <p role="alert" className="text-xs text-red-500">{error}</p>}
-          {uploading && <p role="status" className="text-xs text-content-3">Preparing photo...</p>}
           <div className="grid gap-4 sm:grid-cols-2">
             <label htmlFor="profile-display-name" className="text-xs font-medium text-content-2">Display name
               <input id="profile-display-name" autoComplete="nickname" value={name} onChange={event => setName(event.target.value)} required className={inputClass} />
@@ -83,13 +86,18 @@ export function ProfileSettings({ settings, authUserEmail, onUpdateSettings, onS
             </label>
           </div>
           <p id="profile-email-help" className="text-xs leading-relaxed text-content-3">This email identifies your account and cannot be edited. Manage your password under Privacy &amp; Security.</p>
-          <button type="submit" disabled={uploading || !hasChanges} className="flex min-h-11 items-center gap-2 rounded-xl bg-violet-600 px-4 text-xs font-semibold text-white enabled:hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed">
+          <button type="submit" disabled={!hasChanges} className="flex min-h-11 items-center gap-2 rounded-xl bg-violet-600 px-4 text-xs font-semibold text-white enabled:hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed">
             <Check className="h-4 w-4" />Save Changes
           </button>
           {saved && <p role="status" className="text-xs text-emerald-500">Profile updated successfully.</p>}
         </form>
       </SettingSection>
       {onSignOut && <div id="settings-profile-signout" className="flex justify-end border-t border-line pt-4"><SettingButton icon={LogOut} onClick={onSignOut}>Sign out</SettingButton></div>}
+      {editorSource && <ProfilePhotoEditor source={editorSource} onClose={() => setEditorSource('')} onApply={value => {
+        setPhoto(value);
+        setSaved(false);
+        setEditorSource('');
+      }} />}
     </div>
   );
 }

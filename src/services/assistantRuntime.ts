@@ -21,6 +21,7 @@ interface PendingRequest {
   resolve: (text: string | undefined) => void;
   reject: (error: Error) => void;
   onProgress?: (loaded: number, total: number) => void;
+  timeout?: ReturnType<typeof setTimeout>;
 }
 
 export class AssistantRuntime {
@@ -51,6 +52,7 @@ export class AssistantRuntime {
         return;
       }
       this.pending.delete(reply.id);
+      clearTimeout(request.timeout);
       if (reply.type === 'error') request.reject(new Error(reply.message || 'Local AI failed.'));
       else request.resolve(reply.text);
     };
@@ -68,8 +70,21 @@ export class AssistantRuntime {
     }
     const id = ++this.nextId;
     return new Promise<string | undefined>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject, onProgress });
-      worker.postMessage(type === 'install' ? { id, type } : { id, type, prompt, priority });
+      const timeout = type === 'generate' ? setTimeout(() => {
+        const message = 'MINA took too long on this device. Please retry, or use the app controls.';
+        if (this.installation) {
+          this.pending.delete(id);
+          reject(new Error(message));
+        } else this.terminateWorker(message);
+      }, 60_000) : undefined;
+      this.pending.set(id, { resolve, reject, onProgress, timeout });
+      try {
+        worker.postMessage(type === 'install' ? { id, type } : { id, type, prompt, priority });
+      } catch (error) {
+        this.pending.delete(id);
+        clearTimeout(timeout);
+        reject(error instanceof Error ? error : new Error('Could not start local AI.'));
+      }
     });
   }
 
@@ -106,7 +121,10 @@ export class AssistantRuntime {
     if (this.installation) this.worker?.postMessage({ id: this.installation.id, type: 'cancel-install' });
     this.worker?.terminate();
     this.worker = undefined;
-    for (const request of this.pending.values()) request.reject(new Error(message));
+    for (const request of this.pending.values()) {
+      clearTimeout(request.timeout);
+      request.reject(new Error(message));
+    }
     this.pending.clear();
   }
 

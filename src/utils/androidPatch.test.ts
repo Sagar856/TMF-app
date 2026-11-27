@@ -68,6 +68,24 @@ test('native ignore confirms only a persisted action and background Add displays
   assert.match(receiver, /Could not ignore payment notification\. Please retry/);
 });
 
+test('saved category follow-ups atomically retain the handoff and Save opens review, never Add', () => {
+  const store = readFileSync(new URL('../../native/notification-intercept-plugin/InterceptedPaymentStore.java', import.meta.url), 'utf8');
+  const plugin = readFileSync(new URL('../../native/notification-intercept-plugin/NotificationInterceptPlugin.java', import.meta.url), 'utf8');
+  const complete = store.slice(store.indexOf('    public static synchronized void completeSave('),
+    store.indexOf('    public static synchronized void saveFailed('));
+  assert.match(complete, /\.putString\("saved", saved\.toString\(\)\)\.putString\("categoryReviews", categoryReviews\.toString\(\)\)/);
+  assert.ok(complete.indexOf('categoryReviews.toString()') < complete.indexOf('resolve(context, id)'));
+  const review = store.slice(store.indexOf('    public static synchronized boolean categoryReview('),
+    store.indexOf('    private static void save('));
+  assert.match(review, /owner\.equals\(currentOwner\)/);
+  assert.match(review, /PendingIntent save = open\(context, id, "category-review-open"\)/);
+  assert.match(review, /\.addAction\(0, "Save", save\)/);
+  assert.match(review, /POST_NOTIFICATIONS/);
+  assert.doesNotMatch(review, /PaymentSaveWorker|tmf\.add\.|PaymentActionReceiver/);
+  assert.match(plugin, /"category-review-open"\.equals\(action\)[\s\S]*?openCategoryReview\(getContext\(\), id, true\)/);
+  assert.match(plugin, /openCategoryReview\(getContext\(\), id, false\)/);
+});
+
 test('Background update notifications are scheduled, bounded, permission-aware and deduplicated', () => {
   const worker = readFileSync(new URL('../../native/app-update-plugin/AppUpdateWorker.java', import.meta.url), 'utf8');
   const plugin = readFileSync(new URL('../../native/app-update-plugin/AppUpdatePlugin.java', import.meta.url), 'utf8');

@@ -8,7 +8,8 @@ export interface InterceptedPayment {
   title: string;
   text: string;
   postedAt: number;
-  action: 'review' | 'open' | 'add' | 'edit' | 'ignore' | 'saving' | 'saved';
+  action: 'review' | 'open' | 'add' | 'edit' | 'ignore' | 'saving' | 'saved' | 'category-review' | 'category-review-open';
+  categoryReviewText?: string;
   owner?: string;
   transaction?: Transaction;
   account?: FinancialAccount;
@@ -41,6 +42,8 @@ export function isAccountSuggestionAction(value: unknown): value is AccountSugge
 }
 
 interface NotificationInterceptPlugin {
+  acknowledgeCategoryReview(options: { id: string }): Promise<void>;
+  categoryReview(options: { id: string; owner: string; title: string; remove: boolean }): Promise<{ displayed: boolean }>;
   isPermissionGranted(): Promise<{ granted: boolean }>;
   requestPermission(): Promise<void>;
   configure(options: { enabled: boolean; notifications: boolean; locationTracking: boolean; owner: string; emailNotifications: boolean; knownAccounts: string[]; ignoredAccounts: string[] }): Promise<void>;
@@ -58,6 +61,17 @@ interface NotificationInterceptPlugin {
 }
 
 const NotificationIntercept = registerPlugin<NotificationInterceptPlugin>('NotificationIntercept');
+
+export async function acknowledgeCategoryReview(id: string): Promise<void> {
+  if (isNativeAndroid()) await NotificationIntercept.acknowledgeCategoryReview({ id });
+}
+
+export async function syncCategoryReviewNotification(owner: string, transactionId: string, remove: boolean, title = 'Saved transaction needs a category'): Promise<boolean> {
+  if (!isNativeAndroid()) return true;
+  return (await NotificationIntercept.categoryReview({
+    id: transactionId, owner, title, remove,
+  })).displayed;
+}
 
 export function reverseGeocodeNativeCoordinates(lat: number, lng: number): Promise<{ name: string }> {
   return NotificationIntercept.reverseGeocode({ lat, lng });
@@ -149,7 +163,8 @@ export function startNotificationListener(onPayment: (payment: InterceptedPaymen
       if (removed) return;
       if (payment.action === 'saving') return;
       if (payment.action === 'saved' && document.visibilityState === 'hidden') return;
-      if (payment.action !== 'ignore' && !isEligiblePaymentNotification(payment.packageName, payment.title, payment.text)) {
+      if (payment.action !== 'ignore' && !payment.action.startsWith('category-review')
+        && !isEligiblePaymentNotification(payment.packageName, payment.title, payment.text)) {
         await NotificationIntercept.resolvePayment({ id: payment.id });
         return;
       }

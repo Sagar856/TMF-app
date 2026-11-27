@@ -73,9 +73,38 @@ test('missing transaction RPCs do not instruct users to deploy the unsafe migrat
           rpc: async () => ({ error: { code: errorCode } }),
         }),
       });
+
       assert.equal(result.success, false);
       assert.equal(result.schemaOutdated, true);
       assert.match(result.error, /do not deploy/i);
     }
   }
+});
+
+test('category sync rejects a changed owner and sends the captured owner to the RPC', async () => {
+  const source = readFileSync(new URL('../services/supabaseClient.ts', import.meta.url), 'utf8');
+  const helper = source.slice(source.indexOf('function transactionSyncRows('), source.indexOf('// Metadata-only transaction writes'));
+  const start = source.indexOf('export async function syncTransactionsToSupabase(');
+  const end = source.indexOf('export async function deleteMultipleTransactionsFromSupabase(', start);
+  const code = transformSync(`${helper}\n${source.slice(start, end).replace('export ', '')}\nsyncTransactionsToSupabase([transaction], 'original-owner');`, { loader: 'ts' }).code;
+  let userId = 'different-owner';
+  let calls = 0;
+  const context = {
+    transaction, safeGetItem: () => 'original-owner', parseTransactionSyncRevisions,
+    getSupabaseClient: () => ({
+      auth: { getUser: async () => ({ data: { user: { id: userId } } }) },
+      rpc: async (_name: string, args: { p_transactions: { user_id: string }[] }) => {
+        calls++;
+        assert.equal(args.p_transactions[0].user_id, 'original-owner');
+        return { data: [{ id: transaction.id, sync_revision: 2 }], error: null };
+      },
+    }),
+  };
+  const rejected = await runInNewContext(code, context);
+  assert.equal(rejected.success, false);
+  assert.match(rejected.error, /Account changed/);
+  assert.equal(calls, 0);
+  userId = 'original-owner';
+  assert.equal((await runInNewContext(code, context)).success, true);
+  assert.equal(calls, 1);
 });

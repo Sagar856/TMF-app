@@ -1,8 +1,9 @@
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
-import React, { useRef, useState } from 'react';
-import { ParsedNotification } from '../types/finance';
+import React, { useEffect, useRef, useState } from 'react';
+import { ParsedNotification, type Category } from '../types/finance';
 import { Check, Edit3, Pencil, X, MapPin, Smartphone, ChevronDown, ChevronUp, Radio, History, LoaderCircle } from 'lucide-react';
 import { NOTIFICATION_HISTORY_LIMIT, type NotificationHistoryEntry } from '../utils/notificationHistory';
+import type { AssistantCategoryReview } from '../utils/assistantCategory';
 
 interface NotificationPromptModalProps {
   notifications: ParsedNotification[];
@@ -21,7 +22,120 @@ interface NotificationPromptModalProps {
   onAddDetectedAccount?: (notification: ParsedNotification) => void;
   onIgnoreDetectedAccount?: (notification: ParsedNotification) => void;
   showAccountSuggestion?: (notification: ParsedNotification) => boolean;
+  categoryReviews?: AssistantCategoryReview[];
+  categories?: Category[];
+  existingUncategorizedCount?: number;
+  onCategorizeExisting?: () => void;
+  onApproveCategory?: (review: AssistantCategoryReview) => void | Promise<void>;
+  onDismissCategory?: (review: AssistantCategoryReview) => void | Promise<void>;
+  onReloadConflict?: (review: AssistantCategoryReview) => void | Promise<void>;
+  onOpenReviewTransaction?: (review: AssistantCategoryReview) => void;
+  initialReview?: boolean;
+  reviewRequest?: string | null;
 }
+
+export const CategoryReviewList: React.FC<Pick<NotificationPromptModalProps,
+  'categoryReviews' | 'existingUncategorizedCount' | 'onCategorizeExisting' | 'onApproveCategory'
+  | 'onDismissCategory' | 'onReloadConflict' | 'onOpenReviewTransaction' | 'categories'>> = ({
+  categoryReviews = [], existingUncategorizedCount = 0, onCategorizeExisting, onApproveCategory,
+  onDismissCategory, onReloadConflict, onOpenReviewTransaction, categories = [],
+}) => {
+  const formatAmount = useMoneyFormatter();
+  const actionInFlight = useRef(false);
+  const [busyReview, setBusyReview] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<{ id: string; message: string } | null>(null);
+  const runAction = async (review: AssistantCategoryReview, action?: (review: AssistantCategoryReview) => void | Promise<void>) => {
+    if (!action || actionInFlight.current) return;
+    actionInFlight.current = true;
+    setBusyReview(review.transactionId);
+    setActionError(null);
+    try {
+      await action(review);
+    } catch {
+      setActionError({ id: review.transactionId, message: 'Could not complete this action. The transaction remains available for review.' });
+    } finally {
+      actionInFlight.current = false;
+      setBusyReview(null);
+    }
+  };
+  return (
+  <section aria-label="MINA transaction categories" className="max-h-[65vh] overflow-y-auto space-y-3">
+    {existingUncategorizedCount > 0 && <div className="space-y-2 text-xs">
+      <p>Existing uncategorized records are left unchanged unless you explicitly request processing.</p>
+      <button type="button" onClick={onCategorizeExisting} className="rounded-lg border border-violet-400 px-3 py-2">
+        Categorize existing uncategorized ({existingUncategorizedCount})
+      </button>
+    </div>}
+    {categoryReviews.length === 0 ? <p className="text-xs text-content-3">No category suggestions to review.</p>
+      : categoryReviews.map(review => (
+        <article key={review.transactionId} className="rounded-xl border border-line bg-surface-2 p-3 text-xs">
+          <p className="font-semibold">{review.before.title} · {formatAmount(review.before.amount)} · {review.before.date}</p>
+          <p className="mt-1 text-content-2">{review.before.category} / {review.before.subcategory}
+            {!review.manualOnly && <> → {review.category} / {review.subcategory}</>}</p>
+          <p className="mt-1 text-content-3">{review.reason}</p>
+          {review.manualOnly && !review.cloudConflict && <SavedCategorySelector
+            review={review} categories={categories} onSave={onApproveCategory} />}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {review.cloudConflict ? <button type="button" disabled={busyReview !== null} onClick={() => void runAction(review, onReloadConflict)}
+              className="rounded-lg bg-violet-700 px-3 py-2 font-bold text-white">Reload cloud version</button>
+              : !review.manualOnly && <button type="button" disabled={busyReview !== null} onClick={() => void runAction(review, onApproveCategory)}
+                className="rounded-lg bg-violet-700 px-3 py-2 font-bold text-white">{review.postSave ? 'Save' : 'Apply category'}</button>}
+            {onOpenReviewTransaction && <button type="button" onClick={() => onOpenReviewTransaction(review)}
+              className="rounded-lg border border-line px-3 py-2">View transaction</button>}
+            <button type="button" disabled={busyReview !== null} onClick={() => void runAction(review, onDismissCategory)} className="rounded-lg border border-line px-3 py-2">
+              {review.cloudConflict ? 'Keep local version' : 'Keep current'}
+            </button>
+          </div>
+          {busyReview === review.transactionId && <p role="status" className="mt-2 text-content-3">Updating review...</p>}
+          {actionError?.id === review.transactionId && <p role="alert" className="mt-2 text-red-600 dark:text-red-400">{actionError.message}</p>}
+        </article>
+      ))}
+  </section>
+  );
+};
+
+const SavedCategorySelector: React.FC<{
+  review: AssistantCategoryReview;
+  categories: Category[];
+  onSave?: (review: AssistantCategoryReview) => void | Promise<void>;
+}> = ({ review, categories, onSave }) => {
+  const [categoryId, setCategoryId] = useState('');
+  const [subcategory, setSubcategory] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const category = categories.find(item => item.id === categoryId
+    && item.type === (review.before.type === 'credit' ? 'income' : 'expense'));
+  return <div className="mt-2 space-y-2">
+    <select aria-label="Saved transaction category" value={categoryId} disabled={saving}
+      className="w-full rounded-lg border border-line bg-surface-1 p-2"
+      onChange={event => {
+        setCategoryId(event.target.value);
+        setSubcategory(categories.find(item => item.id === event.target.value)?.subcategories[0] || '');
+      }}>
+      <option value="">Select category</option>
+      {categories.filter(item => item.type === (review.before.type === 'credit' ? 'income' : 'expense'))
+        .map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+    </select>
+    <select aria-label="Saved transaction subcategory" value={subcategory} disabled={saving || !category}
+      className="w-full rounded-lg border border-line bg-surface-1 p-2"
+      onChange={event => setSubcategory(event.target.value)}>
+      {!category && <option value="">Select subcategory</option>}
+      {category?.subcategories.map(item => <option key={item} value={item}>{item}</option>)}
+    </select>
+    <button type="button" disabled={saving || !category?.subcategories.includes(subcategory)} className="rounded-lg bg-violet-700 px-3 py-2 font-bold text-white disabled:opacity-50"
+      onClick={async () => {
+        if (!category || saving) return;
+        setSaving(true);
+        setError('');
+        try {
+          await onSave?.({ ...review, categoryId: category.id, category: category.name, subcategory, manualOnly: false });
+        } catch {
+          setError('Could not save this category. The transaction remains available for review.');
+        } finally { setSaving(false); }
+      }}>{saving ? 'Saving...' : 'Save'}</button>
+    {error && <p role="alert">{error}</p>}
+  </div>;
+};
 
 export const NotificationHistoryList: React.FC<{
   history: NotificationHistoryEntry[];
@@ -90,11 +204,17 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
   onAddDetectedAccount,
   onIgnoreDetectedAccount,
   showAccountSuggestion,
+  categoryReviews = [], existingUncategorizedCount = 0, onCategorizeExisting, onApproveCategory,
+  onDismissCategory, onReloadConflict, onOpenReviewTransaction, initialReview = false, reviewRequest, categories = [],
 }) => {
   const formatAmount = useMoneyFormatter();
   const [currentIndex, setCurrentIndex] = useState<number>(0);
   const [showRawText, setShowRawText] = useState<boolean>(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showReview, setShowReview] = useState(initialReview);
+  useEffect(() => {
+    if (initialReview) { setShowReview(true); setShowHistory(false); }
+  }, [initialReview, reviewRequest]);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState('');
   const addInFlight = useRef(false);
@@ -119,15 +239,43 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
       <History className="h-3.5 w-3.5" />{showHistory ? 'Pending' : 'History'}
     </button>
   );
+  const reviewButton = (
+    <button type="button" onClick={() => { setShowReview(true); setShowHistory(false); }}
+      aria-label={`Pending review, ${categoryReviews.length} category suggestions`}
+      className="flex items-center gap-1 rounded-lg border border-line px-2 py-1 text-xs">
+      Pending review{categoryReviews.length > 0 ? ` (${categoryReviews.length})` : ''}
+    </button>
+  );
+
+  if (showReview) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-xs" onClick={onClose} />
+      <section role="dialog" aria-modal="true" aria-label="Pending category reviews"
+        className="relative w-full max-w-md rounded-3xl border border-line bg-surface-1 p-4 text-content-1 shadow-2xl">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-bold">Pending review</h3>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setShowReview(false)} className="rounded-lg border border-line px-2 py-1 text-xs">Pending</button>
+            <button type="button" onClick={() => { setShowReview(false); setShowHistory(true); }}
+              className="rounded-lg border border-line px-2 py-1 text-xs">History</button>
+            <button type="button" aria-label="Close pending reviews" onClick={onClose}><X className="h-4 w-4" /></button>
+          </div>
+        </header>
+        <CategoryReviewList categories={categories} categoryReviews={categoryReviews} existingUncategorizedCount={existingUncategorizedCount}
+          onCategorizeExisting={onCategorizeExisting} onApproveCategory={onApproveCategory}
+          onDismissCategory={onDismissCategory} onReloadConflict={onReloadConflict} onOpenReviewTransaction={onOpenReviewTransaction} />
+      </section>
+    </div>
+  );
 
   if (showHistory) return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
       <div className="fixed inset-0 bg-black/30 backdrop-blur-xs" onClick={onClose} />
       <section role="dialog" aria-modal="true" aria-label="Notification history"
         className="relative w-full max-w-md rounded-3xl border border-line bg-surface-1 p-4 text-content-1 shadow-2xl">
-        <header className="mb-3 flex items-center justify-between gap-2">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="min-w-0 text-sm font-bold">History · Last {NOTIFICATION_HISTORY_LIMIT} notifications</h3>
-          <div className="flex shrink-0 items-center gap-2">{historyButton}<button type="button" aria-label="Close notification history" onClick={onClose}><X className="h-4 w-4" /></button></div>
+          <div className="flex flex-wrap items-center gap-2">{reviewButton}{historyButton}<button type="button" aria-label="Close notification history" onClick={onClose}><X className="h-4 w-4" /></button></div>
         </header>
         <NotificationHistoryList history={history} canEditHistory={canEditHistory} onEditHistory={onEditHistory}
           canOpenHistoryTransaction={canOpenHistoryTransaction} onOpenHistoryTransaction={onOpenHistoryTransaction} />
@@ -140,7 +288,7 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 font-mono">
         <div className="fixed inset-0 bg-black/30 backdrop-blur-xs transition-opacity" onClick={onClose} />
         <div className="relative z-10 bg-surface-1/85 border border-white/20 backdrop-blur-xl p-6 rounded-3xl max-w-sm w-full text-center shadow-2xl text-white my-auto animate-in zoom-in-95 duration-150">
-          <div className="mb-3 flex justify-end">{historyButton}</div>
+          <div className="mb-3 flex justify-end gap-2">{reviewButton}{historyButton}</div>
           <div className="w-12 h-12 bg-black/50 border border-white/15 rounded-full flex items-center justify-center mx-auto mb-3 text-red-400">
             <Smartphone className="w-6 h-6" />
           </div>
@@ -170,14 +318,14 @@ export const NotificationPromptModal: React.FC<NotificationPromptModalProps> = (
       <div className="relative z-10 bg-gradient-to-br from-red-950/60 via-[#0d0e12]/80 to-emerald-950/60 border border-white/20 p-4 sm:p-5 rounded-3xl max-w-md w-full shadow-2xl backdrop-blur-xl text-white overflow-hidden my-auto animate-in zoom-in-95 duration-150">
         
         {/* Top Header Badge */}
-        <div className="flex items-center justify-between mb-3.5 pb-2.5 border-b border-white/10">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3.5 pb-2.5 border-b border-white/10">
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
             <span className="text-[10px] font-bold text-red-400 uppercase tracking-[0.2em]">
               UPI / SMS Detected ({safeIndex + 1}/{notifications.length})
             </span>
           </div>
-          <div className="flex items-center gap-2">{historyButton}<button
+          <div className="flex items-center gap-2">{reviewButton}{historyButton}<button
             onClick={onClose}
             aria-label="Close notifications"
             className="text-[#aaa] hover:text-white p-1 rounded-lg bg-black/40 border border-white/10 transition-colors cursor-pointer"

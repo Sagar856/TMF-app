@@ -250,3 +250,32 @@ test('runtime rejects model requests for credentials', async () => {
     else Reflect.deleteProperty(globalThis, 'Worker');
   }
 });
+
+test('a stalled generation stops its worker, rejects queued requests and permits retry', async context => {
+  const previousWorker = Object.getOwnPropertyDescriptor(globalThis, 'Worker');
+  context.mock.timers.enable({ apis: ['setTimeout'] });
+  const workers: { stopped: boolean }[] = [];
+  class FakeWorker {
+    onmessage?: (event: MessageEvent) => void;
+    stopped = false;
+    constructor() { workers.push(this); }
+    postMessage() {}
+    terminate() { this.stopped = true; }
+  }
+  try {
+    Object.defineProperty(globalThis, 'Worker', { configurable: true, value: FakeWorker });
+    const runtime = new AssistantRuntime();
+    const stalled = assert.rejects(runtime.generate('Question'), /took too long/);
+    const queued = assert.rejects(runtime.generate('Other question'), /took too long/);
+    context.mock.timers.tick(60_000);
+    await Promise.all([stalled, queued]);
+    assert.equal(workers[0].stopped, true);
+    const retry = assert.rejects(runtime.generate('Retry'), /stopped/);
+    await runtime.stop();
+    await retry;
+    assert.equal(workers.length, 2);
+  } finally {
+    if (previousWorker) Object.defineProperty(globalThis, 'Worker', previousWorker);
+    else Reflect.deleteProperty(globalThis, 'Worker');
+  }
+});

@@ -2,7 +2,9 @@ import { safeSetItem } from '../utils/storage';
 import { SettingButton } from './settings/SettingsPrimitives';
 import { useMoneyFormatter } from '../hooks/useMoneyFormatter';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useActivityState, useBackActivity } from '../hooks/useActivityState';
+import { useDialog } from '../hooks/useDialog';
 import { motion, AnimatePresence } from 'motion/react';
 import { AccountType, Category, FinancialAccount, Transaction } from '../types/finance';
 import { newId } from '../utils/ids';
@@ -360,7 +362,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
 
   // Category Modal State (Add / Edit)
   const [showCategoryModal, setShowCategoryModal] = useState<boolean>(false);
-  useBackActivity(showCategoryModal, () => setShowCategoryModal(false));
+  const categoryDialogRef = useDialog<HTMLDivElement>({ isOpen: showCategoryModal, onClose: () => setShowCategoryModal(false) });
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [catName, setCatName] = useState<string>('');
   const [catType, setCatType] = useState<'income' | 'expense' | 'investment'>('expense');
@@ -1501,19 +1503,23 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
       {/* 7. ADD / EDIT CATEGORY MODAL                                              */}
       {/* ========================================================================= */}
       </div>
-      {showCategoryModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {showCategoryModal && createPortal(
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm z-modal flex items-end justify-center sm:items-stretch sm:justify-end">
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white dark:bg-surface-1 border border-slate-200 dark:border-[#222] p-6 rounded-3xl max-w-md w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
+            ref={categoryDialogRef}
+            role="dialog" aria-modal="true" aria-labelledby="category-editor-title" tabIndex={-1}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex flex-col bg-white dark:bg-surface-1 border border-slate-200 dark:border-line p-4 sm:p-6 rounded-t-3xl sm:rounded-none sm:rounded-l-3xl max-w-lg w-full shadow-2xl max-h-[90dvh] sm:max-h-none overflow-hidden text-content-1"
           >
             <div className="flex justify-between items-center pb-3 border-b border-slate-100 dark:border-[#222]">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase flex items-center gap-2">
+              <h3 id="category-editor-title" className="text-sm font-bold text-slate-900 dark:text-white uppercase flex items-center gap-2">
                 <Tag className="w-4 h-4 text-red-500" />
                 <span>{editingCategory ? 'Edit Category' : 'Create Custom Category'}</span>
               </h3>
               <button
+                type="button"
+                aria-label="Close category editor"
                 onClick={() => setShowCategoryModal(false)}
                 className="text-slate-400 hover:text-slate-900 dark:hover:text-white cursor-pointer"
               >
@@ -1521,7 +1527,8 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleSaveCategoryModal} className="space-y-4">
+            <form onSubmit={handleSaveCategoryModal} className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain py-4">
               {/* Type Switcher */}
               <div>
                 <label className="block text-[10px] text-slate-500 dark:text-[#777] uppercase font-bold mb-1">
@@ -1678,6 +1685,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
                 </div>
               )}
 
+              </div>
               {/* Modal Actions */}
               <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-[#222]">
                 <button
@@ -1696,7 +1704,7 @@ export const CustomisationsView: React.FC<CustomisationsViewProps> = ({
               </div>
             </form>
           </motion.div>
-        </div>
+        </div>, document.body
       )}
 
       {/* ========================================================================= */}

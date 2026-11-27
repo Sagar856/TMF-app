@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Brain, ChevronDown, FileText, History, LockKeyhole, Menu, Plus, Send, Sparkles, X } from 'lucide-react';
+import { Brain, ChevronDown, FileText, History, LockKeyhole, Menu, MoreVertical, Plus, Send, Sparkles, Trash2, X } from 'lucide-react';
 import { useDialog } from '../hooks/useDialog';
 import type { Category, FinancialAccount, InvestmentRecord, LoanRecord, SavingsGoal, Transaction } from '../types/finance';
 import type { AssistantRuntime } from '../services/assistantRuntime';
@@ -8,16 +8,17 @@ import { createAssistantReport, type AssistantReport } from '../utils/assistantR
 import { stringifyAssistantReportCsv } from '../utils/assistantReportCsv';
 import { assistantReportInsights, assistantReportPrompt, resolveAssistantReportExplanation } from '../utils/assistantReportExplanation';
 import { createAssistantReportPdf } from '../utils/assistantReportPdf';
-import type { AssistantCategoryReview } from '../utils/assistantCategory';
 import { answerAssistantMarketQuestion } from '../utils/assistantMarketResponse';
 import { answerAssistantAppQuestion, answerAssistantCredentialQuestion, answerAssistantFinanceDefinition, assistantChatPrompt, isAssistantReportRequest } from '../utils/assistantChat';
 import type { MarketSnapshot } from '../utils/marketData';
 import { AssistantReportView } from './AssistantReportView';
 import {
-  consentToMinaChats, deleteMinaChats, loadMinaChats, saveMinaChat, selectMinaChat, startMinaChat,
+  consentToMinaChats, deleteMinaChat, deleteMinaChats, loadMinaChats, saveMinaChat, selectMinaChat, startMinaChat,
   type AssistantMessage, type MinaChat, type MinaChatArchive,
 } from '../utils/assistantChatHistory';
 import { protectAssistantText } from '../utils/assistantPrivacy';
+import { advanceCategoryAction, type CategoryAction, type CategoryActionDraft } from '../utils/assistantCategoryActions';
+import { answerAssistantCategoryOverview } from '../utils/assistantCategoryOverview';
 
 interface AssistantChatModalProps {
   ownerId: string;
@@ -30,12 +31,7 @@ interface AssistantChatModalProps {
   savingsGoals: SavingsGoal[];
   currencyCode: string;
   marketSnapshot: MarketSnapshot | null;
-  categoryReviews?: AssistantCategoryReview[];
-  existingUncategorizedCount?: number;
-  onCategorizeExisting?: () => void;
-  onApproveCategory?: (review: AssistantCategoryReview) => void;
-  onDismissCategory?: (review: AssistantCategoryReview) => void;
-  onReloadConflict?: (review: AssistantCategoryReview) => void;
+  onApplyCategoryAction?: (action: CategoryAction) => void;
   onClose: () => void;
 }
 
@@ -57,24 +53,36 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
   ownerId,
   runtime, transactions, categories, accounts, investments, loans, savingsGoals, currencyCode,
   marketSnapshot,
-  categoryReviews = [], existingUncategorizedCount = 0, onCategorizeExisting,
-  onApproveCategory, onDismissCategory, onReloadConflict, onClose,
+  onApplyCategoryAction, onClose,
 }) => {
   const [navigationOpen, setNavigationOpen] = useState(false);
   const navigationTriggerRef = useRef<HTMLButtonElement>(null);
   const navigationCloseRef = useRef<HTMLButtonElement>(null);
+  const chatOptionsTriggerRef = useRef<HTMLButtonElement>(null);
+  const chatOptionsRef = useRef<HTMLDivElement>(null);
+  const confirmDeleteRef = useRef<HTMLButtonElement>(null);
   const closeNavigation = () => {
     setNavigationOpen(false);
+    setConfirmDelete('');
+    setOpenChatOptions('');
     navigationTriggerRef.current?.focus();
   };
   const dialogRef = useDialog<HTMLElement>({
     isOpen: true,
-    onClose: () => { if (navigationOpen) closeNavigation(); else onClose(); },
+    onClose: () => {
+      if (openChatOptions) {
+        setOpenChatOptions('');
+        chatOptionsTriggerRef.current?.focus();
+      } else if (navigationOpen) closeNavigation();
+      else onClose();
+    },
   });
   const [archive, setArchive] = useState<MinaChatArchive | null>(null);
   const [storageBusy, setStorageBusy] = useState(true);
   const [consentChecked, setConsentChecked] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState('');
+  const [openChatOptions, setOpenChatOptions] = useState('');
   const chat = archive?.chats.find(item => item.id === archive.activeChatId);
   const messages = chat?.messages || [];
   const [input, setInput] = useState('');
@@ -82,6 +90,10 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reportToolsOpen, setReportToolsOpen] = useState(false);
+  const [actionDraft, setActionDraft] = useState<CategoryActionDraft | null>(null);
+  const [proposedAction, setProposedAction] = useState<CategoryAction | null>(null);
+  const [actionPreview, setActionPreview] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const nextId = useRef(0);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -91,6 +103,14 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
   useEffect(() => {
     if (navigationOpen) navigationCloseRef.current?.focus();
   }, [navigationOpen]);
+
+  useEffect(() => {
+    if (confirmDelete) confirmDeleteRef.current?.focus();
+  }, [confirmDelete]);
+
+  useEffect(() => {
+    if (openChatOptions) chatOptionsRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [openChatOptions]);
 
   useEffect(() => {
     mounted.current = true;
@@ -123,6 +143,10 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
       setMonth(saved.chats.find(item => item.id === saved.activeChatId)!.month);
       setInput('');
       setReportToolsOpen(false);
+      setActionDraft(null);
+      setProposedAction(null);
+      setActionPreview('');
+      setActionNotice('');
     } catch {
       if (mounted.current) setError('Could not open or save this chat. Check device storage and retry.');
     } finally {
@@ -157,13 +181,47 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
       setArchive({ version: 1, consented: false, activeChatId: null, chats: [] });
       setConsentChecked(false);
       setConfirmClear(false);
+      setConfirmDelete('');
+      setOpenChatOptions('');
       setInput('');
       setMonth(todayLocalISO().slice(0, 7));
       setReportToolsOpen(false);
+      setActionDraft(null);
+      setProposedAction(null);
+      setActionPreview('');
+      setActionNotice('');
       setNavigationOpen(false);
       setError('');
     } catch {
       if (mounted.current) setError('Could not clear MINA chats on this device. Please retry.');
+    } finally {
+      operation.current = false;
+      if (mounted.current) setStorageBusy(false);
+    }
+  };
+
+  const deleteChat = async (id: string) => {
+    if (operation.current) return;
+    operation.current = true;
+    setStorageBusy(true);
+    setError('');
+    try {
+      const saved = await deleteMinaChat(ownerId, id);
+      if (!mounted.current) return;
+      setArchive(saved);
+      if (saved.activeChatId !== chat?.id) {
+        setInput('');
+        setMonth(saved.chats.find(item => item.id === saved.activeChatId)?.month || todayLocalISO().slice(0, 7));
+        setReportToolsOpen(false);
+        setActionDraft(null);
+        setProposedAction(null);
+        setActionPreview('');
+        setActionNotice('');
+      }
+      setConfirmDelete('');
+      navigationCloseRef.current?.focus();
+    } catch {
+      if (mounted.current) setError('Could not delete this MINA chat. It may have changed in another window; reopen MINA and retry.');
     } finally {
       operation.current = false;
       if (mounted.current) setStorageBusy(false);
@@ -190,6 +248,8 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
         && prompt === `Generate a financial report for ${month}.`;
       const safePrompt = credentialResponse ? '[Credential question omitted for safety.]'
         : generatedReportRequest ? prompt : protectAssistantText(prompt);
+      const actionStep = !credentialResponse && !reportRequested && !proposedAction
+        ? advanceCategoryAction(prompt, actionDraft, categories) : null;
       const previousMessages = chat?.messages || [];
       nextId.current = previousMessages.reduce((max, message) => Math.max(max, message.id), nextId.current);
       const userMessage: AssistantMessage = { id: ++nextId.current, role: 'user', text: safePrompt };
@@ -205,7 +265,19 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
       };
       if (credentialResponse) {
         await reply({ id: ++nextId.current, role: 'assistant', text: credentialResponse });
+      } else if (proposedAction) {
+        await reply({ id: ++nextId.current, role: 'assistant', text: 'Please confirm or cancel the pending action using the buttons below.' });
+      } else if (actionStep) {
+        await reply({ id: ++nextId.current, role: 'assistant', text: protectAssistantText(actionStep.text)
+          + (actionStep.status === 'ready' ? ' This proposal is available only in the current session.' : '') });
+        if (mounted.current) {
+          setActionDraft(actionStep.status === 'question' ? actionStep.draft : null);
+          setProposedAction(actionStep.status === 'ready' ? actionStep.action : null);
+          setActionPreview(actionStep.status === 'ready' ? actionStep.text : '');
+          setActionNotice('');
+        }
       } else if (reportRequested) {
+        setActionDraft(null);
         const asOfDate = todayLocalISO();
         const report = createAssistantReport({
           month, asOfDate, transactions, categories, accounts, investments, loans, savingsGoals,
@@ -225,17 +297,51 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
           report, explanation, currencyCode,
         });
       } else {
+        const categoryOverview = answerAssistantCategoryOverview(safePrompt, categories, transactions, todayLocalISO(), currencyCode);
+        if (categoryOverview) {
+          await reply({ id: ++nextId.current, role: 'assistant', text: categoryOverview, localData: true });
+          return;
+        }
         const cachedMarketResponse = answerAssistantMarketQuestion(
           safePrompt,
           previousMessages.filter(message => message.role === 'user').map(message => message.text),
           marketSnapshot,
         );
-        const response = cachedMarketResponse || answerAssistantAppQuestion(safePrompt) || answerAssistantFinanceDefinition(safePrompt)
+        const unsupportedAction = /^(?:please\s+)?(?:add|create|set|change|update|delete|remove)\b/i.test(prompt)
+          ? 'I can prepare category, subcategory and monthly budget changes for confirmation. I cannot perform that request as written. Try a more specific request or use the app controls.' : undefined;
+        const response = unsupportedAction || cachedMarketResponse || answerAssistantAppQuestion(safePrompt) || answerAssistantFinanceDefinition(safePrompt)
           || await runtime.generate(assistantChatPrompt(conversation));
         await reply({ id: ++nextId.current, role: 'assistant', text: protectAssistantText(response.trim()) });
       }
-    } catch {
-      if (mounted.current) setError('MINA could not complete or save this response. Check device storage and retry. Any saved messages remain in this chat.');
+    } catch (reason) {
+      if (mounted.current) setError(reason instanceof Error ? reason.message : 'MINA could not complete or save this response. Check device storage and retry. Any saved messages remain in this chat.');
+    } finally {
+      operation.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  };
+
+  const confirmCategoryAction = async () => {
+    if (!proposedAction || !chat || !onApplyCategoryAction || operation.current) return;
+    operation.current = true;
+    setBusy(true);
+    setError('');
+    try {
+      try {
+        onApplyCategoryAction(proposedAction);
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : 'Could not save this category change. Nothing was changed.');
+        return;
+      }
+      setProposedAction(null);
+      setActionPreview('');
+      setActionNotice('Saved on this device. Cloud sync is separate.');
+      const message: AssistantMessage = { id: ++nextId.current, role: 'assistant', text: 'Saved on this device. Cloud sync is separate.' };
+      try {
+        await storeChat({ ...chat, messages: [...chat.messages, message] });
+      } catch {
+        if (mounted.current) setError('The category change was saved on this device, but its chat confirmation could not be saved.');
+      }
     } finally {
       operation.current = false;
       if (mounted.current) setBusy(false);
@@ -369,17 +475,48 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
             </h4>
             {archive.chats.length === 0 && <p className="px-2 py-3 text-xs leading-relaxed text-content-3">Your saved chats will appear here.</p>}
             <ul className="space-y-1">
-              {archive.chats.map(item => <li key={item.id}><button type="button" disabled={busy || storageBusy}
+              {archive.chats.map(item => <li key={item.id} className="relative">
+                <div className="flex items-center gap-1">
+                <button type="button" disabled={busy || storageBusy}
                 aria-current={item.id === chat?.id ? 'page' : undefined} onClick={() => { closeNavigation(); void navigateChat(item.id); }}
-                className="mina-nav-item min-h-11 w-full rounded-xl px-3 py-2 text-left disabled:opacity-40">
+                className="mina-nav-item min-h-11 min-w-0 flex-1 rounded-xl px-3 py-2 text-left disabled:opacity-40">
                 <span className="block truncate">{item.messages.find(message => message.role === 'user')?.text.slice(0, 60) || 'New chat'}</span>
                 <span className="text-[10px] text-content-3">{new Date(item.createdAt).toLocaleString()}</span>
-              </button></li>)}
+                </button>
+                <button type="button" disabled={busy || storageBusy}
+                  aria-label={`Chat options: ${item.messages.find(message => message.role === 'user')?.text.slice(0, 60) || 'New chat'}`}
+                  aria-expanded={openChatOptions === item.id}
+                  aria-controls={`mina-chat-options-${item.id}`}
+                  onClick={event => {
+                    chatOptionsTriggerRef.current = event.currentTarget;
+                    setOpenChatOptions(previous => previous === item.id ? '' : item.id);
+                    setConfirmDelete('');
+                    setConfirmClear(false);
+                  }}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-content-3 hover:bg-surface-2 disabled:opacity-40">
+                  <MoreVertical className="h-5 w-5" aria-hidden="true" />
+                </button>
+                </div>
+                {openChatOptions === item.id && <div ref={chatOptionsRef} id={`mina-chat-options-${item.id}`} className="absolute bottom-full right-1 z-20 mb-1 w-max rounded-xl border border-line bg-surface-1 p-1 shadow-xl">
+                  <button type="button" disabled={busy || storageBusy}
+                    onClick={() => { setOpenChatOptions(''); setConfirmDelete(item.id); }}
+                    className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-xs text-red-600 hover:bg-surface-2 disabled:opacity-40 dark:text-red-400">
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />Delete chat
+                  </button>
+                </div>}
+                {confirmDelete === item.id && <div role="group" aria-label="Confirm deleting chat" className="mt-1 rounded-xl border border-line p-3 text-xs">
+                  <p>Permanently delete this chat and its saved reports?</p>
+                  <div className="flex flex-wrap gap-3">
+                    <button ref={confirmDeleteRef} type="button" disabled={busy || storageBusy} onClick={() => void deleteChat(item.id)} className="min-h-11 text-red-600 underline disabled:opacity-40">Delete chat</button>
+                    <button type="button" disabled={storageBusy} onClick={() => { setConfirmDelete(''); chatOptionsTriggerRef.current?.focus(); }} className="min-h-11 underline">Cancel</button>
+                  </div>
+                </div>}
+              </li>)}
             </ul>
           </div>
           <div className="mt-4 border-t border-line pt-3">
           {error && <p role="alert" className="px-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
-          <button type="button" disabled={busy || storageBusy} onClick={() => setConfirmClear(previous => !previous)}
+          <button type="button" disabled={busy || storageBusy} onClick={() => { setOpenChatOptions(''); setConfirmDelete(''); setConfirmClear(previous => !previous); }}
             className="min-h-11 px-2 text-xs text-content-2 underline disabled:opacity-40">Clear chats</button>
           {confirmClear && <div role="group" aria-label="Confirm clearing MINA chats" className="space-y-1 rounded-xl border border-line p-3 text-xs">
             <p>Permanently delete all saved chats and withdraw consent?</p>
@@ -393,54 +530,6 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
         </div>}
         <div className="flex min-h-0 flex-1 flex-col" inert={navigationOpen || undefined}>
         <div className="mina-conversation min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-5">
-        {(categoryReviews.length > 0 || existingUncategorizedCount > 0) && (
-          <section aria-label="MINA transaction categories" className="mb-5 space-y-2 rounded-2xl border border-line bg-surface-2 p-3">
-            {existingUncategorizedCount > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[10px] text-content-3">
-                  Existing uncategorized records are left unchanged unless you explicitly request processing.
-                </p>
-                <button type="button" onClick={onCategorizeExisting}
-                  className="rounded-lg border border-violet-400 px-3 py-2 text-[10px] font-bold text-violet-700 dark:text-violet-300">
-                  Categorize existing uncategorized ({existingUncategorizedCount})
-                </button>
-              </div>
-            )}
-            {categoryReviews.length > 0 && (
-              <div className="space-y-2" aria-live="polite">
-                <h3 className="text-xs font-bold">Category suggestions to review</h3>
-                {categoryReviews.map(review => (
-                  <article key={review.transactionId} className="rounded-xl border border-line bg-surface-2 p-3">
-                    <p className="text-xs font-semibold">{review.before.title}</p>
-                    <p className="mt-1 text-[10px] text-content-2">
-                      {review.before.category} / {review.before.subcategory}
-                      {' → '}
-                      {review.category} / {review.subcategory}
-                    </p>
-                    <p className="mt-1 text-[10px] text-content-3">{review.reason}</p>
-                    <div className="mt-2 flex gap-2">
-                      {review.cloudConflict ? (
-                        <button type="button" onClick={() => onReloadConflict?.(review)}
-                          className="rounded-lg bg-violet-700 px-3 py-2 text-[10px] font-bold text-white">
-                          Reload cloud version
-                        </button>
-                      ) : (
-                        <button type="button" onClick={() => onApproveCategory?.(review)}
-                          className="rounded-lg bg-violet-700 px-3 py-2 text-[10px] font-bold text-white">
-                          Apply category
-                        </button>
-                      )}
-                      <button type="button" onClick={() => onDismissCategory?.(review)}
-                        className="rounded-lg border border-line px-3 py-2 text-[10px] font-bold">
-                        {review.cloudConflict ? 'Keep local version' : 'Keep current'}
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
           {messages.length === 0 && (
             <div className="mx-auto flex max-w-sm flex-col items-center py-4 text-center sm:py-8">
               <span className="mina-avatar mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"><Sparkles className="h-7 w-7" /></span>
@@ -474,6 +563,16 @@ export const AssistantChatModal: React.FC<AssistantChatModalProps> = ({
             </article>
           ))}
           </div>
+          {proposedAction && <div role="group" aria-label="Confirm MINA category change" className="mt-4 rounded-xl border border-line bg-surface-2 p-3 text-xs">
+            <p>{actionPreview}</p>
+            <div className="mt-2 flex gap-3">
+              <button type="button" disabled={busy || storageBusy || !onApplyCategoryAction} onClick={() => void confirmCategoryAction()}
+                className="mina-primary min-h-11 rounded-xl px-4 font-bold text-white disabled:opacity-40">Confirm change</button>
+              <button type="button" disabled={busy || storageBusy} onClick={() => { setProposedAction(null); setActionPreview(''); setActionNotice('Cancelled. Nothing was changed.'); }}
+                className="min-h-11 rounded-xl border border-line px-4">Cancel</button>
+            </div>
+          </div>}
+          {actionNotice && <p role="status" className="mt-3 text-xs text-content-2">{actionNotice}</p>}
           {busy && <div role="status" className="mt-4 flex items-center gap-2 text-xs text-content-2">
             <span className="mina-avatar flex h-8 w-8 items-center justify-center rounded-xl"><Brain className="h-4 w-4 motion-safe:animate-pulse" /></span>
             MINA is thinking<span aria-hidden="true">…</span><span className="sr-only"> Running locally…</span>

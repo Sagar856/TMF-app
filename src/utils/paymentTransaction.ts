@@ -8,9 +8,12 @@ import { categoryKeywordMatches } from '../services/notification/CategoryClassif
 const CATEGORY_MATCH_MIN_SCORE = 0.82;
 const CATEGORY_MATCH_MIN_MARGIN = 0.04;
 const CATEGORY_MATCH_IGNORED_WORDS = new Set([
-  'a', 'an', 'and', 'category', 'expense', 'for', 'income', 'investment', 'is', 'my', 'of', 'please', 'the', 'to',
+  'a', 'an', 'and', 'category', 'expense', 'for', 'income', 'investment', 'is', 'my', 'of', 'please', 'the', 'to', 'related',
 ]);
 const GENERIC_SUBCATEGORY_NAMES = new Set(['general', 'misc', 'miscellaneous', 'other', 'uncategorized']);
+const CANONICAL_CATEGORY_ALIASES: Record<string, string[]> = {
+  'transport fuel': ['travel', 'transportation'],
+};
 
 export function applyNotificationCategoryOverride(notification: ParsedNotification, categories: Category[]): ParsedNotification {
   const name = notification.categoryOverride?.trim();
@@ -34,20 +37,49 @@ export function matchNotificationCategoryText(
   const type = direction === 'credit' ? 'income' : 'expense';
   const inputWords = categoryWords(text.slice(0, 200));
   const inputName = inputWords.join(' ');
+  const hasNegation = inputWords.some((word, index) =>
+    ['not', 'no', 'never', 'without', 'except', 'excluding', 'avoid', 'neither', 'cannot'].includes(word)
+    || (word === 'don' && inputWords[index + 1] === 't'));
+  const exactName = categories.some(category => category.type === type
+    && (categoryWords(category.name).join(' ') === inputName
+      || category.subcategories.some(subcategory => categoryWords(subcategory).join(' ') === inputName)));
+  if (hasNegation && !exactName) return { status: 'none' };
   const keywordMatches = categoryKeywordMatches(text.slice(0, 200), direction);
+  const phraseMatchingAllowed = !hasNegation;
+  if (new Set(keywordMatches.map(match => match.category)).size > 1
+    && !categories.some(category => category.type === type && categoryWords(category.name).join(' ') === inputName)) {
+    return { status: 'ambiguous' };
+  }
   const matches = categories
     .filter(category => category.type === type)
     .map(category => {
       const related = keywordMatches.filter(match =>
         categoryMatchScore(categoryWords(match.category).join(' '), categoryWords(match.category), category) >= CATEGORY_MATCH_MIN_SCORE
         || tokenMatchScore(categoryWords(category.name), categoryWords(match.category), 0.78, 0.18) >= CATEGORY_MATCH_MIN_SCORE
+        || CANONICAL_CATEGORY_ALIASES[categoryWords(match.category).join(' ')]?.includes(categoryWords(category.name).join(' '))
         || categoryMatchScore(categoryWords(match.subcategory).join(' '), categoryWords(match.subcategory), category) >= CATEGORY_MATCH_MIN_SCORE);
-      return { category, related, score: Math.max(categoryMatchScore(inputName, inputWords, category), related.length ? 0.94 : 0) };
+      const exactRelatedCategory = related.some(match =>
+        categoryWords(match.subcategory).join(' ') === categoryWords(category.name).join(' '));
+      const phraseSubcategories = phraseMatchingAllowed
+        ? category.subcategories.filter(subcategory => {
+          const words = categoryWords(subcategory);
+          return !GENERIC_SUBCATEGORY_NAMES.has(words.join(' ')) && containsCategoryPhrase(inputWords, words);
+        })
+        : [];
+      const phrase = phraseMatchingAllowed && (containsCategoryPhrase(inputWords, categoryWords(category.name))
+        || phraseSubcategories.length > 0);
+      return { category, related, phrase, phraseSubcategories,
+        score: Math.max(categoryMatchScore(inputName, inputWords, category), exactRelatedCategory ? 0.99 : related.length || phrase ? 0.94 : 0) };
     })
     .filter(match => match.score >= CATEGORY_MATCH_MIN_SCORE)
     .sort((left, right) => right.score - left.score);
   const best = matches[0];
   if (!best) return { status: 'none' };
+  if (inputName !== categoryWords(best.category.name).join(' ')
+    && matches.some(match => match.category.id !== best.category.id && (match.phrase || match.related.length))
+    && matches.some(match => match.phrase)) {
+    return { status: 'ambiguous' };
+  }
   if (matches[1] && best.score - matches[1].score < CATEGORY_MATCH_MIN_MARGIN) {
     return { status: 'ambiguous' };
   }
@@ -56,13 +88,19 @@ export function matchNotificationCategoryText(
     const words = categoryWords(subcategory);
     return words.length > 0 && words.join(' ') === inputName && !GENERIC_SUBCATEGORY_NAMES.has(inputName);
   });
-  const subcategory = exactSubcategory
+  if (best.phraseSubcategories.length > 1 && !exactSubcategory) return { status: 'ambiguous' };
+  const subcategory = exactSubcategory || best.phraseSubcategories[0]
     || category.subcategories.find(value => best.related.some(match =>
       categoryWords(match.subcategory).join(' ') === categoryWords(value).join(' ')))
     || category.subcategories.find(value => GENERIC_SUBCATEGORY_NAMES.has(value.toLowerCase()))
     || category.subcategories[0]
     || '';
   return subcategory ? { status: 'match', category, subcategory } : { status: 'none' };
+}
+
+function containsCategoryPhrase(inputWords: string[], words: string[]): boolean {
+  if (!words.length || words.join('').length < 4 || words.length > inputWords.length) return false;
+  return inputWords.some((_, index) => words.every((word, offset) => inputWords[index + offset] === word));
 }
 
 function categoryMatchScore(inputName: string, inputWords: string[], category: Category): number {

@@ -31,6 +31,15 @@ test('MINA limits local chat history without combining user text with system ins
   assert.equal(prompt.at(-1)?.content, 'message 9');
 });
 
+test('device-derived category and budget responses never become model context', () => {
+  const prompt = assistantChatPrompt([
+    { role: 'assistant', text: 'Private categories and verified budget amounts', localData: true },
+    { role: 'user', text: 'What is a budget?' },
+  ]);
+  assert.equal(prompt.length, 2);
+  assert.equal(prompt[1].content, 'What is a budget?');
+});
+
 test('only explicit report requests trigger report generation', () => {
   for (const question of ['Generate a financial report', 'Show my cash flow', 'Could I have a spending summary?', 'Can you generate a report?', 'My report please']) {
     assert.equal(isAssistantReportRequest(question), true, question);
@@ -88,6 +97,26 @@ test('report snapshot questions use the verified data period', () => {
   assert.match(answer || '', /current snapshots, not historical month-end values/);
   assert.match(answer || '', /selected month/);
   assert.equal(answerAssistantAppQuestion('How do I add an account?'), undefined);
+});
+
+test('budget usage formula questions receive verified instant app guidance without assuming personal amounts', () => {
+  for (const question of [
+    'How do you calculate a budget usage percentage?',
+    'How is budget usage calculated?',
+    'What is the budget usage percentage?',
+    'How does MINARTH calculate budget usage?',
+  ]) {
+    const answer = answerAssistantAppQuestion(question);
+    assert.match(answer || '', /operating spending minus refunds, floored at zero/);
+    assert.match(answer || '', /positive monthly budget and multiplied by 100/);
+    assert.match(answer || '', /warning threshold is 80% and critical starts at 100%/);
+  }
+  for (const question of [
+    'How do you calculate my budget usage percentage?',
+    'How do you calculate a budget usage percentage and what is mine?',
+    'How is a budget usage calculated? Generate a report.',
+    'What is the budget usage percentage for Food?',
+  ]) assert.equal(answerAssistantAppQuestion(question), undefined, question);
 });
 
 test('simple finance definitions bypass model inference without guessing personalised answers', () => {

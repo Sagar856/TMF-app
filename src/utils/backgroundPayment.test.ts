@@ -15,6 +15,7 @@ import type { InterceptedPayment } from '../services/notificationListener';
 import { parseTransactionSyncRevisions } from './transactionSync';
 import { categorizeNotification } from '../services/notificationCategorization';
 import { notificationCategoryConfirmation } from './notificationCategoryFeedback';
+import { notificationCategoryReviewText } from './notificationCategoryJobs';
 
 const previousStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
 before(() => Object.defineProperty(globalThis, 'localStorage', {
@@ -84,7 +85,7 @@ function harness() {
       id: 'groceries', name: 'Groceries', type: 'expense', iconName: 'Tag', subcategories: ['General'],
     }],
     parseNotification, isEligiblePaymentNotification, createPaymentTransaction, categorizeNotification, hasUnmatchedPaymentAccount, toLocalISODate, isFinancialAccount,
-    notificationCategoryConfirmation, safeGetJson: () => ({}),
+    notificationCategoryConfirmation, notificationCategoryReviewText, safeGetJson: () => ({}),
     createCashAccount, isCashWithdrawal,
   };
   return { state, completed, accounts, transactions, calls: () => calls, run: () => runInNewContext(save, state) as Promise<void> };
@@ -97,13 +98,31 @@ test('background Add validates the inline category and refuses an unknown accoun
   assert.equal(valid.transactions[0].category, 'Groceries');
   const invalid = harness();
   invalid.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'Not a category' });
-  await assert.rejects(invalid.run(), /Category was not found/);
-  assert.equal(invalid.calls(), 0);
+  await invalid.run();
+  await invalid.run();
+  assert.equal(invalid.calls(), 1);
+  assert.equal(invalid.accounts[0].balance, 3500);
+  assert.equal(invalid.transactions[0].categoryOrigin, 'eligible');
+  assert.equal((invalid.completed[0] as { categoryReviewText?: string }).categoryReviewText, 'Not a category');
+  assert.equal((invalid.completed[1] as { categoryReviewText?: string }).categoryReviewText, 'Not a category');
   const unmatched = harness();
   unmatched.state.bridge.input = () => JSON.stringify({ ...payment, text: payment.text.replace('XX4411', 'XX9876') });
   await assert.rejects(unmatched.run(), /Account not found or ambiguous/);
   assert.equal(unmatched.calls(), 0);
   assert.equal(unmatched.accounts[0].balance, 5000);
+});
+
+test('background Shopping reply without a description saves under the current related category once', async () => {
+  const h = harness();
+  h.state.bridge.input = () => JSON.stringify({ ...payment, categoryOverride: 'Shopping', description: '' });
+  h.state.fetchCategoriesFromSupabase = async () => [{
+    id: 'shop-custom', name: 'Shopping & Tech', type: 'expense', iconName: 'Tag', subcategories: ['General'],
+  }];
+  await h.run();
+  await h.run();
+  assert.equal(h.transactions.length, 1);
+  assert.equal(h.transactions[0].category, 'Shopping & Tech');
+  assert.equal(h.accounts[0].balance, 3500);
 });
 
 test('notification category input resolves close category and subcategory names by transaction type', () => {

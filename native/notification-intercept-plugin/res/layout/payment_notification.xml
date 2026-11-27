@@ -16,7 +16,7 @@
         android:minHeight="40dp" android:gravity="center_vertical" android:orientation="horizontal">
         <TextView android:id="@+id/payment_description" android:layout_width="0dp" android:layout_height="wrap_content"
             android:layout_weight="1" android:layout_marginTop="6dp" android:textColor="#492078"
-            android:textSize="12sp" android:maxLines="2"/>
+            android:textSize="12sp" android:maxLines="4"/>
         <TextView android:id="@+id/payment_ignore" android:layout_width="wrap_content" android:layout_height="40dp"
             android:layout_marginStart="8dp" android:minWidth="88dp" android:paddingStart="16dp" android:paddingEnd="16dp"
             android:background="@drawable/payment_ignore_button" android:gravity="center" android:text="Ignore"

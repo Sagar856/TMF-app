@@ -40,13 +40,29 @@ notification. Category input is limited to 100 characters and description to
 uses the entered Description. Both use `notificationCategorization.ts` and the
 shared category rules against existing direction-valid categories/subcategories.
 Meal words (lunch/dinner/breakfast) and merchants such as Zomato/Swiggy resolve
-locally without model inference. Enabled MINA can handle unfamiliar wording with
-its installed model while closed or locked, in a separate worker with a
-20-second generation deadline. It never implicitly downloads a model.
-Disabled/unavailable MINA retains the local classifier; errors show a warning.
-Unmatched or ambiguous Category replies keep Add retryable; unclear descriptions
-retain the parser category. The entered description becomes the transaction
+locally without model inference. Notification Add uses these same immediate rules
+whether MINA is enabled or not, so model startup does not delay saving.
+Category/subcategory name matching uses the user's current choices, not a
+fixed destination; Shopping can match Shopping & Tech or a Shopping subcategory.
+Conflicting topics/categories are not resolved by choosing the first match.
+Unmatched or ambiguous replies no longer block Add. The atomic payment save
+retains the parser category; its native receipt carries a category-review request
+until JavaScript durably imports it into owner-scoped device storage. Receipt
+replay never adds or debits a second payment. After save, a separate private
+notification offers **Save**: this Activity PendingIntent opens Pending review
+after unlock, not `PaymentActionReceiver` or the Add worker. The user can select
+an existing category/subcategory and Save there. MINA processes queued replies
+when the app is unlocked, enabled/installed and financial sync is ready; locked
+or closed apps retain the job rather than running inference. Disabled/failed
+MINA leaves manual review available. Missing notification permission leaves
+the durable in-app review. Native review actions survive restart and are
+acknowledged only after the unlocked UI opens. Revision checks protect intervening
+edits and deleted transactions; the category update never changes balances.
+The entered description becomes the transaction
 title, and category is saved in the transaction category column.
+The expanded error area allows four lines. Tap the notification body or open
+the app's notification bell to inspect pending payments and choose a category
+using Edit; retry Add after correcting it.
 Add uses an immutable broadcast PendingIntent and a unique WorkManager job,
 without launching an Activity or bypassing the app's PIN/biometric screen.
 A separate application-context WebView loads only the bundled background entry
@@ -140,6 +156,9 @@ swiping its Activity away; confirm a single pending capture, three system
 actions and Ignore in the expanded card. Test inline Category and Description
 while the app is closed, then Add; test Ignore without opening, Edit then
 cancel/save, Add with the Activity absent,
+unmatched replies saving promptly, the separate saved-record Save notification,
+unlock and category selection without a second debit, process death between
+cloud commit and receipt import, and intervening edits/deletions during inference,
 duplicate Add taps, offline failures/reconnection, expired sign-in, account
 switches and app-resume reconciliation without duplicate balance changes,
 permission denial, and rejected promotional/OTP/request/failed messages.

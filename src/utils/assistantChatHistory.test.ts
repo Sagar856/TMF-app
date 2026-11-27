@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  emptyMinaArchive, isMinaArchive, loadMinaChats, newMinaChat, putMinaChat,
+  emptyMinaArchive, isMinaArchive, loadMinaChats, newMinaChat, putMinaChat, removeMinaChat,
   type MinaChat, type MinaChatArchive,
 } from './assistantChatHistory';
 import { createAssistantReport } from './assistantReport';
@@ -55,6 +55,27 @@ test('a stale window cannot overwrite another window response', () => {
   }), /changed in another window/);
 });
 
+test('individual deletion preserves consent and other chats, and selects a remaining chat when necessary', () => {
+  const first = chat(1);
+  const second = chat(2);
+  const third = chat(3);
+  const archive = putMinaChat(putMinaChat(putMinaChat(consented(), first), second), third);
+  const withoutFirst = removeMinaChat(archive, first.id);
+  assert.deepEqual(withoutFirst.chats, [third, second]);
+  assert.equal(withoutFirst.activeChatId, third.id);
+  assert.equal(withoutFirst.consented, true);
+  assert.doesNotMatch(JSON.stringify(withoutFirst), /Synthetic question 1/);
+  const withoutActive = removeMinaChat(withoutFirst, third.id);
+  assert.equal(withoutActive.activeChatId, second.id);
+  const empty = removeMinaChat(withoutActive, second.id);
+  assert.equal(empty.activeChatId, null);
+  assert.deepEqual(empty.chats, []);
+  assert.equal(empty.consented, true);
+  assert.ok(isMinaArchive(empty));
+  assert.throws(() => removeMinaChat(empty, second.id), /no longer available/);
+  assert.throws(() => removeMinaChat(emptyMinaArchive(), first.id), /no longer available/);
+});
+
 test('report snapshots, commentary and original currency round-trip without recalculating balances', () => {
   const report = createAssistantReport({
     month: '2026-11', asOfDate: '2026-11-26', transactions: [], categories: [],
@@ -72,6 +93,9 @@ test('report snapshots, commentary and original currency round-trip without reca
   assert.equal(message.report?.accounts[0].balance, 42);
   assert.equal(message.currencyCode, 'INR');
   assert.equal(message.explanation, 'Verified findings');
+  const deleted = removeMinaChat(archive, chat(1).id);
+  assert.doesNotMatch(JSON.stringify(deleted), /Synthetic bank|Verified findings/);
+  assert.equal(deleted.consented, true);
   let pruned = archive;
   for (let index = 2; index <= 6; index++) pruned = putMinaChat(pruned, chat(index));
   assert.doesNotMatch(JSON.stringify(pruned), /Synthetic bank|Verified findings/);

@@ -27,6 +27,8 @@ function harness(failingKey?: string) {
     hasUnmatchedPaymentAccount: () => false,
     applyNotificationCategoryOverride: (value: typeof notification) => value,
     categorizeNotification: async (value: typeof notification) => value,
+    notificationCategoryReviewText: () => undefined,
+    enqueueCategoryJob: () => {},
     notificationCategoryConfirmation, settings: { currencySymbol: 'INR ' },
     cloudGenerationRef: { current: 1 }, isUnlocked: true,
     useRef: (current: unknown) => { const ref = { current }; refs.push(ref); return ref; },
@@ -101,4 +103,21 @@ test('notification Adds before a rerender preserve prior saves and recognise alr
   await h.actions.handleConfirmAddNotification(h.notification);
   assert.equal(h.writes(), 2);
   assert.match(h.messages.at(-1)?.message || '', /already added/);
+});
+
+test('unmatched input is handed off durably before payment persistence and does not block a successful Add', async () => {
+  const h = harness();
+  const order: string[] = [];
+  h.state.notificationCategoryReviewText = () => 'commuting costs';
+  h.state.enqueueCategoryJob = () => { order.push('queue'); };
+  h.state.persistFinancialState = () => { order.push('save'); return true; };
+  await h.actions.handleConfirmAddNotification(h.notification);
+  assert.deepEqual(order, ['queue', 'save']);
+  assert.match(h.messages[0].message, /Category review queued/);
+  const failure = harness();
+  failure.state.notificationCategoryReviewText = () => 'unmatched input';
+  failure.state.enqueueCategoryJob = () => { throw new Error('Could not retain category review'); };
+  await failure.actions.handleConfirmAddNotification(failure.notification);
+  assert.equal(failure.writes(), 0);
+  assert.equal(failure.messages[0].type, 'error');
 });

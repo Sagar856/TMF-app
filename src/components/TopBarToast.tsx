@@ -1,12 +1,13 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CheckCircle2, AlertTriangle, Info, Trash2, X } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Info, X } from 'lucide-react';
 
 export interface ToastMessage {
   id: string;
   text: string;
   type?: 'success' | 'info' | 'warning' | 'error';
   duration?: number;
+  action?: { label: string; onClick: () => void };
 }
 
 interface TopBarToastProps {
@@ -15,14 +16,16 @@ interface TopBarToastProps {
 }
 
 export const TopBarToast: React.FC<TopBarToastProps> = ({ toast, onDismiss }) => {
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
   useEffect(() => {
     if (!toast) return;
     const duration = toast.duration || 3200;
     const timer = setTimeout(() => {
-      onDismiss();
+      dismissRef.current();
     }, duration);
     return () => clearTimeout(timer);
-  }, [toast, onDismiss]);
+  }, [toast?.id, toast?.duration]);
 
   if (!toast) return null;
 
@@ -30,7 +33,7 @@ export const TopBarToast: React.FC<TopBarToastProps> = ({ toast, onDismiss }) =>
     switch (toast.type) {
       case 'warning':
       case 'error':
-        return <Trash2 className="w-4 h-4 text-red-400 shrink-0 animate-pulse" />;
+        return <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />;
       case 'info':
         return <Info className="w-4 h-4 text-cyan-400 shrink-0" />;
       case 'success':
@@ -80,10 +83,12 @@ export const TopBarToast: React.FC<TopBarToastProps> = ({ toast, onDismiss }) =>
         <span className={`font-bold tracking-wide select-none ${getTextColor()}`}>
           {toast.text}
         </span>
+        {toast.action && <button type="button" onClick={() => { toast.action?.onClick(); onDismiss(); }}
+          className="shrink-0 min-h-11 px-2 text-content-1 underline">{toast.action.label}</button>}
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-1 p-0.5 rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-content-3 hover:text-content-1 transition-colors cursor-pointer"
+          className="ml-1 min-h-11 min-w-11 flex items-center justify-center rounded-full hover:bg-black/10 dark:hover:bg-white/10 text-content-3 hover:text-content-1 transition-colors cursor-pointer"
           title="Dismiss"
           aria-label="Dismiss notification"
         >

@@ -11,6 +11,7 @@ export interface AssistantMessage {
   report?: AssistantReport;
   explanation?: string;
   currencyCode?: string;
+  localData?: boolean;
 }
 
 export interface MinaChat {
@@ -96,6 +97,7 @@ export function isMinaArchive(value: unknown): value is MinaChatArchive {
       && (message.role === 'user' || message.role === 'assistant') && typeof message.text === 'string'
       && (message.explanation === undefined || typeof message.explanation === 'string')
       && (message.currencyCode === undefined || typeof message.currencyCode === 'string')
+      && (message.localData === undefined || typeof message.localData === 'boolean')
       && (message.report === undefined || (isReport(message.report) && typeof message.currencyCode === 'string'))));
   return valid && new Set(value.chats.map(chat => chat.id)).size === value.chats.length
     && (value.activeChatId === null || value.chats.some(chat => chat.id === value.activeChatId))
@@ -177,6 +179,20 @@ export const selectMinaChat = (owner: string, id: string) => accessArchive(owner
   if (!archive.consented || !archive.chats.some(chat => chat.id === id)) throw new Error('This saved MINA chat is no longer available.');
   return { ...archive, activeChatId: id };
 });
+
+export function removeMinaChat(archive: MinaChatArchive, id: string): MinaChatArchive {
+  if (!archive.consented || !archive.chats.some(chat => chat.id === id)) {
+    throw new Error('This saved MINA chat is no longer available.');
+  }
+  const chats = archive.chats.filter(chat => chat.id !== id);
+  return {
+    ...archive,
+    chats,
+    activeChatId: archive.activeChatId === id ? chats[0]?.id ?? null : archive.activeChatId,
+  };
+}
+
+export const deleteMinaChat = (owner: string, id: string) => accessArchive(owner, archive => removeMinaChat(archive, id));
 
 export async function deleteMinaChats(owner: string): Promise<void> {
   if (!owner.trim()) throw new Error('Sign in before clearing saved MINA chats.');

@@ -37,6 +37,7 @@ import {
   ArrowLeft,
   Headphones,
   X,
+  Brain,
 } from 'lucide-react';
 import { CustomisationsView } from './CustomisationsView';
 import { PremiumComingSoon } from './PremiumComingSoon';
@@ -83,6 +84,7 @@ interface SettingsViewProps {
   onDeleteUserAccount?: () => void;
   lastSettingsSyncAt?: number | null;
   openProfileRequest?: number;
+  resetToMenuRequest?: number;
   assistant?: AssistantSettingsProps['assistant'];
 }
 
@@ -92,6 +94,7 @@ const SETTINGS_GROUPS = [
   { id: 'notifications', label: 'Notifications', icon: BellRing },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'privacy', label: 'Privacy & Security', icon: Lock },
+  { id: 'assistant', label: 'MINA AI Assistance', icon: Brain },
   { id: 'help', label: 'Help and Support', icon: Headphones },
   { id: 'about', label: 'About', icon: Info },
 ] as const;
@@ -140,6 +143,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onDeleteUserAccount,
   lastSettingsSyncAt,
   openProfileRequest = 0,
+  resetToMenuRequest = 0,
   assistant,
 }) => {
   const [selectedGroup, setSelectedGroup] = useActivityState<SettingsGroup | null>('settings.group', () =>
@@ -177,6 +181,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const menuRef = useRef<HTMLElement>(null);
   const lastGroupRef = useRef<SettingsGroup | null>(null);
   const isSearching = settingsSearch.trim().length > 0;
+  const lastResetRequest = useRef(resetToMenuRequest);
+  useEffect(() => {
+    if (lastResetRequest.current === resetToMenuRequest) return;
+    lastResetRequest.current = resetToMenuRequest;
+    setSettingsSearch('');
+    setSearchTarget(undefined);
+    setOpenSectionRequest(undefined);
+    setOpenAccountsRequest(0);
+    setResetCustomisationRequest(request => request + 1);
+    setSelectedGroup(null);
+    setColorPickerOpen(false);
+    setCustomisationOpen(false);
+  }, [resetToMenuRequest]);
   const searchResults = useMemo(() => searchSettings(settingsSearch, {
     isAuthenticated,
     canDeleteAccount: Boolean(onDeleteUserAccount),
@@ -935,14 +952,16 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </SettingRow>
             </SettingSection>
 
-            {assistant && <AssistantSettingsSection assistant={assistant} />}
-
             <SettingSection id="settings-privacy" title="Privacy" icon={Shield}>
               <SettingRow label="Your data" description="Your data is stored on this device and, when signed in, selected financial records sync to your private cloud space protected by row-level security." />
               <a className="text-xs underline text-content-1" href={`${import.meta.env.BASE_URL}privacy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
               <p className="mt-2 text-xs text-content-2">App updates from Google Play keep your sign-in and local data. Auto-update timing is controlled by Google Play and your device settings. Uninstalling or clearing app data removes the local session.</p>
             </SettingSection>
             </div>
+            </div>
+
+            <div hidden={selectedGroup !== 'assistant'}>
+              {assistant && <AssistantSettingsSection assistant={assistant} />}
             </div>
 
             {/* ============ DATA & BACKUP ============ */}

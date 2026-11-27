@@ -104,32 +104,49 @@ behavior.
   The palette-aware chat shell has a fixed-height scrollable conversation,
   labelled message bubbles, draft-only starter questions and an auto-growing
   composer (Enter sends, Shift+Enter inserts a newline; IME Enter is ignored).
-  An on-demand left navigation contains new/previous chats, clear confirmation,
-  and expandable monthly report controls; Escape and Android Back close the
-  navigation first. Category reviews scroll with the conversation.
+  An on-demand left navigation contains new/previous chats, individual deletion
+  through each chat's floating three-dot menu, and clear-all confirmation. Individual deletion removes the
+  selected chat and reports atomically without withdrawing consent; deleting
+  the active chat selects the newest remaining chat or leaves an empty session.
+  The navigation also contains expandable monthly report controls; Escape and
+  Android Back close chat options, then navigation, before closing MINA.
   Privacy/capability disclosures remain in a footer details
   control. Preserve the consent gate, chat navigation and report/category actions.
   Validate shell changes with `AssistantExperience.test.tsx` and browser checks
   at mobile/desktop sizes in both themes.
-- `src/hooks/useAssistantCategorization.ts` runs only while the app is unlocked
-  and the assistant is enabled with an installed model. It processes eligible
+- `src/hooks/useAssistantCategorization.ts` runs inference only while the app is
+  unlocked and the assistant is enabled with an installed model; durable saved
+  notification reviews remain manually actionable without the model. It processes eligible
   notification, imported and rule-origin transactions, while unknown-origin
   existing records require explicit selection. `assistantCategory.ts` validates
   proposals against current transaction state, type-valid categories and
   rules; uncertain/rule-conflicting suggestions require review. User-edited
   categories and transaction fields, including transfer destination and
   location, are protected from changes during inference. Approved changes use revision-checked sync and
-  preserve other transaction fields; cloud conflicts must be reloaded or kept
-  locally rather than retried as stale writes. The review UI is in
-  `AssistantChatModal.tsx`.
+  preserve other transaction fields. Processing is invalidated on owner/lock
+  changes, and metadata sync checks the captured owner; cloud conflicts must be reloaded or kept
+  locally rather than retried as stale writes. The review UI is the Pending review
+  section in `NotificationPromptModal.tsx`, beside History; unsaved captured
+  payments remain separate.
+  Clear titles first use `matchNotificationCategoryText` without inference.
+  Invalid output and inference failures produce manual-only reviews with
+  View transaction/Keep current, not Apply; do not retry these failures on
+  every rerender. The alert opens Pending review. Notification-bell pending payments
+  are a separate queue. Toast expiration depends on toast identity/duration,
+  not a changing onDismiss callback, and warning icons must not imply deletion.
   Category confirmations use `notificationCategoryFeedback.ts` for amount and
   category; the hook emits them after the React transaction state commits.
 - `useAssistantModel` owns the device-local enable preference and the assistant
   download/disable/remove lifecycle. MINA is the user-facing name, including in
-  Settings search and the chat dialog. `AssistantSettingsSection` explains the
+  Settings search and the chat dialog. Settings exposes it under its own
+  MINA AI Assistance entry. `AssistantSettingsSection` explains the
   storage impact and continuing Supabase financial-record sync; the circular
   MINA shortcut is shown only while AI is enabled and installed. MINA and the
   add FAB share `useFabScroll` for their scroll fade behavior.
+- `ProfilePhotoEditor` previews a local square crop with zoom, position and
+  rotation before applying a 256px thumbnail to the unsaved profile form.
+  `CustomisationsView` portals the category editor to the viewport as a
+  responsive sheet; retain its existing category and budget operations.
 - Self-service account deletion requires connectivity and invokes the
   `delete_own_account` RPC. Once the server confirms deletion, a local sign-out
   failure is reported as a cleanup warning, not a failed cloud deletion.
@@ -170,9 +187,24 @@ behavior.
   guidance instead of a generated claim.
   Simple navigation questions about budgets, categories and auto-categorisation
   receive deterministic settings paths. Exact basic finance-definition questions
-  use bundled answers without model inference; personalized questions do not.
+  and general budget-usage formula questions use verified bundled answers
+  without model inference; personalized or multi-part questions do not.
   Category and report prompts continue
   to use their existing string protocol.
+  `assistantCategoryActions.ts` parses bounded category/subcategory/budget
+  requests without executing model output. The chat asks for missing fields,
+  previews a single change and requires confirmation; proposals are transient
+  and reset on chat changes. App validates current categories, owner/unlock,
+  connectivity and storage before updating state and using ordinary category sync.
+  `assistantCategoryOverview.ts` answers current category/budget list requests
+  directly from device records and `computeBudgetUsage`. Labels are filtered;
+  derived amounts remain exact. Mark these responses `localData` in local chat
+  storage and exclude them from subsequent model prompts. No model database
+  tools or owner identity are needed. Runtime generation has a 60-second
+  queue-inclusive deadline; terminate stalled workers and reject pending calls,
+  without interrupting install cleanup.
+  Main Settings navigation resets nested activity keys and clears subpage
+  requests/search through `SettingsView.resetToMenuRequest`.
 - `createSampleData` in `src/data/initialData.ts` gives each explicit demo load
   fresh IDs and remaps account links so old tombstones cannot resurrect. Demo
   loading preserves custom data/categories; remove an existing demo set before
@@ -210,12 +242,28 @@ behavior.
    `paymentTransaction.ts` uses close category/subcategory names and shared
    `CategoryClassifier.ts` merchant/topic rules. Meals and food merchants map
    only to available categories; conflicting matches never pick the first rule.
-   Enabled MINA handles unfamiliar text in an owned local worker (including
-   locked/closed background Add), capped at 20 seconds with no implicit install.
-   Invalid/uncertain results or inference failures warn and retain the local
-   classifier result: explicit Category stays pending; unclear Description
-   retains parser categorisation. Disable/remove still prevents MINA inference.
-   Foreground Add guards duplicate requests and changes during inference, using
+   Complete current category/subcategory names can match within longer phrases;
+   conflicting destinations and multiple matching subcategories stay ambiguous.
+   Negated text does not produce keyword or phrase matches unless it exactly
+   names an available category or subcategory.
+   Notification Add uses immediate shared rules regardless of MINA's state.
+   Unmatched Category/Description saves promptly with parser categorisation.
+   `notificationCategoryJobs.ts` stores owner-scoped, per-transaction local jobs
+   before foreground persistence; background receipts retain the text until
+   durable import before acknowledgement. No job text is synced. The hook
+   processes jobs with Web Locks only after unlock and cloud hydration/revision
+   availability; disabled MINA exposes a manual category/subcategory Save form.
+   Explicit Category takes priority over Description. Model output must use
+   available categories, and ambiguous local evidence forces review.
+   Review snapshots and completion markers survive restart; revision checks,
+   owner/lock invalidation and original-field checks reject stale edits.
+   Job lookup is batched per pass; deleted synced transactions complete their
+   jobs without recreating records. Review actions show progress and errors.
+   Android keeps a separate durable category-review notification whose Save
+   Activity intent opens Pending review after unlock, never the Add receiver.
+   Missing permission leaves in-app review; model inference waits while closed
+   or locked. Completion cancels the follow-up. Sign-out/reset clears jobs.
+   Foreground Add guards duplicate requests and concurrent changes, using
    the latest paired snapshot even when another Add finishes before a rerender.
    `NotificationPromptModal` shows a saving spinner and disables conflicting
    payment actions/pagination while its Add request is pending.
@@ -230,6 +278,8 @@ behavior.
    and copied to generated Android by `scripts/patch-android.mjs`. When changing
    this layout, update the corresponding native source, patch script, tests and
    README guidance together.
+   The error area supports four lines; the existing patch script copies this
+   layout unchanged. Recheck that equality when changing its presentation.
 5. Notification history is rendered by `NotificationHistoryList` in
    `src/components/NotificationPromptModal.tsx`. Added entries must not offer a
    duplicate-add/edit action; they navigate to their saved transaction through
@@ -259,10 +309,17 @@ Use focused tests first when possible. Relevant tests include
 `src/components/AccountsView.regression.test.tsx`, and
 `src/components/TransactionsView.regression.test.tsx`.
 For notification reply semantics, MINA/fallback privacy, ambiguity and feedback,
-also run `node --import tsx --test src/utils/notificationCategorization.test.ts src/components/AppNotificationFeedback.test.tsx`.
+also run `node --import tsx --test src/utils/notificationCategorization.test.ts src/utils/notificationCategoryJobs.test.ts src/components/AppNotificationFeedback.test.tsx`.
 For assistant behavior and categorization review, also run
 `node --import tsx --test src/utils/assistantReport.test.ts src/utils/assistantCategory.test.ts src/utils/assistantModel.test.ts src/components/AssistantReportView.test.tsx src/components/AssistantExperience.test.tsx src/components/SettingsView.regression.test.tsx`.
 For MINA's chat message construction, run `node --import tsx --test src/utils/assistantChat.test.ts`.
+For confirmed category actions, also run `node --import tsx --test src/utils/assistantCategoryActions.test.ts src/components/AssistantExperience.test.tsx`.
+For instant listings, failed category review, toast expiry and Settings reset,
+run `node --import tsx --test src/utils/assistantCategoryOverview.test.ts src/utils/assistantCategorization.test.ts src/components/TopBarToast.test.tsx src/components/SettingsView.regression.test.tsx`.
+For settings navigation, category editor and profile crop, run
+`node --import tsx --test src/utils/profilePhoto.test.ts src/utils/settingsSearch.test.ts src/components/SettingsView.regression.test.tsx src/components/CustomisationsView.regression.test.tsx src/components/IdentityGlass.regression.test.tsx`;
+validate photo editing and the category sheet in an isolated browser at mobile
+and desktop sizes without changing real profile or financial data.
 For consent, five-chat pruning, report snapshots and isolation guards, also run
 `node --import tsx --test src/utils/assistantChatHistory.test.ts src/components/AssistantExperience.test.tsx`;
 validate IndexedDB, navigation, storage failures and reload in an isolated

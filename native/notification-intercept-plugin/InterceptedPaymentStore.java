@@ -49,6 +49,9 @@ public final class InterceptedPaymentStore {
         JSONObject saved = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("saved", "{}"));
         java.util.Iterator<String> keys = saved.keys();
         while (keys.hasNext()) records.put(saved.getJSONObject(keys.next()));
+        JSONObject reviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
+        keys = reviews.keys();
+        while (keys.hasNext()) records.put(reviews.getJSONObject(keys.next()));
         return records;
     }
 
@@ -68,20 +71,34 @@ public final class InterceptedPaymentStore {
             JSONObject transaction = result.getJSONObject("transaction");
             if (!("tx_native_" + id).equals(transaction.getString("id"))) throw new SecurityException("Payment id changed");
             record.put("transaction", transaction);
+            if (result.has("categoryReviewText")) record.put("categoryReviewText", result.getString("categoryReviewText"));
             if (result.has("account")) record.put("account", result.getJSONObject("account"));
             if (result.has("localBalance")) record.put("localBalance", result.getDouble("localBalance"));
             if (result.has("cashAccount")) record.put("cashAccount", result.getJSONObject("cashAccount"));
             if (result.has("localCashBalance")) record.put("localCashBalance", result.getDouble("localCashBalance"));
         }
         JSONObject saved = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("saved", "{}"));
+        JSONObject categoryReviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
         long revision = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getLong("savedRevision", 0) + 1;
         record.put("action", "saved").put("savedRevision", revision);
         saved.put(id, record);
+        if (record.has("categoryReviewText") && record.has("transaction")) {
+            String transactionId = record.getJSONObject("transaction").getString("id");
+            if (!categoryReviews.has(transactionId)) categoryReviews.put(transactionId, new JSONObject()
+                .put("id", transactionId).put("owner", record.getString("owner"))
+                .put("title", "Saved transaction: " + record.getJSONObject("transaction").getString("amount")).put("action", "category-review")
+                .put("postedAt", System.currentTimeMillis()));
+        }
         if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putString("saved", saved.toString()).putLong("savedRevision", revision).commit()) {
+            .putString("saved", saved.toString()).putString("categoryReviews", categoryReviews.toString())
+            .putLong("savedRevision", revision).commit()) {
             throw new IllegalStateException("Could not persist saved transaction");
         }
         resolve(context, id);
+        if (record.has("categoryReviewText") && record.has("transaction")) {
+            categoryReview(context, record.getJSONObject("transaction").getString("id"), record.getString("owner"),
+                "Saved transaction needs a category", false);
+        }
         record.put("action", "saved");
         NotificationInterceptPlugin.dispatchNotification(record);
     }
@@ -101,7 +118,11 @@ public final class InterceptedPaymentStore {
     public static synchronized void clear(Context context) throws JSONException {
         JSONArray records = read(context);
         save(context, new JSONArray());
-        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("saved", "{}").commit()) {
+        JSONObject reviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
+        java.util.Iterator<String> reviewIds = reviews.keys();
+        while (reviewIds.hasNext()) ContextCompat.getSystemService(context, NotificationManager.class).cancel(reviewIds.next(), 3);
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putString("saved", "{}").putString("categoryReviews", "{}").commit()) {
             throw new IllegalStateException("Could not clear saved payment receipts");
         }
         for (int i = 0; i < records.length(); i++) {
@@ -109,6 +130,47 @@ public final class InterceptedPaymentStore {
             ContextCompat.getSystemService(context, NotificationManager.class).cancel(records.getJSONObject(i).getString("id"), 1);
         }
         AccountSuggestionStore.clear(context);
+    }
+
+    public static synchronized boolean categoryReview(Context context, String id, String owner, String title, boolean remove) throws JSONException {
+        String currentOwner = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("owner", "");
+        if (owner.isEmpty() || !owner.equals(currentOwner)) throw new SecurityException("Category review owner changed");
+        JSONObject reviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
+        if (remove) reviews.remove(id);
+        else if (!reviews.has(id)) reviews.put(id, new JSONObject().put("id", id).put("owner", owner)
+            .put("title", title).put("action", "category-review").put("postedAt", System.currentTimeMillis()));
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("categoryReviews", reviews.toString()).commit()) {
+            throw new IllegalStateException("Could not retain saved category review");
+        }
+        NotificationManager manager = ContextCompat.getSystemService(context, NotificationManager.class);
+        if (remove) { manager.cancel(id, 3); return true; }
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("notifications", false)
+            || (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)) return false;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(CHANNEL, "Payment confirmations", NotificationManager.IMPORTANCE_DEFAULT);
+            channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+            manager.createNotificationChannel(channel);
+        }
+        PendingIntent save = open(context, id, "category-review-open");
+        manager.notify(id, 3, new NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_tmf).setContentTitle(reviews.getJSONObject(id).getString("title"))
+            .setContentText("Already saved. Unlock MINARTH to select a category; Save will not add another payment.")
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).setOnlyAlertOnce(true).setAutoCancel(false)
+            .setContentIntent(save).addAction(0, "Save", save).build());
+        return true;
+    }
+
+    public static synchronized void openCategoryReview(Context context, String id, boolean opening) throws JSONException {
+        JSONObject reviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
+        JSONObject review = reviews.optJSONObject(id);
+        if (review == null) return;
+        String owner = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("owner", "");
+        if (!owner.equals(review.getString("owner"))) throw new SecurityException("Category review owner changed");
+        review.put("action", opening ? "category-review-open" : "category-review");
+        if (!context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("categoryReviews", reviews.toString()).commit()) {
+            throw new IllegalStateException("Could not retain category review action");
+        }
+        if (opening) NotificationInterceptPlugin.dispatchNotification(review);
     }
 
     private static void save(Context context, JSONArray records) {
@@ -345,6 +407,15 @@ public final class InterceptedPaymentStore {
             if (enabled && ownsRecord && "saving".equals(record.optString("action"))) PaymentSaveWorker.enqueue(context, record.getString("id"));
         }
         save(context, records);
+        JSONObject reviews = new JSONObject(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("categoryReviews", "{}"));
+        java.util.Iterator<String> reviewIds = reviews.keys();
+        while (reviewIds.hasNext()) {
+            String reviewId = reviewIds.next();
+            JSONObject review = reviews.getJSONObject(reviewId);
+            if (enabled && notifications && owner.equals(review.getString("owner"))) {
+                categoryReview(context, reviewId, owner, review.getString("title"), false);
+            } else ContextCompat.getSystemService(context, NotificationManager.class).cancel(reviewId, 3);
+        }
         AccountSuggestionStore.configure(context, owner, knownAccounts, ignoredAccounts, enabled && notifications);
     }
 

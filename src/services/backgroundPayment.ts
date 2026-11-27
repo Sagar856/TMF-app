@@ -5,6 +5,7 @@ import { isEligiblePaymentNotification } from './notification/transactionEligibi
 import { createPaymentTransaction, hasUnmatchedPaymentAccount } from '../utils/paymentTransaction';
 import { categorizeNotification } from './notificationCategorization';
 import { notificationCategoryConfirmation } from '../utils/notificationCategoryFeedback';
+import { notificationCategoryReviewText } from '../utils/notificationCategoryJobs';
 import { safeGetJson } from '../utils/storage';
 import { createCashAccount, isCashWithdrawal } from '../utils/cashAccount';
 import { toLocalISODate } from '../utils/dates';
@@ -55,6 +56,7 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     const cashAccount = cashReceiptAccount(existing, accounts);
     if (!bridge.complete(JSON.stringify({
       owner: payment.owner, transaction: existing, account: accounts.find(account => account.id === existing.accountId),
+      categoryReviewText: existing.categoryOrigin === 'eligible' ? payment.categoryOverride?.trim() || payment.description?.trim() : undefined,
       localBalance: localAccounts.find(account => account.id === existing.accountId)?.balance,
       ...(cashAccount ? { cashAccount, localCashBalance: localAccounts.find(account => account.id === cashAccount.id)?.balance } : {}),
     }))) throw new Error('Could not persist background payment receipt');
@@ -81,12 +83,12 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
     location: location ? { lat: location.lat, lng: location.lng, name: locationName || 'Location name unavailable' } : undefined,
   };
   if (hasUnmatchedPaymentAccount(parsed, accounts)) throw new Error('Account not found or ambiguous. Add or select it in the app before saving.');
-  let categorizationWarning: string | undefined;
-  const categorized = await categorizeNotification(parsed, categories, { onWarning: message => { categorizationWarning = message; } });
+  const categorized = await categorizeNotification(parsed, categories);
+  const categoryReviewText = notificationCategoryReviewText(parsed, categories);
   const { transaction: createdTransaction } = createPaymentTransaction(categorized, accounts, categories);
   const transaction: Transaction = {
     ...createdTransaction,
-    categoryOrigin: parsed.categoryOverride
+    categoryOrigin: categoryReviewText ? 'eligible' : parsed.categoryOverride
       ? 'user-edited'
       : createdTransaction.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
   };
@@ -116,8 +118,9 @@ async function savePaymentWithLock(bridge: BackgroundBridge) {
         symbol: typeof preferences?.currencySymbol === 'string' ? preferences.currencySymbol : undefined,
         locale: typeof preferences?.locale === 'string' ? preferences.locale : undefined,
       }),
-      ...(categorizationWarning ? { categorizationWarning } : {}),
       owner: payment.owner, transaction: { ...receiptTransaction, syncRevision: saved.transaction_revision ?? undefined },
+      categoryReviewText,
+      categorizationWarning: categoryReviewText ? 'Saved with the parser category. Category review is queued; open MINARTH and unlock to complete it.' : undefined,
       account: account ? { ...account, balance: saved.balance, syncRevision: saved.account_revision ?? undefined } : undefined,
       localBalance: localAccounts.find(value => value.id === transaction.accountId)?.balance,
       ...(cashAccount ? { cashAccount, localCashBalance: localAccounts.find(value => value.id === cashAccount.id)?.balance } : {}),

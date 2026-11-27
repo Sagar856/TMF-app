@@ -10,6 +10,36 @@ import type { SettingsView as SettingsViewComponent } from './SettingsView';
 import { SETTINGS_SEARCH_ENTRIES } from '../utils/settingsSearch';
 import { AssistantRuntime } from '../services/assistantRuntime';
 import { ASSISTANT_STORAGE_BYTES } from '../services/assistantModel';
+import { readFileSync } from 'node:fs';
+import { transformSync } from 'esbuild';
+
+test('main Settings navigation resets every nested activity before selecting the Settings tab', () => {
+  const source = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
+  const start = source.indexOf('  const navigateMainTab =');
+  const end = source.indexOf('  const openProfileSettings =', start);
+  assert.ok(start >= 0 && end > start);
+  const values: Record<string, unknown> = {
+    'settings.group': 'appearance', 'settings.colorPickerOpen': true,
+    'settings.customisationOpen': true, 'customisations.menu': false,
+  };
+  let reset = 0;
+  let tab = 'settings';
+  const navigate = runInNewContext(transformSync(`${source.slice(start, end)}\nnavigateMainTab;`, { loader: 'tsx' }).code, {
+    changeActivity: (key: string, value: unknown) => { values[key] = value; },
+    setResetSettingsRequest: (update: (value: number) => number) => { reset = update(reset); },
+    setActiveTab: (value: string) => { tab = value; },
+  }) as (value: string) => void;
+  navigate('settings');
+  assert.equal(values['settings.group'], null);
+  assert.equal(values['settings.colorPickerOpen'], false);
+  assert.equal(values['settings.customisationOpen'], false);
+  assert.equal(values['customisations.menu'], true);
+  assert.equal(reset, 1);
+  assert.equal(tab, 'settings');
+  navigate('transactions');
+  assert.equal(reset, 1);
+  assert.equal(tab, 'transactions');
+});
 
 test('categories and budgets remain a separate menu below preferences', (context) => {
   const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
@@ -92,6 +122,9 @@ test('categories and budgets remain a separate menu below preferences', (context
   assert.match(markup, /Delete account/);
   assert.match(markup, /data-settings-group="profile"[\s\S]*?Profile settings/);
   assert.match(markup, /data-settings-group="account"[\s\S]*?Account setting/);
+  assert.match(markup, /data-settings-group="assistant"[\s\S]*?MINA AI Assistance/);
+  assert.equal(SETTINGS_SEARCH_ENTRIES.find(entry => entry.id === 'local-assistant')?.group, 'assistant');
+  assert.ok(markup.indexOf('id="settings-local-assistant"') > markup.indexOf('id="settings-privacy"'));
   assert.match(markup, /data-section="accounts"[\s\S]*?Manage accounts/);
   assert.doesNotMatch(markup, /Edit profile|Profile &amp; Account|profile-settings-panel/);
   assert.match(markup, /id="settings-profile"[\s\S]*?profile-display-name[\s\S]*?profile-contact-email/);

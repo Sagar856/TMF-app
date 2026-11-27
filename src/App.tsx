@@ -34,6 +34,7 @@ import { FloatingActionButton } from './components/FloatingActionButton';
 import { AssistantShortcut } from './components/AssistantShortcut';
 import { useAssistantModel } from './hooks/useAssistantModel';
 import { useAssistantCategorization } from './hooks/useAssistantCategorization';
+import { changeActivity } from './utils/activityHistory';
 import { applyUiPalette } from './utils/uiPalette';
 import { BottomNav } from './components/BottomNav';
 import { TopBarToast, ToastMessage } from './components/TopBarToast';
@@ -136,6 +137,9 @@ import { isSavingsGoalArray } from './utils/savingsGoals';
 import { formatMoney, getCurrencyLocale } from './utils/money';
 import { categorizeNotification } from './services/notificationCategorization';
 import { notificationCategoryConfirmation } from './utils/notificationCategoryFeedback';
+import { clearCategoryJobs, enqueueCategoryJob, notificationCategoryReviewText } from './utils/notificationCategoryJobs';
+import { acknowledgeCategoryReview } from './services/notificationListener';
+import { applyCategoryAction, type CategoryAction } from './utils/assistantCategoryActions';
 import { deleteMinaChats } from './utils/assistantChatHistory';
 import { createPasscodeCredentials, isLegacyPasscodeHash, PasscodeCredentials, verifyPasscode } from './utils/passcode';
 import { isBiometricAvailable, isBiometricEnrolled, verifyBiometric } from './services/biometric';
@@ -218,6 +222,17 @@ export default function App() {
   const [openAssetRequest, setOpenAssetRequest] = useState(0);
   const [openLoanRequest, setOpenLoanRequest] = useState(0);
   const [openProfileRequest, setOpenProfileRequest] = useState(0);
+  const [resetSettingsRequest, setResetSettingsRequest] = useState(0);
+  const navigateMainTab = (tab: string) => {
+    if (tab === 'settings') {
+      changeActivity('settings.group', null);
+      changeActivity('settings.colorPickerOpen', false);
+      changeActivity('settings.customisationOpen', false);
+      changeActivity('customisations.menu', true);
+      setResetSettingsRequest(request => request + 1);
+    }
+    setActiveTab(tab);
+  };
   const openProfileSettings = () => {
     setOpenProfileRequest(request => request + 1);
     setActiveTab('settings');
@@ -282,6 +297,8 @@ export default function App() {
     const ensured = ensureMandatoryCategories(parsed);
     return ensured;
   });
+  const minaCategoriesRef = useRef(categories);
+  minaCategoriesRef.current = categories;
 
   const [accounts, setAccounts] = useState<FinancialAccount[]>(() => {
     const deletedIds = new Set(safeGetStringArray('tmf_deleted_account_ids'));
@@ -519,6 +536,8 @@ export default function App() {
   }, [authUser?.id]);
 
   const [isNotificationModalOpen, setIsNotificationModalOpen] = useState<boolean>(false);
+  const [openCategoryReview, setOpenCategoryReview] = useState(false);
+  const [categoryReviewOpenRequest, setCategoryReviewOpenRequest] = useState<string | null>(null);
   const [isSimulatorOpen, setIsSimulatorOpen] = useState<boolean>(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState<boolean>(false);
   const [editingTransaction, setEditingTransaction] = useState<Partial<Transaction> | null>(null);
@@ -740,6 +759,7 @@ export default function App() {
       } else if (isEmiModalOpen) {
         setIsEmiModalOpen(false);
       } else if (isNotificationModalOpen) {
+        setOpenCategoryReview(false);
         setIsNotificationModalOpen(false);
       } else if (isAddModalOpen || editingTransaction) {
         setIsAddModalOpen(false);
@@ -818,15 +838,33 @@ export default function App() {
     enabled: assistantModel.enabled,
     installed: assistantModel.installed,
     supported: assistantModel.supported,
-    canProcess: isUnlocked && !isAppLoading && !authLoading,
+    canProcess: isUnlocked && !isAppLoading && !authLoading
+      && Boolean(authUser?.id) && safeGetItem('tmf_cache_owner') === authUser?.id,
+    owner: authUser?.id,
+    financialEpoch,
     transactions,
     categories,
     cloudReady,
     cloudHydrated,
     setTransactions,
-    notify: showToast,
+    notify: (text, type) => setTopBarToast({
+      id: newId('toast'), text, type, duration: 5000,
+      ...(type !== 'success' ? { action: { label: 'Pending review', onClick: () => {
+        setAssistantOpen(false);
+        setOpenCategoryReview(true);
+        setIsNotificationModalOpen(true);
+      } } } : {}),
+    }),
     moneyOptions: { symbol: settings.currencySymbol, locale: settings.locale },
   });
+
+  useEffect(() => {
+    if (!categoryReviewOpenRequest || !isUnlocked || isAppLoading || authLoading || (cloudReady && !cloudHydrated)) return;
+    setOpenCategoryReview(true);
+    setIsNotificationModalOpen(true);
+    void acknowledgeCategoryReview(categoryReviewOpenRequest).then(() => setCategoryReviewOpenRequest(null))
+      .catch(() => showToast('Could not acknowledge category review. It remains available in the notification bell.', 'error'));
+  }, [categoryReviewOpenRequest, isUnlocked, isAppLoading, authLoading, cloudReady, cloudHydrated]);
 
   useEffect(() => {
     const changed = () => setPreferencesRevision(value => value + 1);
@@ -1406,6 +1444,7 @@ export default function App() {
     cloudLoadInFlightRef.current = false;
     setCloudHydrated(false);
     setAssistantOpen(false);
+    setCategoryReviewOpenRequest(null);
     lastPushedRef.current = {};
     setTransactions([]);
     setAccounts([]);
@@ -1575,6 +1614,12 @@ export default function App() {
       const id = `native_${payment.id}`;
       const generation = cloudGenerationRef.current;
       if (payment.owner && payment.owner !== authUser?.id) return;
+      if (payment.action.startsWith('category-review')) {
+        if (payment.action === 'category-review-open') {
+          setCategoryReviewOpenRequest(payment.id);
+        }
+        return;
+      }
       if (payment.action === 'saved') {
         if (!navigator.locks) throw new Error('Update Android System WebView to restore background payment saves');
         return navigator.locks.request('minarth-account-cloud-write', async () => {
@@ -1589,6 +1634,11 @@ export default function App() {
           const projection = reconcileSavedPayments(receipts, latestTransactions, latestAccounts);
           if (!persistPaymentTransaction(projection.transactions, projection.accounts)) {
             throw new Error('Could not restore background transactions to the device');
+          }
+          for (const receipt of receipts) {
+            if (receipt.transaction && receipt.categoryReviewText) {
+              enqueueCategoryJob(authUser!.id, receipt.transaction, receipt.categoryReviewText);
+            }
           }
           setAccounts(projection.accounts);
           setTransactions(projection.transactions);
@@ -1944,11 +1994,7 @@ export default function App() {
       let categorized: ParsedNotification;
       const generation = cloudGenerationRef.current;
       try {
-        categorized = await categorizeNotification(notif, snapshot.categories, {
-          onWarning: message => {
-            if (generation === cloudGenerationRef.current) showToast(message, 'warning');
-          },
-        });
+        categorized = await categorizeNotification(notif, snapshot.categories);
       } catch (error) {
         if (generation === cloudGenerationRef.current) {
           showToast(error instanceof Error ? error.message : 'Invalid category. Edit the payment in the app.', 'error');
@@ -1964,13 +2010,23 @@ export default function App() {
         return;
       }
       const { transaction: createdTx, accounts: nextAccounts, categories: nextCategories } = createPaymentTransaction(categorized, snapshot.accounts, snapshot.categories);
+      const categoryReviewText = notificationCategoryReviewText(notif, snapshot.categories);
       const newTx: Transaction = {
         ...createdTx,
-        categoryOrigin: categorized.categoryOverride
+        categoryOrigin: categoryReviewText ? 'eligible' : categorized.categoryOverride
           ? 'user-edited'
           : createdTx.category.toLowerCase() === 'uncategorized' ? 'eligible' : 'rule',
       };
       const nextTransactions = [newTx, ...snapshot.transactions];
+      if (categoryReviewText) {
+        try {
+          if (!authUser?.id) throw new Error('Sign in before saving a category review.');
+          enqueueCategoryJob(authUser.id, newTx, categoryReviewText);
+        } catch (error) {
+          showToast(error instanceof Error ? error.message : 'Could not retain category review.', 'error');
+          return;
+        }
+      }
       if (!persistPaymentTransaction(nextTransactions, nextAccounts)) return;
       notificationCategoryStateRef.current = { ...current, transactions: nextTransactions, accounts: nextAccounts, categories: nextCategories };
       recordExtractedHistory(categorized, 'added', newTx.id);
@@ -1984,7 +2040,7 @@ export default function App() {
         if (remaining.length === 0) setIsNotificationModalOpen(false);
         return remaining;
       });
-      showToast(`${notificationCategoryConfirmation(newTx, { symbol: settings.currencySymbol, locale: settings.locale })} Added on this device. Cloud sync is separate.`, 'success');
+      showToast(`${notificationCategoryConfirmation(newTx, { symbol: settings.currencySymbol, locale: settings.locale })} Added on this device. Cloud sync is separate.${categoryReviewText ? ' Category review queued in the notification bell.' : ''}`, 'success');
     } finally {
       notificationAddsInFlight.current.delete(notif.id);
     }
@@ -2305,6 +2361,21 @@ export default function App() {
       return;
     }
     setCategories((prev) => [...prev, cat]);
+  };
+
+  const handleMinaCategoryAction = (action: CategoryAction) => {
+    if (!authUser || !isUnlocked || safeGetItem('tmf_cache_owner') !== authUser.id) {
+      throw new Error('Your account or lock state changed. Nothing was changed; unlock and retry.');
+    }
+    if (navigator.onLine === false || (cloudReady && !cloudHydrated)) {
+      throw new Error('Connect and wait for your account data to load before changing categories.');
+    }
+    const updated = applyCategoryAction(action, minaCategoriesRef.current);
+    if (!safeSetItem('tmf_categories', JSON.stringify(updated))) {
+      throw new Error('Could not save this category change on this device. Nothing was changed.');
+    }
+    minaCategoriesRef.current = updated;
+    setCategories(updated);
   };
 
   const handleUpdateCategory = (cat: Category) => {
@@ -3327,6 +3398,11 @@ export default function App() {
         setEditingPaymentId(null);
         let receiptCleanupError: string | null = null;
         try {
+          if (authUser?.id) clearCategoryJobs(authUser.id);
+        } catch {
+          receiptCleanupError = 'Could not clear local category requests.';
+        }
+        try {
           await deleteAllReceiptAttachments();
         } catch (error) {
           receiptCleanupError = error instanceof Error ? error.message : 'Unknown storage error';
@@ -3494,7 +3570,7 @@ export default function App() {
       <div className="hidden lg:block h-full shrink-0">
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={navigateMainTab}
           pendingNotificationsCount={pendingNotifications.length}
           pendingEmiCount={pendingEmiRequests.length}
           currencySymbol={settings.currencySymbol}
@@ -3752,6 +3828,7 @@ export default function App() {
               onDeleteUserAccount={handleRequestDeleteAccount}
               onSignOut={handleSignOut}
               openProfileRequest={openProfileRequest}
+              resetToMenuRequest={resetSettingsRequest}
               assistant={assistantModel}
             />
           )}
@@ -3788,7 +3865,7 @@ export default function App() {
         {/* Mobile Bottom Navigation Bar - Fixed/Sticky with Safe Area Inset Support */}
         <BottomNav
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={navigateMainTab}
           pendingNotificationsCount={pendingNotifications.length}
           pendingEmiCount={pendingEmiRequests.length}
           isAdmin={isAdmin}
@@ -3810,12 +3887,7 @@ export default function App() {
             savingsGoals={savingsGoals}
             currencyCode={settings.currencyCode}
             marketSnapshot={marketSnapshot}
-            categoryReviews={assistantCategorization.reviews}
-            existingUncategorizedCount={assistantCategorization.existingUncategorizedCount}
-            onCategorizeExisting={assistantCategorization.categorizeExisting}
-            onApproveCategory={assistantCategorization.approveReview}
-            onDismissCategory={assistantCategorization.dismissReview}
-            onReloadConflict={assistantCategorization.reloadConflict}
+            onApplyCategoryAction={handleMinaCategoryAction}
             onClose={() => setAssistantOpen(false)}
           />
         </Suspense>
@@ -3864,6 +3936,21 @@ export default function App() {
       {isNotificationModalOpen && (
         <Suspense fallback={null}>
           <NotificationPromptModal
+            categories={categories}
+            initialReview={openCategoryReview}
+            reviewRequest={categoryReviewOpenRequest}
+            categoryReviews={assistantCategorization.reviews}
+            existingUncategorizedCount={assistantCategorization.existingUncategorizedCount}
+            onCategorizeExisting={assistantCategorization.categorizeExisting}
+            onApproveCategory={assistantCategorization.approveReview}
+            onDismissCategory={assistantCategorization.dismissReview}
+            onReloadConflict={assistantCategorization.reloadConflict}
+            onOpenReviewTransaction={review => {
+              setTransactionFocusId(review.transactionId);
+              setOpenCategoryReview(false);
+              setIsNotificationModalOpen(false);
+              setActiveTab('transactions');
+            }}
             history={notificationHistory.map(entry => historyTransaction(entry) ? { ...entry, status: 'added' as const } : entry)}
             canEditHistory={canEditHistory}
             onEditHistory={handleEditHistory}
@@ -3892,7 +3979,7 @@ export default function App() {
             onConfirmAdd={handleConfirmAddNotification}
             onConfirmEdit={handleConfirmEditNotification}
             onIgnore={handleIgnoreNotification}
-            onClose={() => setIsNotificationModalOpen(false)}
+            onClose={() => { setOpenCategoryReview(false); setIsNotificationModalOpen(false); }}
             currencySymbol={settings.currencySymbol}
           />
         </Suspense>

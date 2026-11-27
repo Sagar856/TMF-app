@@ -592,11 +592,13 @@ function transactionSyncRows(transactions: Transaction[], userId: string) {
 }
 
 // Metadata-only transaction writes; money movements use syncFinancialStateToSupabase.
-export async function syncTransactionsToSupabase(transactions: Transaction[]): Promise<SyncResult> {
+export async function syncTransactionsToSupabase(transactions: Transaction[], expectedUser = safeGetItem('tmf_cache_owner')): Promise<SyncResult> {
   const client = getSupabaseClient();
   if (!client) return { success: false, error: 'Supabase is not configured.' };
   const { data: { user } } = await client.auth.getUser();
-  if (!user) return { success: false, error: 'Not signed in' };
+  if (!user || !expectedUser || user.id !== expectedUser) {
+    return { success: false, error: 'Account changed. Reload before syncing transaction categories.' };
+  }
   try {
     const rows = transactionSyncRows(transactions, user.id);
     const { data, error } = await client.rpc('sync_transactions', { p_transactions: rows });

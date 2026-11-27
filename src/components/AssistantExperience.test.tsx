@@ -6,14 +6,13 @@ import { AssistantChatModal } from './AssistantChatModal';
 import { AssistantSettingsSection } from './AssistantSettingsSection';
 import { AssistantShortcut } from './AssistantShortcut';
 import { AssistantRuntime } from '../services/assistantRuntime';
-import type { AssistantCategoryReview } from '../utils/assistantCategory';
 import { emptyMinaArchive, type MinaChatArchive } from '../utils/assistantChatHistory';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { transformSync } from 'esbuild';
 
-function renderLoadedChat(element: React.ReactElement, archive: MinaChatArchive = { ...emptyMinaArchive(), consented: true }, navigationOpen = false): string {
+function renderLoadedChat(element: React.ReactElement, archive: MinaChatArchive = { ...emptyMinaArchive(), consented: true }, navigationOpen = false, openChatOptions = ''): string {
   const require = createRequire(import.meta.url);
   const source = readFileSync(new URL('./AssistantChatModal.tsx', import.meta.url), 'utf8');
   const code = transformSync(source, { loader: 'tsx', format: 'cjs' }).code;
@@ -23,7 +22,10 @@ function renderLoadedChat(element: React.ReactElement, archive: MinaChatArchive 
     module, exports: module.exports,
     require: (name: string) => name === 'react' ? {
       ...React,
-      useState: (initial: unknown) => React.useState(stateIndex++ === 0 ? navigationOpen : initial === null ? archive : initial === true ? false : initial),
+      useState: (initial: unknown) => {
+        const index = stateIndex++;
+        return React.useState(index === 0 ? navigationOpen : index === 6 ? openChatOptions : initial === null ? archive : initial === true ? false : initial);
+      },
     } : require(name),
   });
   assert.ok(module.exports.AssistantChatModal);
@@ -84,29 +86,18 @@ test('consented assistant offers saved chats, clear controls and an explicit rep
   assert.match(html, /rows="1"/);
   assert.match(html, /Shift \+ Enter for a new line/);
   assert.match(html, /<summary tabindex="0"/);
-});
-
-test('cloud-conflicted category suggestions require an explicit reload instead of retrying a stale write', () => {
-  const review: AssistantCategoryReview = {
-    transactionId: 'tx',
-    before: {
-      id: 'tx', title: 'Market', amount: 25, type: 'debit', category: 'Food',
-      subcategory: 'Groceries', date: '2026-10-10', time: '12:00', source: 'UPI',
-      syncRevision: 3, categoryOrigin: 'eligible',
-    },
-    categoryId: 'travel',
-    category: 'Travel',
-    subcategory: 'Bus',
-    reason: 'The transaction changed on another device.',
-    cloudConflict: true,
+  const archive: MinaChatArchive = {
+    version: 1, consented: true, activeChatId: 'one',
+    chats: [{ id: 'one', createdAt: 1, month: '2026-11', messages: [{ id: 1, role: 'user', text: 'Synthetic question' }] }],
   };
-  const html = renderLoadedChat(<AssistantChatModal ownerId="synthetic-owner"
-    runtime={new AssistantRuntime()} transactions={[]} categories={[]} accounts={[]} investments={[]} loans={[]}
-    savingsGoals={[]} currencyCode="INR" marketSnapshot={null} categoryReviews={[review]} onClose={() => {}}
-  />);
-  assert.match(html, /Reload cloud version/);
-  assert.match(html, /Keep local version/);
-  assert.doesNotMatch(html, /Apply category/);
+  const saved = renderLoadedChat(element, archive, true);
+  assert.match(saved, /aria-label="Chat options: Synthetic question" aria-expanded="false"/);
+  assert.doesNotMatch(saved, />Delete chat<\/button>/);
+  assert.match(saved, /aria-current="page"/);
+  assert.match(saved, /Clear chats/);
+  const options = renderLoadedChat(element, archive, true, 'one');
+  assert.match(options, /aria-label="Chat options: Synthetic question" aria-expanded="true"/);
+  assert.match(options, /id="mina-chat-options-one" class="absolute bottom-full right-1[^"]*"[\s\S]*?>Delete chat<\/button>/);
 });
 
 test('assistant does not expose messages, reports or composer before loading consent', () => {

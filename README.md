@@ -724,19 +724,42 @@ existing categories for that payment direction, including subcategories and
 shared merchant/topic keywords. For example lunch, dinner, breakfast, Zomato
 and Swiggy map to an available Food & Dining category; petrol/taxi/pharmacy
 resolve to their respective available categories. Close category names work too.
-Clear matches resolve immediately without model inference. When MINA is enabled,
-unfamiliar wording can use its installed local model, including while the app
-is closed or locked. A separate worker bounds generation to 20 seconds and
-does not download a missing model. Model errors/uncertainty show a warning.
-With MINA disabled, the same shared local classifier remains available.
-Ambiguous or unmatched explicit Category input keeps Add pending for review;
-an unclear Description retains the parser's existing category. Neither path
-invents a category from model output. In-app Add shows a saving spinner and
+Notification Add uses the same immediate local rules whether MINA is enabled or
+not, so model startup does not delay saving.
+Category replies are matched dynamically against current category and subcategory
+names (for example, Shopping can match Shopping & Tech or a Shopping subcategory).
+The local matcher can also recognize a complete custom category or subcategory
+name within a longer phrase, such as "bought pencils for school". Competing
+destinations remain ambiguous rather than being guessed.
+Negated text such as "not lunch" is not treated as positive evidence, unless it
+exactly names an available category or subcategory.
+Conflicting matches never select an arbitrary destination. Unmatched Category
+or Description input no longer blocks Add: the payment is saved with the
+parser category and its categorisation request is retained only on this device.
+MINA processes that text after saving, when the app is unlocked and financial
+sync is ready; model startup does not delay Add. Category takes priority over
+Description. If MINA is disabled/unavailable, or the result is uncertain, invalid
+or conflicts with a rule, use **Notification bell > Pending review** to select
+an existing category/subcategory and press **Save**, or Keep current.
+Android posts a separate **Saved transaction** notification identifying its amount.
+Its **Save** action opens that same review after unlock; it does not add another
+payment or debit the account again. If notification permission is unavailable,
+the request remains in the notification bell. Closed/locked apps retain the
+request until the next unlocked session; inference does not run while locked.
+Owner-scoped requests and reviews survive app restarts, including a cloud save
+whose receipt has not yet been acknowledged. Revision checks reject intervening
+edits/deletions rather than rebasing a stale suggestion. Completion markers
+prevent repeated processing; signing out/resetting local data clears these
+local requests. Only applied financial categories continue to sync to Supabase.
+No new SQL migration is required beyond the documented financial-sync migrations.
+Neither path invents a category from model output. In-app Add shows a saving spinner and
 disables competing payment actions while matching and saving. It confirms the
 amount/category after local persistence; Android background Add shows a brief amount/category
 confirmation after cloud saving and native receipt persistence, without opening
 the app. Android may limit background toast visibility. Duplicate retries do not
-repeat the category confirmation.
+repeat the category confirmation. For a failed Add, tap the Android notification
+body or the app's notification bell to review pending extracted payments; use
+Edit to select a valid category. The expanded card allows more space for errors.
 The description becomes the transaction title when added, and the category is
 saved to the category column. The original merchant, amount and SMS remain
 intact. Tap the notification body to open the app for further review.
@@ -932,13 +955,17 @@ to that menu without clearing selected filters.
 
 ## MINA: optional on-device AI assistant
 
-MINA is opt-in under **Settings > Privacy & Security > MINA**. The first use requires the user to explicitly download the pinned
+MINA is opt-in under **Settings > MINA AI Assistance**. The first use requires the user to explicitly download the pinned
 Qwen2.5-0.5B-Instruct model (Apache-2.0) from Hugging Face. The model and
 runtime use about **533 MB** of device storage. Download progress, checksum
 verification, cancellation and removal are available in Settings. Local AI
 requires browser/WebView support for module workers, WebAssembly, Cache Storage
 and Web Locks; unsupported environments display an error. Check actual target
 Android WebView versions before release.
+In **Settings > Profile settings**, upload or edit a profile picture, adjust its
+square crop, zoom and rotation, then apply it and save the profile. Category
+creation and editing open in a viewport-attached sheet with the existing
+category, subcategory and budget controls.
 MINA uses concise MINARTH navigation and calculation guidance bundled with the
 app to answer app and general finance questions; model-generated answers can
 still be wrong. It does not have
@@ -946,6 +973,9 @@ access to your financial records in ordinary chat. Simple navigation questions
 about budgets, categories and auto-categorisation use verified local paths.
 Simple definition questions about budgets, emergency funds, compound interest
 and savings rates also use bundled answers without waiting for model inference.
+Exact general questions about MINARTH's budget-usage formula receive the
+verified calculation and thresholds locally, without model inference; they do
+not calculate a personal budget amount.
 Chat and report requests take priority over categorisation requests waiting in
 the same worker; an inference already running cannot be interrupted.
 Synthetic browser validation also started a fresh production worker with fetch
@@ -978,7 +1008,9 @@ bubbles and a scrollable conversation. Starter questions fill the message
 box for you to review before sending. Press Enter to send, or Shift + Enter
 for a new line; the send button is also available on mobile. Open the menu at
 the top left to access **New chat**, **Previous chats**, **Clear chats** and
-**Monthly report**. Expand **Monthly report** to choose a month and generate a report. Category reviews
+**Monthly report**. Open the floating three-dot menu beside a saved chat to delete it
+after confirmation,
+including its reports, without withdrawing consent. Expand **Monthly report** to choose a month and generate a report. Category reviews
 remain in the conversation area, and privacy/capability details are available
 under **Privacy & how MINA works**.
 
@@ -1023,10 +1055,24 @@ Questions mentioning credentials receive a local safety reminder instead of a
 model-generated answer. Do not enter credentials or other sensitive information;
 free-text filtering cannot detect every secret.
 
-Notification Add can also match Category/Description replies before saving,
-even while closed or locked when MINA is enabled. Shared keyword matches are
-instant; only unfamiliar wording needs model inference. This is separate from
-the unlocked-only categorisation of existing records described below.
+Notification Add matches Category/Description replies with local rules before
+saving, including while closed or locked and regardless of MINA's state. This is
+separate from the unlocked-only MINA categorisation described below.
+
+MINA can prepare a category, subcategory or monthly category budget change.
+Ask, for example, `Add a new category as "Washing" in expense`; MINA asks for
+missing details and shows a preview. Confirm each change before it is saved.
+Proposals are not retained across chats or after closing MINA. Other actions
+still require the app's normal controls. Changes are saved on this device and
+use the existing separate category sync; local confirmation does not guarantee
+cloud sync.
+
+Ask `list down all available categories and budgets for current month` for an
+instant device-local list and verified budget usage, without model inference.
+It lists current recurring limits, not historical budgets, and acknowledges
+missing/unsynced records. These derived replies stay in local chat history but
+are excluded from subsequent model context. Other model requests time out
+visibly after 60 seconds (including queue time) instead of waiting indefinitely.
 
 When enabled and the app is unlocked, the assistant can automatically
 categorise eligible notification transactions, imported transactions and
@@ -1043,6 +1089,18 @@ to sync through Supabase. Revision-checked sync requires
 devices upgraded to this version, together with the atomic financial-sync and
 background-payment migrations described above. Hosted Supabase/multi-device
 validation remains a release gate; do not deploy an incomplete migration set.
+
+Clear titles use the same fast local matcher before MINA inference. Invalid
+model categories and inference failures leave records unchanged and appear
+under the notification bell's **Pending review**, with **View
+transaction** and **Keep current** controls. The alert's **Pending review**
+button opens this list; its X dismisses the alert without changing a record.
+Automatic failures are not retried repeatedly during the same session.
+These saved transactions are separate from pending extracted payments in the
+notification bell.
+
+Selecting the main Settings navigation button returns to the Settings menu,
+including from Appearance, its color picker and Categories & Budgets subpages.
 
 Explicit demo loads use fresh record IDs and linked account IDs, preserving
 custom records and categories. Remove the current demo set before loading
